@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import partial
 from typing import cast
+from uuid import UUID
 
 import boto3  # pyright: ignore[reportMissingTypeStubs]
 import httpx
@@ -23,7 +23,6 @@ from llm_tools import (
     WebSearchPolicy,
     bind_brave_web_search,
     bind_web_read,
-    canonical_json_bytes,
     web_family,
     web_search_source_operation,
 )
@@ -39,10 +38,11 @@ from jarvis.approval_tools import approval_family
 from jarvis.attachment_sources import AttachmentSources
 from jarvis.attachment_tools import attachment_family
 from jarvis.attachments import AttachmentStore, S3Client
-from jarvis.connectors import GoogleReadConnector, GoogleTokenManager, MapsReadConnector
+from jarvis.connectors import GoogleTokenManager, MapsReadConnector
 from jarvis.event_polling import EventPoller
 from jarvis.event_tools import events_family
 from jarvis.events import EventStore
+from jarvis.gmail_arrivals import GmailArrivalSource
 from jarvis.mail_files import MailFiles
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import memory_family
@@ -56,18 +56,27 @@ from jarvis.receipt_tools import receipt_family
 from jarvis.settings import Settings
 from jarvis.work import WorkStore
 from jarvis.work_tools import work_family
-from jarvis.write_connectors import GoogleWriteConnector
-from jarvis.write_tools import calendar_main_family, gmail_main_family
+from jarvis.workspace_consent import record_workspace_consent
+from jarvis.workspace_mcp import WorkspaceApprovals, WorkspaceError, WorkspaceMcpClient
+from jarvis.workspace_quota import GmailQuota
+from jarvis.workspace_reads import (
+    WorkspaceReadAccess,
+    WorkspaceReads,
+    workspace_read_families,
+)
+from jarvis.workspace_writes import WorkspaceWrites
+from jarvis.write_tools import calendar_write_family, gmail_write_family
 
 
 @dataclass(frozen=True, slots=True)
 class ToolComposition:
     catalog: ToolCatalog
-    google_write: GoogleWriteConnector
+    workspace_writes: WorkspaceWrites
     event_poller: EventPoller
     attachments: AttachmentStore
     mail_files: MailFiles
-    google_read: GoogleReadConnector
+    google_read: WorkspaceReads
+    workspace_approvals: WorkspaceApprovals
     web_source_operation: Callable[[WebSearchInput], JsonObject | None]
 
 
@@ -75,8 +84,9 @@ def build_tool_composition(
     *,
     owner: JarvisOwner,
     settings: Settings,
-    google_oauth_http: httpx.AsyncClient,
+    tokens: GoogleTokenManager,
     google_api_http: httpx.AsyncClient,
+    workspace_access: Callable[[], WorkspaceReadAccess],
     maps_http: httpx.AsyncClient,
     brave_http: httpx.AsyncClient,
     memory: MemoryService,
@@ -86,11 +96,32 @@ def build_tool_composition(
     events: EventStore,
     event_admitted: Callable[[], Awaitable[bool]],
 ) -> ToolComposition:
-    calendar_ids_digest = hashlib.sha256(
-        canonical_json_bytes(sorted(settings.verified_owner_only_calendar_ids))
-    ).hexdigest()
-    tokens = google_tokens(settings, google_oauth_http)
-    google_read = GoogleReadConnector(client=google_api_http, tokens=tokens)
+    enrollment = tokens.enrollment()
+    approvals = WorkspaceApprovals(
+        audit=partial(record_workspace_consent, owner.database, owner.scope_id)
+    )
+    quota = (
+        GmailQuota(owner.database, enrollment.project_id)
+        if enrollment is not None
+        else None
+    )
+
+    async def debit(grant_id: UUID, tool: str, background: bool) -> None:
+        current = tokens.enrollment()
+        if quota is None or current is None or current.grant_id != grant_id:
+            raise WorkspaceError("grant_unavailable")
+        await quota.debit(tool, background=background)
+
+    workspace = WorkspaceMcpClient(
+        google_api_http, credential=tokens.credential, debit=debit, approvals=approvals
+    )
+    tokens.on_grant_loss = workspace.invalidate
+    google_read = WorkspaceReads(
+        workspace,
+        account=None if enrollment is None else enrollment.account,
+        grant_id=None if enrollment is None else enrollment.grant_id,
+        access=workspace_access,
+    )
     attachments = build_attachment_store(
         settings=settings,
         database=actions.engine,
@@ -101,12 +132,10 @@ def build_tool_composition(
         settings.host_secrets,
         stage_root=settings.runtime_state_directory.parent / "mail-stage",
     )
-    google_write = GoogleWriteConnector(
-        client=google_api_http,
-        tokens=tokens,
-        actions=actions,
-        mail_files=mail_files,
-    )
+    workspace_writes = WorkspaceWrites(workspace, mail_files, discard_qualified=False)
+    gmail_reads, calendar_reads = workspace_read_families(google_read)
+    gmail_writes = gmail_write_family(workspace_writes)
+    calendar_writes = calendar_write_family(workspace_writes)
     maps = MapsReadConnector(
         client=maps_http,
         api_key=settings.maps_api_key.get_secret_value(),
@@ -119,17 +148,19 @@ def build_tool_composition(
     )
     catalog = ToolCatalog.compose(
         (
-            _bind_write_policy(
-                agent_family(agents),
-                calendar_ids_digest=None,
-            ),
-            _bind_write_policy(
-                gmail_main_family(google_read, google_write),
-                calendar_ids_digest=None,
-            ),
-            _bind_write_policy(
-                calendar_main_family(google_read, google_write),
-                calendar_ids_digest=calendar_ids_digest,
+            _bind_write_policy(agent_family(agents)),
+            *(
+                _bind_write_policy(
+                    ToolFamily(
+                        reads.namespace,
+                        reads.declarations + writes.declarations,
+                        reads.bindings + writes.bindings,
+                    )
+                )
+                for reads, writes in (
+                    (gmail_reads, gmail_writes),
+                    (calendar_reads, calendar_writes),
+                )
             ),
             maps_family(maps),
             web_family(
@@ -143,11 +174,9 @@ def build_tool_composition(
             memory_family(memory),
             approval_family(),
             receipt_family(owner),
-            _bind_write_policy(work_family(work), calendar_ids_digest=None),
-            _bind_write_policy(events_family(events), calendar_ids_digest=None),
-            _bind_write_policy(
-                attachment_family(attachments), calendar_ids_digest=None
-            ),
+            _bind_write_policy(work_family(work)),
+            _bind_write_policy(events_family(events)),
+            _bind_write_policy(attachment_family(attachments)),
         )
     )
     if any(
@@ -157,18 +186,27 @@ def build_tool_composition(
         raise RuntimeError("every application binding must be available")
     event_poller = EventPoller(
         store=events,
-        client=google_api_http,
-        tokens=tokens,
+        source=(
+            GmailArrivalSource(
+                workspace,
+                enrollment.account,
+                enrollment.grant_id,
+                enrollment.pending_label_id,
+            )
+            if enrollment is not None and enrollment.pending_label_id is not None
+            else None
+        ),
         admitted=event_admitted,
     )
     events.notify_changed = event_poller.notify_changed
     return ToolComposition(
         catalog,
-        google_write,
+        workspace_writes,
         event_poller,
         attachments,
         mail_files,
         google_read,
+        approvals,
         partial(web_search_source_operation, policy=search_policy),
     )
 
@@ -181,6 +219,7 @@ def google_tokens(settings: Settings, http: httpx.AsyncClient) -> GoogleTokenMan
         client_secret=settings.google_oauth_client_secret.get_secret_value(),
         active_key_version=settings.connector_encryption_key_version,
         single_secret=settings.connector_encryption_secret.get_secret_value(),
+        project_id=settings.workspace_project_id,
     )
 
 
@@ -188,7 +227,7 @@ def build_attachment_store(
     *,
     settings: Settings,
     database: Database,
-    google: GoogleReadConnector,
+    google: WorkspaceReads | None,
 ) -> AttachmentStore:
     async def require_owner() -> None:
         async with database.connect() as connection:
@@ -223,11 +262,7 @@ def build_attachment_store(
     )
 
 
-def _bind_write_policy(
-    family: ToolFamily,
-    *,
-    calendar_ids_digest: str | None,
-) -> ToolFamily:
+def _bind_write_policy(family: ToolFamily) -> ToolFamily:
     bindings: list[ToolBinding[object, object, object]] = []
     for binding in family.bindings:
         if binding.spec.effect is not ToolEffect.Write:
@@ -237,8 +272,6 @@ def _bind_write_policy(
             **binding.policy_inputs,
             "action_authority": "jarvis.action.v2",
         }
-        if calendar_ids_digest is not None:
-            inputs["verified_owner_calendar_ids_digest"] = calendar_ids_digest
         bindings.append(
             ToolBinding(
                 spec=binding.spec,

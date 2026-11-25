@@ -103,6 +103,12 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
   contract. distinguish source merged, dependency pinned, fleet installed, live
   behavior verified and owner-resumed service.
 
+## google workspace access
+
+[workspace connector design](decisions/0107-google-workspace.md) splits the february 2027 google cut into a synthetic-data connector pr and a following [history-permission decision](issues/google-workspace-retention.md). keep ordinary history, fresh mail search/read, draft management, incoming mail and event creation, reading, editing and deletion. qualify [five-minute pending-label reception](issues/gmail-mcp-arrivals.md), the 1,000-unit foreground reserve and draft safety before full cutover. real-account rollout also waits for the history decision.
+
+independent claude opus 5.5 passed the original design, its calendar and draft amendments, and the five-minute reception and quota amendment at sha256 `aa3862bc78b5b7174a309d8392f8430c1a8d3a110761a52522134c24e81d23f6`. the scoped reviews and verified rechecks are in `~/.local/state/jarvis/qualification/workspace-mcp-design/`. for temporary proof, cancel the consent round on native interruption or timeout, serialize workspace calls, and check that a match tap never acknowledges a nonexistent outbox row. measure raw attachment access and draft byte limits on the qualified server. prove the visible generic alert in actual android doze and an ordinary overnight sample. notification settings may suppress it, and repeated invisible high-priority pushes may affect delivery. accept best-effort delivery without adding a handset status service. inconclusive checks appear on the todo. the subscribed-model run is mandatory. missing google-hosted evidence holds installed acceptance.
+
 ## private web home
 
 the owner conversation, browser, originals, authored canvas and notifications share

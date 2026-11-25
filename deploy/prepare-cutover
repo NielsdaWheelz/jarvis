@@ -219,6 +219,112 @@ async def require_phone_cut(conn, facts, original):
     )
 
 
+async def workspace_obligations(conn, state):
+    """Inventory exact stopped predecessor obligations without entering an executor."""
+    rows = await conn.execute(
+        text("""
+        SELECT 'action' AS kind, id::text AS id, tool_name AS operation, status
+        FROM action
+        WHERE status IN ('queued','awaiting_approval','executing','uncertain')
+          AND (tool_name LIKE 'gmail.%' OR tool_name LIKE 'calendar.%'
+               OR tool_name IN ('events.configure','attachment.retain'))
+        UNION ALL
+        SELECT 'paid_read', position, contract->>'tool_id', state
+        FROM read_position
+        WHERE state <> 'completed' AND contract->>'replay_policy' = 'BilledOnce'
+          AND (contract->>'tool_id' LIKE 'gmail.%'
+               OR contract->>'tool_id' LIKE 'calendar.%'
+               OR contract->>'tool_id' IN ('attachment.retain','events.status'))
+        UNION ALL
+        SELECT 'attempt', id::text, 'native', 'unsealed' FROM native_attempt
+        WHERE product_outcome IS NULL AND
+              (fenced_at IS NULL OR recovery_pending OR terminal_at IS NOT NULL)
+        UNION ALL
+        SELECT 'import', id::text, 'attachment.retain', state FROM attachment
+        WHERE source->>'kind'='gmail' AND state='pending'
+        ORDER BY 1,2
+    """)
+    )
+    obligations = [dict(row) for row in rows.mappings()]
+    if any(
+        r["operation"] == "gmail.send_draft" and r["status"] == "uncertain"
+        for r in obligations
+    ):
+        # This only accepts the predecessor's inventory-bound, send-specific
+        # receipt. No live reconcilers are part of the successor.
+        from jarvis.gmail_cut import CUT_RECEIPT, verified_cut_ids
+
+        history = (
+            (
+                await conn.execute(
+                    text("""
+            SELECT id,tool_name,status,attempts,arguments,result FROM action
+            WHERE tool_name IN ('gmail.create_draft','gmail.update_draft',
+                                'gmail.send_draft')
+              AND NOT (execution_contract ? 'mail') ORDER BY created_at,id
+        """)
+                )
+            )
+            .mappings()
+            .all()
+        )
+        known = verified_cut_ids(history, state / "runtime" / CUT_RECEIPT) or ()
+        settled = {str(identifier) for identifier in known}
+        obligations = [
+            r
+            for r in obligations
+            if not (
+                r["kind"] == "action"
+                and r["operation"] == "gmail.send_draft"
+                and r["status"] == "uncertain"
+                and r["id"] in settled
+            )
+        ]
+    stage = state / "mail-stage"
+    if stage.exists():
+        obligations.extend(
+            {
+                "kind": "stage",
+                "id": entry.name,
+                "operation": "gmail",
+                "status": "staged",
+            }
+            for entry in sorted(stage.iterdir())
+        )
+    return obligations
+
+
+def require_clear_workspace(obligations):
+    require(
+        not obligations,
+        "workspace cut held for predecessor disposition: "
+        + json.dumps(obligations, ensure_ascii=True, separators=(",", ":")),
+    )
+
+
+async def require_workspace_target(conn, facts, original):
+    changed = {"public.alembic_version", "public.work", "public.gmail_usage"}
+    require(
+        {k: v for k, v in facts.items() if k not in {"schema", "tables"}}
+        == {k: v for k, v in original.items() if k not in {"schema", "tables"}}
+        and {k: v for k, v in facts["tables"].items() if k not in changed}
+        == {k: v for k, v in original["tables"].items() if k not in changed}
+        and facts["tables"]["public.gmail_usage"][0] == 0
+        and not await conn.scalar(
+            text("SELECT EXISTS(SELECT FROM work WHERE workspace_check IS NOT NULL)")
+        )
+        and await row_inventory(
+            conn,
+            """(SELECT id,title,state,content,due_date,wake_id,
+                wake_at,repeat,wake_local_date,created_at,updated_at
+                FROM public.work)""",
+            "1",
+        )
+        == original["tables"]["public.work"],
+        "workspace cut altered predecessor rows, authority, control or usage baseline",
+    )
+
+
 def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     require(not destination.exists(), "snapshot exists; verify it or inspect it")
@@ -323,8 +429,16 @@ def check_private_inputs(snapshot, manifest):
             == copy_digest(snapshot / "declarations" / name)
             for name in ("jarvis.env", "memory.json", "codex-host.json")
         )
-        and copy_digest(STATE / google)
-        == copy_digest(snapshot / "private-state" / google),
+        and (
+            (
+                not (STATE / google).exists()
+                and not (snapshot / "private-state" / google).exists()
+            )
+            or ((STATE / google).is_file()
+            and (snapshot / "private-state" / google).is_file()
+            and copy_digest(STATE / google)
+            == copy_digest(snapshot / "private-state" / google))
+        ),
         "authority differs from the stopped declarations or google state",
     )
     if (manifest["source"]["schema"], manifest["target"]["schema"]) == ("0022", "0023"):
@@ -357,7 +471,9 @@ def restored_compatibility(proof):
     )
     with tempfile.TemporaryDirectory(dir=proof) as scratch:
         root = Path(scratch)
-        (root / "runtime.env").write_text("JARVIS_DATABASE_URL=" + runtime_url + "\n")
+        (root / "runtime.env").write_text(
+            "JARVIS_DATABASE_URL=" + runtime_url + "\nJARVIS_WORKSPACE_PROJECT_ID=\n"
+        )
         (root / "input.json").write_text('{"authority_changes":[]}')
         subprocess.run(
             [
@@ -402,6 +518,20 @@ async def inspect_restored(operation, snapshot, proof):
             )
             version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
             facts = await inventory(conn, manifest["owner_scope"])
+            if (manifest["source"]["schema"], target["schema"]) == ("0023", "0024"):
+                if version == "0023":
+                    observed = await workspace_obligations(
+                        conn, snapshot / "private-state"
+                    )
+                    require(
+                        observed == manifest.get("workspace_obligations"),
+                        "restored workspace obligations differ from the stopped source",
+                    )
+                    require_clear_workspace(observed)
+                elif version == "0024":
+                    await require_workspace_target(
+                        conn, facts, manifest["original_facts"]
+                    )
             if operation == "record-rehearsal" and (
                 manifest["source"]["schema"],
                 version,
@@ -496,6 +626,11 @@ async def cut(operation, destination, binding, stop, qualification):
                 "owner_scope": scope,
                 "database": endpoint,
             }
+            workspace_cut = (source["schema"], target["schema"]) == ("0023", "0024")
+            if workspace_cut and version == "0023":
+                evidence["workspace_obligations"] = await workspace_obligations(
+                    conn, STATE
+                )
             if operation == "snapshot" and not destination.exists():
                 require(
                     not (destination.parent / "applying").exists(),
@@ -513,6 +648,8 @@ async def cut(operation, destination, binding, stop, qualification):
                     },
                     snapshot_id,
                 )
+                if workspace_cut:
+                    require_clear_workspace(evidence["workspace_obligations"])
                 return
             manifest = json.loads((destination / "SNAPSHOT.json").read_bytes())
             require(
@@ -528,6 +665,8 @@ async def cut(operation, destination, binding, stop, qualification):
                 require(
                     facts == manifest["original_facts"], "stopped source facts changed"
                 )
+            if workspace_cut:
+                require_clear_workspace(manifest["workspace_obligations"])
             if operation in {"snapshot", "verify"}:
                 return
             document = json.loads(qualification.read_bytes())
@@ -547,6 +686,8 @@ async def cut(operation, destination, binding, stop, qualification):
 
                 await conn.run_sync(upgrade)
                 facts = await inventory(conn, scope)
+            if workspace_cut:
+                await require_workspace_target(conn, facts, manifest["original_facts"])
             if (source["schema"], target["schema"]) == ("0022", "0023"):
                 await require_phone_cut(conn, facts, manifest["original_facts"])
             require(

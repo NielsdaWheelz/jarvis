@@ -28,6 +28,7 @@
                 <data android:pathPrefix="/v/" />
             </intent-filter>
         </activity>
+        <activity android:name=".WorkspaceTapActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".ShareActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

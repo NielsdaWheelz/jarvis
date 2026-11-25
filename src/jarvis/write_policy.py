@@ -18,14 +18,13 @@ from jarvis.agent_tools import (
 from jarvis.attachment_tools import AttachmentDeleteInput, AttachmentRetainInput
 from jarvis.event_tools import EventsConfigureInput
 from jarvis.work_tools import WorkCreateInput, WorkDeleteInput, WorkUpdateInput
-from jarvis.write_tools import (
-    CalendarCreateEventInput,
-    CalendarDeleteEventInput,
-    CalendarEventSnapshot,
-    CalendarUpdateEventInput,
-    GmailCreateDraftInput,
-    GmailSendDraftInput,
-    GmailUpdateDraftInput,
+from jarvis.workspace_write_models import (
+    CreateDraft,
+    CreateEvent,
+    DeleteEvent,
+    DiscardDraft,
+    PrepareReplacement,
+    UpdateEvent,
 )
 
 type WriteAuthority = Literal["automatic", "approval_required", "rejected"]
@@ -34,17 +33,14 @@ type WriteAuthority = Literal["automatic", "approval_required", "rejected"]
 def classify_write(
     tool_id: ToolId,
     value: object,
-    *,
-    verified_owner_only_calendar_ids: tuple[str, ...],
-    live_calendar_event: CalendarEventSnapshot | None = None,
 ) -> WriteAuthority:
     """Classify authority without granting it or creating durable state."""
 
     name = str(tool_id)
     if (name, type(value)) in {
         ("events.configure", EventsConfigureInput),
-        ("gmail.create_draft", GmailCreateDraftInput),
-        ("gmail.update_draft", GmailUpdateDraftInput),
+        ("gmail.create_draft", CreateDraft),
+        ("gmail.prepare_replacement", PrepareReplacement),
         ("attachment.retain", AttachmentRetainInput),
         ("work.create", WorkCreateInput),
         ("work.update", WorkUpdateInput),
@@ -59,41 +55,12 @@ def classify_write(
         ("agent.cancel_wait", AgentCancelWaitInput),
     }:
         return "automatic"
-    if name == "attachment.delete" and isinstance(value, AttachmentDeleteInput):
+    if (name, type(value)) in {
+        ("attachment.delete", AttachmentDeleteInput),
+        ("gmail.discard_draft", DiscardDraft),
+        ("calendar.create_event", CreateEvent),
+        ("calendar.update_event", UpdateEvent),
+        ("calendar.delete_event", DeleteEvent),
+    }:
         return "approval_required"
-    if name == "gmail.send_draft" and isinstance(value, GmailSendDraftInput):
-        return "approval_required"
-    verified = set(verified_owner_only_calendar_ids)
-    if name == "calendar.create_event" and isinstance(value, CalendarCreateEventInput):
-        return (
-            "automatic"
-            if value.calendar_id in verified
-            and not value.notify_attendees
-            and not value.event.attendees
-            else "approval_required"
-        )
-    if name == "calendar.update_event" and isinstance(value, CalendarUpdateEventInput):
-        if live_calendar_event is None or live_calendar_event != value.expected:
-            return "rejected"
-        return (
-            "automatic"
-            if value.expected.calendar_id in verified
-            and not value.notify_attendees
-            and not live_calendar_event.writable.attendees
-            and not value.replacement.attendees
-            else "approval_required"
-        )
-    if name == "calendar.delete_event" and isinstance(value, CalendarDeleteEventInput):
-        if live_calendar_event is None or live_calendar_event != value.expected:
-            return "rejected"
-        return (
-            "automatic"
-            if value.expected.calendar_id in verified
-            and not value.notify_attendees
-            and not live_calendar_event.writable.attendees
-            else "approval_required"
-        )
     return "rejected"
-
-
-__all__ = ["WriteAuthority", "classify_write"]

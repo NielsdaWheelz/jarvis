@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
@@ -92,7 +92,9 @@ from jarvis.native_journal import (
     native_loss_product,
     park_oversized_input,
     recover_sealed_turn,
+    yield_workspace_input,
 )
+from jarvis.native_protocol import JarvisTerminal
 from jarvis.ownership import (
     DeploymentOwnershipDefect,
     lock_conversation,
@@ -101,9 +103,12 @@ from jarvis.read_positions import PostgresReadRecorder
 from jarvis.receipt_tools import original_read_position, receipt_scope
 from jarvis.settings import Settings
 from jarvis.stock_observations import StockObservationWriter
-from jarvis.terminal import JarvisTerminal, render_terminal
+from jarvis.terminal import render_terminal
 from jarvis.tool_results import completed_tool_result, memory_view_section
-from jarvis.write_dispatch import WriteToolDispatcher
+from jarvis.workspace_host import WorkspaceHost, is_workspace_wake
+
+if TYPE_CHECKING:
+    from jarvis.write_dispatch import WriteToolDispatcher
 
 LOGGER = logging.getLogger(__name__)
 
@@ -146,6 +151,13 @@ async def opening_memory_prefix(memory: MemoryService) -> tuple[int, PromptSecti
     )
 
 
+def _workspace_input(item: StoredMessage) -> bool:
+    return (
+        is_workspace_wake(item.source, item.text)
+        or (item.home or {}).get("workspace_refresh") is not None
+    )
+
+
 async def fit_native_inputs(
     owner: JarvisOwner,
     store: MessageStore,
@@ -157,6 +169,10 @@ async def fit_native_inputs(
     exclude_ids: tuple[UUID, ...],
     steer: bool = False,
 ) -> tuple[tuple[HostInput, ...], PromptSections, NativeRequestFit]:
+    for index, item in enumerate(values):
+        if _workspace_input(item):
+            values = values[:index] if index else values[:1]
+            break
     while True:
         omitted = await store.waiting_input_count(
             owner.scope_id,
@@ -191,8 +207,13 @@ class NativeInputs:
         memory_cutoff: int,
         cancellation: CancellationToken,
         maximum_batch_size: int,
+        workspace: WorkspaceHost | None,
+        opened_workspace_check: bool,
     ) -> None:
         self.owner, self.store, self.plan = owner, store, plan
+        self.workspace = workspace
+        self._opened_workspace_check = opened_workspace_check
+        self.owner_preempted = False
         self.definition = definition
         self.memory_cutoff = memory_cutoff
         # The kernel can prepare a steer before submit, but sends it only after
@@ -248,6 +269,22 @@ class NativeInputs:
             exclude_ids=known,
             steer=True,
         )
+        # The checked session has immutable provider permissions. Leave an
+        # interrupting owner request pending for a fresh ordinary session.
+        if self._opened_workspace_check:
+            if (
+                values
+                and values[0].role == "owner"
+                and values[0].request_state == "pending"
+            ):
+                if await yield_workspace_input(self.owner, request, values[0].id):
+                    self.owner_preempted = True
+                    return Preempt("workspace_owner_steer")
+            return NoNewInput()
+        for index, item in enumerate(values):
+            if _workspace_input(item):
+                values = values[:index]
+                break
         if not values:
             return NoNewInput()
         as_of = datetime.now(UTC)
@@ -295,6 +332,16 @@ class NativeInputs:
             raise NativeDefect("write request_ref is outside delivered live inputs")
 
 
+class WorkspaceMatchSender(Protocol):
+    def __call__(
+        self,
+        occurrence_id: UUID,
+        todo_id: UUID,
+        *,
+        still_current: Callable[[], Awaitable[bool]],
+    ) -> Awaitable[object]: ...
+
+
 class NativeRunner:
     def __init__(
         self,
@@ -309,10 +356,13 @@ class NativeRunner:
             [NativeInputs, PostgresNativeJournal], WriteToolDispatcher
         ],
         actions: ActionStore,
+        workspace: WorkspaceHost | None = None,
+        notify_workspace_match: WorkspaceMatchSender | None = None,
     ) -> None:
         self.settings, self.store, self.owner = settings, store, owner
         self.kernel, self.definitions = kernel_runtime, definitions
         self.memory, self.actions = memory, actions
+        self.workspace, self.notify_workspace_match = workspace, notify_workspace_match
         self.dispatcher_factory = dispatcher_factory
         self._session: ProviderSessionLease | None = None
         self._journal: PostgresNativeJournal | None = None
@@ -334,7 +384,7 @@ class NativeRunner:
 
     async def run(self, cancellation: CancellationToken) -> NativeRunOutcome:
         self._dispatchers = [item for item in self._dispatchers if item.check_effects()]
-        await recover_native_products(self.owner)
+        await recover_native_products(self.owner, workspace=self.workspace)
         await self.recover_memory()
         if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
             return NativeRunOutcome("stopped")
@@ -344,7 +394,11 @@ class NativeRunner:
         )
         if not pending:
             return NativeRunOutcome("no_work")
-        plan = self.definitions.plans["main"]
+        scoped = _workspace_input(pending[0])
+        definition = (
+            self.definitions.workspace_check if scoped else self.definitions.main
+        )
+        plan = self.definitions.plans["workspace_check" if scoped else "main"]
         try:
             pending_publication = await self.memory.pending_publication()
             await self.memory.project_pending(pending_publication)
@@ -358,7 +412,7 @@ class NativeRunner:
         inputs, projected, size = await fit_native_inputs(
             self.owner,
             self.store,
-            self.definitions.main,
+            definition,
             pending,
             as_of,
             prefix=source,
@@ -389,15 +443,16 @@ class NativeRunner:
         )
         protocol_fault = False
         terminal = None
+        native_inputs = None
         observations = None
         try:
             try:
                 self._session = await self.kernel.provider.acquire_native(
-                    self.definitions.main, plan, permit, None
+                    definition, plan, permit, None
                 )
                 journal = PostgresNativeJournal(
                     self.owner.database,
-                    definition=self.definitions.main,
+                    definition=definition,
                     plan=plan,
                     owner=self.owner,
                     memory=self.memory,
@@ -407,10 +462,12 @@ class NativeRunner:
                     owner=self.owner,
                     store=self.store,
                     plan=plan,
-                    definition=self.definitions.main,
+                    definition=definition,
                     memory_cutoff=cutoff,
                     cancellation=cancellation,
                     maximum_batch_size=self.settings.maximum_batch_size,
+                    workspace=self.workspace,
+                    opened_workspace_check=scoped,
                 )
                 dispatcher = self.dispatcher_factory(native_inputs, journal)
                 dispatcher.on_effect_settled = self.notify_work
@@ -420,7 +477,7 @@ class NativeRunner:
                         self.memory, str(self.owner.token), UUID(attempt_id)
                     )
                 terminal = await run_native(
-                    definition=self.definitions.main,
+                    definition=definition,
                     request=request,
                     provider=self.kernel.provider,
                     session=self._session,
@@ -442,7 +499,7 @@ class NativeRunner:
                 terminal = None
                 protocol_fault = True
             if await self.store.paused(self.owner.scope_id):
-                await recover_native_products(self.owner)
+                await recover_native_products(self.owner, workspace=self.workspace)
                 return NativeRunOutcome("stopped")
             if cancellation.cancelled:
                 return NativeRunOutcome("stopped")
@@ -452,24 +509,54 @@ class NativeRunner:
                 or not isinstance(terminal.evidence, NativeTerminalEvidence)
             ):
                 result = await _settle_failed_opening(
-                    self.owner, request, protocol_fault
+                    self.owner, request, protocol_fault, workspace=self.workspace
                 )
             else:
                 try:
-                    result = await _settle_native_product(self.owner, attempt_id)
+                    result = await _settle_native_product(
+                        self.owner, attempt_id, workspace=self.workspace
+                    )
                 except Exception as error:
                     log_native_failure(
                         LOGGER, error, attempt_id=attempt_id, boundary="terminal"
                     )
                     raise
-            progressed = result.status == "committed" or result.eligibility_changed
+            match = result.workspace_match
+            if (
+                match is not None
+                and self.workspace is not None
+                and self.notify_workspace_match is not None
+            ):
+                workspace = self.workspace
+
+                async def still_current() -> bool:
+                    return await workspace.match_current(
+                        match.occurrence_id, match.work_id
+                    )
+
+                try:
+                    await self.notify_workspace_match(
+                        match.occurrence_id, match.work_id, still_current=still_current
+                    )
+                except DeploymentOwnershipDefect:
+                    raise
+                except Exception:
+                    LOGGER.warning(
+                        "workspace match delivery failed: occurrence=%s",
+                        match.occurrence_id,
+                    )
+            progressed = (
+                result.status == "committed"
+                or result.eligibility_changed
+                or (native_inputs is not None and native_inputs.owner_preempted)
+            )
             return NativeRunOutcome("progressed" if progressed else "blocked")
         finally:
             self._journal = None
             session, self._session = self._session, None
             drain_deadline = (
                 asyncio.get_running_loop().time()
-                + self.definitions.main.control.interrupt_grace_seconds
+                + definition.control.interrupt_grace_seconds
             )
             try:
                 if session is not None:
@@ -497,7 +584,11 @@ class NativeRunner:
 
 
 async def _settle_failed_opening(
-    owner: JarvisOwner, request: NativeRequest, protocol_fault: bool
+    owner: JarvisOwner,
+    request: NativeRequest,
+    protocol_fault: bool,
+    *,
+    workspace: WorkspaceHost | None,
 ) -> ProductSettlement:
     identifier = UUID(request.attempt_id)
     async with owner.database.connect() as connection:
@@ -517,11 +608,15 @@ async def _settle_failed_opening(
             "native protocol requires repair",
         )
     if row is not None and row[0] is not None and not row[1]:
-        return await _settle_native_product(owner, request.attempt_id, recovering=True)
+        return await _settle_native_product(
+            owner, request.attempt_id, recovering=True, workspace=workspace
+        )
     return await consume_fenced_losses(owner, attempt_id=identifier)
 
 
-async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
+async def recover_native_products(
+    owner: JarvisOwner, *, workspace: WorkspaceHost | None = None
+) -> tuple[UUID, ...]:
     """Fence abandoned authority, drain original seals, then account for lost turns."""
     async with owner.database.begin() as connection:
         await lock_conversation(connection, owner.scope_id)
@@ -562,7 +657,7 @@ async def recover_native_products(owner: JarvisOwner) -> tuple[UUID, ...]:
                     result = await consume_fenced_losses(owner, attempt_id=identifier)
                 else:
                     result = await _settle_native_product(
-                        owner, str(identifier), recovering=True
+                        owner, str(identifier), recovering=True, workspace=workspace
                     )
             except Exception as error:
                 log_native_failure(
@@ -612,6 +707,7 @@ async def _settle_native_product(
     attempt_id: str,
     *,
     recovering: bool = False,
+    workspace: WorkspaceHost | None = None,
 ) -> ProductSettlement:
     turn = await recover_sealed_turn(owner.database, owner, attempt_id)
     if turn is None:
@@ -639,7 +735,13 @@ async def _settle_native_product(
         )
     try:
         return await commit_product(
-            owner.database, owner, turn, final, rendered, recovering=recovering
+            owner.database,
+            owner,
+            turn,
+            final,
+            rendered,
+            recovering=recovering,
+            workspace=workspace,
         )
     except NativeContentDefect as error:
         log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")

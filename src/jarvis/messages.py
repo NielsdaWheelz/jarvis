@@ -26,11 +26,12 @@ from jarvis.db import (
 )
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT
-from jarvis.home_refs import HOME_REF_ADAPTER
+from jarvis.home_refs import HOME_REF_ADAPTER, TodoRef
 from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 
 if TYPE_CHECKING:
     from jarvis.attachments import WebUpload
+    from jarvis.workspace_host import WorkspaceHost
 
 MessageRole = Literal["owner", "assistant", "host"]
 
@@ -51,6 +52,10 @@ class SubmissionConflict(ValueError):
 
 class InvalidReference(ValueError):
     """The submitted reference is unavailable in this owner conversation."""
+
+
+class StaleWorkspaceOccurrence(ValueError):
+    """The notification no longer identifies an authorized matching check."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,8 +318,11 @@ async def rearm_action_waiters(connection: AsyncConnection, action_id: UUID) -> 
 
 
 class MessageStore:
-    def __init__(self, engine: Database) -> None:
+    def __init__(
+        self, engine: Database, *, workspace: WorkspaceHost | None = None
+    ) -> None:
         self._engine = engine
+        self._workspace = workspace
 
     async def initialize_paused(self, source_conversation_id: str) -> None:
         """Prepare one empty conversation's canonical pause without delivery."""
@@ -354,9 +362,26 @@ class MessageStore:
         r2_account: str,
         bucket: str,
         pages: Path = DEFAULT_EXPORT,
+        workspace_occurrence: UUID | None = None,
     ) -> InboundInsert:
         from jarvis.attachments import ingress_manifest, register_ingress
 
+        refresh: dict[str, str] | None = None
+        if workspace_occurrence is not None:
+            if (
+                submission_id != uuid5(workspace_occurrence, "refresh")
+                or uploads
+                or text != "check this workspace condition again."
+            ):
+                raise InvalidReference("invalid workspace refresh")
+            try:
+                todo = TodoRef.model_validate(ref)
+            except ValueError as exc:
+                raise InvalidReference("invalid workspace todo") from exc
+            refresh = {
+                "occurrence_id": str(workspace_occurrence),
+                "todo_id": str(todo.id),
+            }
         try:
             digest = hashlib.sha256(
                 canonical_json_bytes(
@@ -389,13 +414,25 @@ class MessageStore:
                 if (
                     existing["source_conversation_id"] != scope
                     or existing["home"]["request_sha256"] != digest
+                    or existing["home"].get("workspace_refresh") != refresh
                 ):
                     raise SubmissionConflict("submission id is already committed")
                 return InboundInsert(_stored_message(existing), False)
             if digest is None:
                 raise InvalidReference("invalid reference")
             home: dict[str, object] = {"request_sha256": digest, "ref": None}
-            if ref is not None:
+            if refresh is not None and workspace_occurrence is not None:
+                if (
+                    self._workspace is None
+                    or self._workspace.owner.scope_id != scope
+                    or await self._workspace.committed_match(
+                        connection, workspace_occurrence, UUID(refresh["todo_id"])
+                    )
+                    is None
+                ):
+                    raise StaleWorkspaceOccurrence()
+                home.update(ref=ref, workspace_refresh=refresh)
+            elif ref is not None:
                 from jarvis.home_reads import reference_context
 
                 try:

@@ -52,6 +52,7 @@ def upload_database(bucket, key, snapshot_id, recipient):
                     "-Fc",
                     "--snapshot",
                     snapshot_id,
+                    "--exclude-table-data=public.gmail_usage",
                     "--no-password",
                 ],
                 stdout=subprocess.PIPE,

@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from time import perf_counter
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from llm_agent_kernel import CancellationToken
@@ -25,6 +25,9 @@ from jarvis.phone import PhoneSlot
 from jarvis.proactivity import WorkWakeTimer
 from jarvis.settings import Settings
 from jarvis.state import PausedState
+
+if TYPE_CHECKING:
+    from jarvis.workspace_host import WorkspaceHost
 
 LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +73,7 @@ class JarvisService:
         work_timer: WorkWakeTimer,
         event_poller: EventPoller,
         attachments: AttachmentStore,
+        workspace: WorkspaceHost | None = None,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
@@ -82,7 +86,7 @@ class JarvisService:
         self._event_poll_task: asyncio.Task[None] | None = None
         self._work_timer_task: asyncio.Task[None] | None = None
         self._database = database
-        self._store = MessageStore(database)
+        self._store = MessageStore(database, workspace=workspace)
         self._paused = paused
         self._delivery = delivery
         self._phone = phone
@@ -123,6 +127,8 @@ class JarvisService:
         text: str,
         ref: object,
         uploads: tuple[WebUpload, ...],
+        *,
+        workspace_occurrence: UUID | None = None,
     ) -> tuple[UUID, bool]:
         async with self._active_lock:
             if not self.events_publication_allowed():
@@ -135,6 +141,7 @@ class JarvisService:
                 scope=self._settings.owner_scope,
                 r2_account=self._settings.attachment_r2_account_id,
                 bucket=self._settings.attachment_r2_bucket,
+                workspace_occurrence=workspace_occurrence,
             )
             if not result.inserted:
                 return result.message.id, False

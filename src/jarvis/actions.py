@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+from llm_agent_kernel import NativeDispatchLineage
 from llm_tools import (
     BudgetState,
     InvocationPosition,
@@ -79,17 +80,31 @@ from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.messages import (
     append_waking_input,
     causal_component_ids,
+    latest_control,
     rearm_action_waiters,
 )
 from jarvis.ownership import Database, lock_conversation
 from jarvis.work_tools import WORK_MUTATION_IDS, validate_work_result
-from jarvis.write_tools import (
-    GMAIL_WRITE_POLICY,
-    GmailComposeBasis,
-    GmailComposeContract,
-    GmailDraftIdentity,
-    GmailSendContract,
+from jarvis.workspace_host import (
+    NativeWorkspaceRead,
+    current_workspace_read,
+    is_workspace_wake,
 )
+from jarvis.workspace_mcp import WorkspaceError
+from jarvis.workspace_write_models import (
+    CalendarWriteReceipt,
+    DiscardReceipt,
+    DraftWriteReceipt,
+    FrozenCompose,
+    FrozenDiscard,
+    FrozenWorkspaceWrite,
+)
+from jarvis.write_connectors import (
+    WorkspaceReceipt,
+    WorkspaceWriteEntry,
+    WorkspaceWriteFailure,
+)
+from jarvis.write_tools import WORKSPACE_IMPLEMENTATION, WRITE_TOOL_IDS
 
 ActionStatus = Literal[
     "queued",
@@ -122,10 +137,16 @@ _RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2"
 
 
 GMAIL_WRITE_NAMES = ("gmail.create_draft", "gmail.update_draft", "gmail.send_draft")
-_RETIRED_MAIL_REVISIONS = {
-    "gmail.create_draft": {"jarvis-gmail-create_draft-v1"},
-    "gmail.update_draft": {"jarvis-gmail-update_draft-v1"},
-    "gmail.send_draft": {"jarvis-gmail-send_draft-v1", "jarvis-gmail-send_draft-v2"},
+_RETIRED_WORKSPACE_REVISIONS = {
+    tool: {f"jarvis-{tool.replace('.', '-')}-v{i}" for i in range(1, last + 1)}
+    for tool, last in (
+        ("gmail.create_draft", 2),
+        ("gmail.update_draft", 2),
+        ("gmail.send_draft", 3),
+        ("calendar.create_event", 4),
+        ("calendar.update_event", 4),
+        ("calendar.delete_event", 2),
+    )
 }
 
 
@@ -199,15 +220,19 @@ class ExecutionContract(_ExecutionEnvelope):
 
     schema_version: Literal["jarvis.action.v2"]
     agent_target: AgentWriteTarget | None = None
-    mail: (
-        Annotated[GmailComposeContract | GmailSendContract, Field(discriminator="kind")]
-        | None
-    ) = None
+    workspace: FrozenWorkspaceWrite | None = None
+    workspace_grant_id: UUID | None = None
+    workspace_prepare_attempts: Annotated[int, Field(ge=0)] = 0
+    workspace_prepare_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.0
 
     def as_json(self) -> dict[str, object]:
         value = cast(dict[str, object], self.model_dump(mode="json"))
-        if self.mail is None:
-            del value["mail"]
+        if self.workspace is None:
+            del value["workspace"]
+            del value["workspace_prepare_attempts"]
+            del value["workspace_prepare_seconds"]
+        if self.workspace_grant_id is None:
+            del value["workspace_grant_id"]
         return value
 
 
@@ -222,23 +247,6 @@ def _common_execution_envelope(value: object) -> _ExecutionEnvelope:
     return _ExecutionEnvelope.model_validate(
         {key: fields[key] for key in _ExecutionEnvelope.model_fields if key in fields}
     )
-
-
-class MailProgress(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
-
-    entered: bool = False
-    acknowledged: bool = False
-    basis: GmailComposeBasis | None = None
-    ack: GmailDraftIdentity | None = None
-
-    @model_validator(mode="after")
-    def consistent(self) -> MailProgress:
-        if (self.acknowledged and not self.entered) or (
-            self.ack is not None and (not self.acknowledged or self.basis is None)
-        ):
-            raise ValueError("Gmail acknowledgement lacks its mutation")
-        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,17 +293,6 @@ class StoredAction:
     def recovered_external_attempts(self) -> int:
         return _recovery_external_attempts(self)
 
-    @property
-    def mail_progress(self) -> MailProgress:
-        if self.result is None or self.result.get("type") not in {
-            "action_recovery_v1",
-            "action_uncertainty_v1",
-        }:
-            return MailProgress()
-        return MailProgress.model_validate(
-            self.result.get("reconciliation_basis") or {}
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class ResolutionInsert:
@@ -319,7 +316,7 @@ class ActionStore:
         action_id: UUID | None = None,
         created_at: datetime | None = None,
         invocation_id: UUID,
-        check_admitted: Callable[[], None] | None = None,
+        check_admitted: Callable[[AsyncConnection], Awaitable[None]] | None = None,
     ) -> StoredAction:
         return await self._insert(
             tool_name,
@@ -343,7 +340,7 @@ class ActionStore:
         action_id: UUID | None = None,
         created_at: datetime | None = None,
         invocation_id: UUID,
-        check_admitted: Callable[[], None] | None = None,
+        check_admitted: Callable[[AsyncConnection], Awaitable[None]] | None = None,
     ) -> StoredAction:
         return await self._insert(
             tool_name,
@@ -367,7 +364,7 @@ class ActionStore:
         action_id: UUID | None,
         created_at: datetime | None,
         invocation_id: UUID,
-        check_admitted: Callable[[], None] | None,
+        check_admitted: Callable[[AsyncConnection], Awaitable[None]] | None,
     ) -> StoredAction:
         identifier = action_id or uuid4()
         timestamp = created_at or datetime.now(UTC)
@@ -385,42 +382,25 @@ class ActionStore:
                 tool_name,
             )
             if check_admitted is not None:
-                check_admitted()
-            mail = execution_contract.mail
-            if isinstance(mail, GmailSendContract):
-                creation = await require_locked_action(connection, mail.creation_id)
-                if (
-                    creation.status != "succeeded"
-                    or creation.tool_name != ToolId("gmail.create_draft")
-                    or not isinstance(creation.execution_contract, ExecutionContract)
-                    or not isinstance(
-                        creation.execution_contract.mail, GmailComposeContract
-                    )
-                ):
+                await check_admitted(connection)
+            frozen = execution_contract.workspace
+            if frozen is not None:
+                if frozen.action_id != identifier:
                     raise ActionPersistenceDefect(
-                        "send lacks its current creation action"
+                        "workspace preparation belongs to another action"
                     )
-                existing = await connection.scalar(
-                    select(action.c.id)
-                    .where(
-                        action.c.tool_name == "gmail.send_draft",
-                        action.c.status.in_(
-                            (
-                                "awaiting_approval",
-                                "queued",
-                                "executing",
-                                "uncertain",
-                                "succeeded",
-                            )
-                        ),
-                        action.c.execution_contract["mail"]["creation_id"].as_string()
-                        == str(mail.creation_id),
+                if (
+                    isinstance(frozen.effect, FrozenDiscard)
+                    and frozen.effect.verified_replacement_action_id is not None
+                ):
+                    existing = await _linked_discard(
+                        connection, frozen, origin_message_id
                     )
-                    .order_by(action.c.created_at, action.c.id)
-                    .limit(1)
-                )
-                if existing is not None:
-                    return await require_locked_action(connection, existing)
+                    if existing is not None:
+                        await _link_native_action(
+                            connection, invocation_id, existing.id
+                        )
+                        return existing
             row = (
                 (
                     await connection.execute(
@@ -459,7 +439,7 @@ class ActionStore:
                 )
             await _link_native_action(connection, invocation_id, identifier)
             if check_admitted is not None:
-                check_admitted()
+                await check_admitted(connection)
             return stored
 
     async def accepted_actions(
@@ -483,10 +463,11 @@ class ActionStore:
             (
                 stored.status == "uncertain"
                 and not (
-                    str(stored.tool_name) in GMAIL_WRITE_NAMES
+                    stored.tool_name == "gmail.send_draft"
                     and isinstance(
                         stored.execution_contract, _ArchivedExecutionContract
                     )
+                    and "mail" not in stored.execution_contract.as_json()
                 )
             )
             or (
@@ -506,16 +487,104 @@ class ActionStore:
                 connection, action_id, source_conversation_id=source_conversation_id
             )
 
+    async def is_standing_check(self, request_id: UUID) -> bool:
+        async with self.engine.connect() as connection:
+            origin = (
+                (
+                    await connection.execute(
+                        select(message.c.source, message.c.text, message.c.home).where(
+                            message.c.id == request_id
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            return standing_workspace_input(origin)
+
+    async def replacement_for_discard(
+        self,
+        replacement_id: UUID,
+        origin_id: UUID,
+        invocation_id: UUID,
+        grant_id: UUID,
+        account: str,
+        scope: str,
+        authorize: Callable[[AsyncConnection | None], Awaitable[None]],
+    ) -> tuple[DraftWriteReceipt, StoredAction | None]:
+        async with self.engine.begin() as connection:
+            await lock_conversation(connection, scope)
+            await authorize(connection)
+            source = await recorded_action(
+                connection, replacement_id, source_conversation_id=scope
+            )
+            receipt = _verified_replacement(source, grant_id, account)
+            existing = await _prior_discard(connection, replacement_id, origin_id)
+            if existing is not None:
+                await _link_native_action(connection, invocation_id, existing.id)
+            return receipt, existing
+
+    async def original_invocation(self, stored: StoredAction) -> UUID:
+        async with self.engine.connect() as connection:
+            return await _workspace_invocation(connection, stored)
+
+    async def record_workspace_ack(
+        self, action_id: UUID, invocation_id: UUID, receipt: WorkspaceReceipt
+    ) -> None:
+        """Record an acknowledgement even after owner or grant loss."""
+        async with self.engine.begin() as connection:
+            stored = await require_locked_action(connection, action_id)
+            if (
+                stored.attempts != 1
+                or await _workspace_invocation(connection, stored) != invocation_id
+            ):
+                raise ActionPersistenceDefect(
+                    "acknowledgement is outside the entered invocation"
+                )
+            value = receipt.model_dump(mode="json")
+            _verify_workspace_receipt(stored, value)
+            if stored.status == "executing":
+                evidence = {
+                    "type": "workspace_ack_v1",
+                    "invocation_id": str(invocation_id),
+                    "value": value,
+                }
+                if stored.result is not None and stored.result != evidence:
+                    raise ActionPersistenceDefect("workspace acknowledgement changed")
+                await _update_action(connection, action_id, result=evidence)
+            elif stored.status == "uncertain":
+                scope = (
+                    await connection.execute(
+                        select(message.c.source_conversation_id).where(
+                            message.c.id == stored.origin_message_id
+                        )
+                    )
+                ).scalar_one()
+                await _publish_action_outcome(connection, stored, scope)
+                await resolve_reconciliation_in_transaction(
+                    connection,
+                    stored,
+                    status="succeeded",
+                    result={"type": "Success", "value": value},
+                    resolved_at=datetime.now(UTC),
+                    source_conversation_id=scope,
+                )
+            elif stored.status != "succeeded" or not _same_workspace_ack(
+                _stored_tool_result(stored)["value"], value
+            ):
+                raise ActionPersistenceDefect(
+                    "workspace acknowledgement conflicts with the recorded outcome"
+                )
+
     async def active_mail_stages(self) -> tuple[UUID, ...]:
         async with self.engine.connect() as connection:
             ids = await connection.scalars(
                 select(action.c.id).where(
                     action.c.tool_name.in_(
-                        ("gmail.create_draft", "gmail.update_draft")
+                        ("gmail.create_draft", "gmail.prepare_replacement")
                     ),
-                    action.c.status.in_(("queued", "executing")),
-                    action.c.execution_contract["mail"]["kind"].as_string()
-                    == "compose",
+                    action.c.status.in_(("awaiting_approval", "queued", "executing")),
+                    action.c.execution_contract.op("?")("workspace"),
                 )
             )
             return tuple(ids)
@@ -605,72 +674,6 @@ class ActionStore:
                 .all()
             )
         return tuple(map(_stored_action, rows))
-
-    async def stage_mail_exchange(
-        self,
-        action_id: UUID,
-        attempts: int,
-        *,
-        mutation: bool,
-    ) -> StoredAction:
-        async with self.engine.begin() as connection:
-            stored = await require_locked_action(connection, action_id)
-            progress = stored.mail_progress
-            if mutation and (
-                progress.entered
-                or (
-                    isinstance(
-                        stored.current_execution_contract.mail, GmailComposeContract
-                    )
-                    and progress.basis is None
-                )
-            ):
-                raise ActionPersistenceDefect(
-                    "Gmail mutation lacks a fresh frozen basis"
-                )
-            if mutation:
-                progress = progress.model_copy(update={"entered": True})
-            return await _stage_mail_progress(connection, stored, progress, attempts)
-
-    async def stage_mail_basis(
-        self,
-        action_id: UUID,
-        basis: GmailComposeBasis,
-    ) -> StoredAction:
-        async with self.engine.begin() as connection:
-            stored = await require_locked_action(connection, action_id)
-            progress = stored.mail_progress
-            if progress.basis is not None and progress.basis != basis:
-                raise ActionPersistenceDefect("Gmail compose basis changed")
-            progress = progress.model_copy(update={"basis": basis})
-            return await _stage_mail_progress(
-                connection,
-                stored,
-                progress,
-                stored.recovered_external_attempts,
-            )
-
-    async def stage_mail_acknowledgement(
-        self,
-        action_id: UUID,
-        acknowledgement: GmailDraftIdentity | None = None,
-    ) -> StoredAction:
-        async with self.engine.begin() as connection:
-            stored = await require_locked_action(connection, action_id)
-            progress = stored.mail_progress
-            if not progress.entered or (
-                progress.ack is not None and progress.ack != acknowledgement
-            ):
-                raise ActionPersistenceDefect("Gmail acknowledgement changed")
-            progress = progress.model_copy(
-                update={"acknowledged": True, "ack": acknowledgement}
-            )
-            return await _stage_mail_progress(
-                connection,
-                stored,
-                progress,
-                stored.recovered_external_attempts,
-            )
 
     async def stage_agent_control(
         self, *, action_id: UUID, evidence: AgentActionEvidence
@@ -776,13 +779,7 @@ class ActionStore:
                 result={
                     "type": "action_recovery_v1",
                     "actual_external_attempts": cumulative_attempts,
-                    "reconciliation_basis": (
-                        MailProgress(basis=stored.mail_progress.basis).model_dump(
-                            mode="json"
-                        )
-                        if stored.current_execution_contract.mail is not None
-                        else None
-                    ),
+                    "reconciliation_basis": None,
                 },
             )
 
@@ -796,6 +793,10 @@ class ActionStore:
     ) -> StoredAction:
         async with self.engine.begin() as connection:
             stored = await require_locked_action(connection, action_id)
+            if stored.current_execution_contract.workspace is not None:
+                raise ActionPersistenceDefect(
+                    "workspace resolution requires its entered acknowledgement"
+                )
             return await resolve_reconciliation_in_transaction(
                 connection,
                 stored,
@@ -803,6 +804,39 @@ class ActionStore:
                 result=result,
                 resolved_at=resolved_at or datetime.now(UTC),
                 source_conversation_id=None,
+            )
+
+    async def mark_workspace_uncertain(self, action_id: UUID) -> StoredAction:
+        async with self.engine.begin() as connection:
+            stored = await require_locked_action(connection, action_id)
+            if (
+                stored.current_execution_contract.workspace is None
+                or stored.attempts != 1
+            ):
+                raise ActionPersistenceDefect(
+                    "workspace uncertainty needs one entered action"
+                )
+            if stored.status in {"succeeded", "failed", "uncertain"}:
+                return stored
+            if stored.status != "executing":
+                raise ActionPersistenceDefect("workspace effect has not entered")
+            if (
+                stored.result is not None
+                and stored.result.get("type") == "workspace_ack_v1"
+            ):
+                return await _update_action(
+                    connection,
+                    action_id,
+                    status="succeeded",
+                    completed_at=datetime.now(UTC),
+                    result={"type": "Success", "value": stored.result["value"]},
+                )
+            return await _update_action(
+                connection,
+                action_id,
+                status="uncertain",
+                completed_at=datetime.now(UTC),
+                result=_workspace_uncertainty(),
             )
 
     async def reconcile_agent_receipt(self, action_id: UUID) -> StoredAction:
@@ -1040,7 +1074,9 @@ class ActionPositionRecorder:
         implementation_revision: str,
         max_external_attempts: int,
         source_conversation_id: str,
+        workspace_entry: WorkspaceWriteEntry | None = None,
     ) -> None:
+        self.workspace_entry = workspace_entry
         if not implementation_revision:
             raise ValueError("implementation revision must not be empty")
         if type(max_external_attempts) is not int or max_external_attempts < 0:
@@ -1171,6 +1207,7 @@ class ActionPositionRecorder:
             if (
                 origin["source_conversation_id"] != self._source_conversation_id
                 or origin["role"] not in {"owner", "host"}
+                or standing_workspace_input(origin)
                 or origin["control_kind"] is not None
                 or origin["request_state"] not in {"pending", "waiting"}
                 or origin["processing_parked_at"] is not None
@@ -1179,6 +1216,55 @@ class ActionPositionRecorder:
                 raise RecoveryRequired(
                     "originating request no longer authorizes action entry"
                 )
+            if stored.current_execution_contract.workspace is not None:
+                entry = self.workspace_entry
+                if (
+                    entry is None
+                    or entry.frozen != stored.current_execution_contract.workspace
+                ):
+                    raise RecoveryRequired(
+                        "workspace entry needs live native owner authority"
+                    )
+                try:
+                    await entry.authorize(connection)
+                except WorkspaceError as exc:
+                    failure: ToolResult = {
+                        "type": "Failure",
+                        "error": WorkspaceWriteFailure(
+                            code=exc.kind, retry_at=exc.retry_at
+                        ).model_dump(mode="json"),
+                    }
+                    await _update_action(
+                        connection,
+                        stored.id,
+                        status="failed",
+                        completed_at=datetime.now(UTC),
+                        result=failure,
+                    )
+                    return PositionState(failure, False, 0)
+            if stored.tool_name == "attachment.retain":
+                try:
+                    access = current_workspace_read()
+                    if (
+                        not isinstance(access, NativeWorkspaceRead)
+                        or access.grant_id
+                        != stored.current_execution_contract.workspace_grant_id
+                    ):
+                        raise WorkspaceError("grant_unavailable")
+                    await access.require_current(connection)
+                except WorkspaceError:
+                    failure = {
+                        "type": "Failure",
+                        "error": {"type": "Unavailable", "id": None},
+                    }
+                    await _update_action(
+                        connection,
+                        stored.id,
+                        status="failed",
+                        completed_at=datetime.now(UTC),
+                        result=failure,
+                    )
+                    return PositionState(failure, False, 0)
             if stored.attempts >= stored.execution_contract.max_attempts:
                 raise ValueError("action attempt ceiling is exhausted")
             await _update_action(
@@ -1223,7 +1309,10 @@ class ActionPositionRecorder:
             )
         if stored.status == "uncertain":
             return
-        await self._store.reconcile_agent_receipt(stored.id)
+        if stored.tool_name in WRITE_TOOL_IDS:
+            await self._store.mark_workspace_uncertain(stored.id)
+        else:
+            await self._store.reconcile_agent_receipt(stored.id)
 
     async def terminalize_and_settle(
         self,
@@ -1234,7 +1323,7 @@ class ActionPositionRecorder:
         settlement: Settlement,
     ) -> ToolResult:
         self._require_position(position)
-        canonical_result = _tool_result(result)
+        canonical_result: ToolResult = _tool_result(result)
         if self._reservation is None or not self._reservation_accepted:
             zero_attempts = Settlement(
                 actual_attempts=0,
@@ -1259,9 +1348,33 @@ class ActionPositionRecorder:
             prior_external_attempts = _recovery_external_attempts(stored)
             if settlement.actual_attempts < prior_external_attempts:
                 raise ValueError("write settlement lost recovered attempt accounting")
+            if (
+                self.workspace_entry is not None
+                and stored.result is not None
+                and stored.result.get("type") == "workspace_ack_v1"
+            ):
+                acknowledged = stored.result["value"]
+                if canonical_result["type"] != "Success":
+                    canonical_result = {"type": "Success", "value": acknowledged}
+                elif not _same_workspace_ack(acknowledged, canonical_result["value"]):
+                    raise ActionPersistenceDefect(
+                        "workspace readback changed the acknowledged identity"
+                    )
+            elif (
+                self.workspace_entry is not None
+                and stored.status == "executing"
+                and canonical_result["type"] == "Success"
+            ):
+                raise ActionPersistenceDefect(
+                    "workspace success lacks its acknowledgement"
+                )
             replay = action_replay_result(stored)
             if replay is not None:
-                if replay != canonical_result:
+                if replay != canonical_result and not (
+                    self.workspace_entry is not None
+                    and replay["type"] == canonical_result["type"] == "Success"
+                    and _same_workspace_ack(replay["value"], canonical_result["value"])
+                ):
                     raise ValueError("terminal write result changed")
                 if self._reservation_accepted:
                     await budgets.settle(position, settlement)
@@ -1280,14 +1393,31 @@ class ActionPositionRecorder:
             if self._reservation_accepted:
                 await budgets.settle(position, settlement)
 
+            error = (
+                cast(dict[str, object], canonical_result["error"])
+                if canonical_result["type"] == "Failure"
+                else {}
+            )
             ambiguous_boundary_failure = (
                 stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce
                 and stored.attempts > 0
-                and canonical_result["type"] == "Failure"
-                and canonical_result["error"].get("type")
-                in {"BudgetExceeded", "DeadlineExceeded"}
+                and error.get("type") in {"BudgetExceeded", "DeadlineExceeded"}
             )
-            if ambiguous_boundary_failure:
+            if stored.tool_name in WRITE_TOOL_IDS and (
+                ambiguous_boundary_failure
+                or (
+                    error.get("type") == "WorkspaceWriteFailure"
+                    and error.get("code") == "uncertain"
+                )
+            ):
+                await _update_action(
+                    connection,
+                    stored.id,
+                    status="uncertain",
+                    completed_at=datetime.now(UTC),
+                    result=_workspace_uncertainty(),
+                )
+            elif ambiguous_boundary_failure:
                 status, receipt_result = _agent_receipt_resolution(stored)
                 await _update_action(
                     connection,
@@ -1341,7 +1471,7 @@ class ActionPositionRecorder:
                 )
             self._settlement = settlement
         if ambiguous_boundary_failure:
-            raise RecoveryRequired("entered worker control requires durable reporting")
+            raise RecoveryRequired("entered effect requires durable reporting")
         return canonical_result
 
     async def _matching_action(
@@ -1377,6 +1507,13 @@ class ActionPositionRecorder:
             raise ValueError("occupied action is missing")
         self._require_contract(stored)
         return stored
+
+    async def record_workspace_ack(self, receipt: WorkspaceReceipt) -> None:
+        if self.workspace_entry is None:
+            raise ActionPersistenceDefect("acknowledgement lacks a workspace entry")
+        await self._store.record_workspace_ack(
+            self._action_id, self.workspace_entry.invocation_id, receipt
+        )
 
     def _require_contract(self, stored: StoredAction) -> None:
         if (
@@ -1451,6 +1588,370 @@ async def _locked_action(
     return None if row is None else _stored_action(row)
 
 
+def standing_workspace_input(origin: RowMapping) -> bool:
+    home = cast(dict[str, object] | None, origin["home"])
+    return (home is not None and "workspace_refresh" in home) or is_workspace_wake(
+        origin["source"], origin["text"]
+    )
+
+
+async def current_workspace_owner_delivery(
+    connection: AsyncConnection,
+    attempt_id: UUID,
+    input_ids: tuple[UUID, ...],
+    owner_id: UUID,
+) -> bool:
+    """The named owner must be waking in the latest proven input batch."""
+    deliveries = (
+        await connection.execute(
+            select(
+                native_input_delivery.c.message_id,
+                native_input_delivery.c.delivery_id,
+                native_input_delivery.c.was_waking,
+            )
+            .join(message, message.c.id == native_input_delivery.c.message_id)
+            .where(
+                native_input_delivery.c.attempt_id == attempt_id,
+                proven_native_delivery,
+                message.c.control_kind.is_(None),
+            )
+            .order_by(native_input_delivery.c.ordinal)
+        )
+    ).all()
+    return (
+        bool(deliveries)
+        and tuple(row.message_id for row in deliveries) == input_ids
+        and any(
+            row.message_id == owner_id
+            and row.was_waking
+            and row.delivery_id == deliveries[-1].delivery_id
+            for row in deliveries
+        )
+    )
+
+
+async def workspace_owner_live(
+    connection: AsyncConnection,
+    lineage: NativeDispatchLineage,
+    owner_id: UUID,
+    tool: ToolId,
+    *,
+    decision_for: UUID | None = None,
+) -> bool:
+    """Check the live owner input and its exact native invocation."""
+    scope = lineage.permit.scope_id
+    if str(
+        owner_id
+    ) not in lineage.input_ids or not await current_workspace_owner_delivery(
+        connection,
+        UUID(lineage.attempt_id),
+        tuple(map(UUID, lineage.input_ids)),
+        owner_id,
+    ):
+        return False
+    request = native_invocation.c.proposal["arguments"]
+    if decision_for is None:
+        addressed = (native_invocation.c.request_message_id == owner_id) & (
+            request["request_ref"].as_string() == str(owner_id)
+        )
+    else:
+        origin = message.alias("workspace_origin")
+        addressed = (
+            (native_invocation.c.action_id == decision_for)
+            & select(action.c.id)
+            .join(origin, origin.c.id == action.c.origin_message_id)
+            .where(
+                action.c.id == decision_for,
+                action.c.status.in_(("queued", "executing")),
+                origin.c.role == "owner",
+                origin.c.source_conversation_id == scope,
+                origin.c.source != "initialize_state",
+                origin.c.control_kind.is_(None),
+                origin.c.processing_parked_at.is_(None),
+                origin.c.request_state.in_(("pending", "waiting")),
+                origin.c.home["workspace_refresh"].is_(None),
+            )
+            .exists()
+            & (request["owner_message_id"].as_string() == str(owner_id))
+            & (request["action_id"].as_string() == str(decision_for))
+            & (
+                native_invocation.c.reply_receipt["result"]["value"][
+                    "owner_message_id"
+                ].as_string()
+                == str(owner_id)
+            )
+            & (
+                native_invocation.c.reply_receipt["result"]["value"][
+                    "decision"
+                ].as_string()
+                == "approve"
+            )
+        )
+    return (
+        await connection.scalar(
+            select(message.c.id)
+            .join(
+                native_attempt,
+                native_attempt.c.conversation_id == message.c.source_conversation_id,
+            )
+            .join(
+                native_invocation, native_invocation.c.attempt_id == native_attempt.c.id
+            )
+            .where(
+                native_invocation.c.id == UUID(lineage.invocation_id),
+                native_invocation.c.tool_id == str(tool),
+                native_invocation.c.ordinal == lineage.ordinal,
+                native_invocation.c.validation == "accepted",
+                addressed,
+                native_invocation.c.proposal["input_ids"] == list(lineage.input_ids),
+                native_invocation.c.proposal["through_checkpoint"].as_string()
+                == str(lineage.through_checkpoint),
+                native_attempt.c.id == UUID(lineage.attempt_id),
+                native_attempt.c.conversation_id == scope,
+                native_attempt.c.owner_epoch == str(lineage.permit.owner_token),
+                native_attempt.c.fenced_at.is_(None),
+                native_attempt.c.terminal_at.is_(None),
+                native_attempt.c.product_outcome.is_(None),
+                message.c.id == owner_id,
+                message.c.role == "owner",
+                message.c.source != "initialize_state",
+                message.c.home["workspace_refresh"].is_(None),
+                message.c.source_conversation_id == scope,
+                message.c.control_kind.is_(None),
+                message.c.processing_parked_at.is_(None),
+                message.c.request_state.in_(("pending", "waiting")),
+                latest_control(scope)
+                .correlate(None)
+                .scalar_subquery()
+                .is_distinct_from("pause"),
+            )
+        )
+        is not None
+    )
+
+
+async def _workspace_invocation(
+    connection: AsyncConnection, stored: StoredAction
+) -> UUID:
+    contract = stored.current_execution_contract
+    if contract.workspace is None:
+        raise ActionPersistenceDefect("action has no workspace effect")
+    return (
+        await connection.execute(
+            select(native_invocation.c.id).where(
+                native_invocation.c.attempt_id == UUID(contract.claim_id),
+                native_invocation.c.ordinal == contract.model_step_ordinal,
+                native_invocation.c.tool_id == stored.tool_name,
+                native_invocation.c.action_id == stored.id,
+                native_invocation.c.request_message_id == stored.origin_message_id,
+                native_invocation.c.validation == "accepted",
+                native_invocation.c.proposal["input_ids"]
+                == list(contract.input_message_ids),
+                native_invocation.c.proposal["through_checkpoint"].as_string()
+                == contract.through_checkpoint,
+            )
+        )
+    ).scalar_one()
+
+
+def _workspace_uncertainty() -> dict[str, object]:
+    return {
+        "type": "action_uncertainty_v1",
+        "evidence_code": "workspace_effect_unknown",
+        "recorded_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def _verify_workspace_receipt(stored: StoredAction, value: object) -> WorkspaceReceipt:
+    frozen = stored.current_execution_contract.workspace
+    if frozen is None:
+        raise ValueError("receipt lacks its frozen workspace action")
+    effect = frozen.effect
+    if isinstance(effect, FrozenCompose):
+        receipt = DraftWriteReceipt.model_validate(value)
+        old = effect.old
+        if (
+            receipt.old_draft_id,
+            receipt.old_message_id,
+            receipt.old_digest,
+            receipt.old_thread_id,
+            receipt.files,
+        ) != (
+            old.draft_id if old else None,
+            old.message_id if old else None,
+            old.digest if old else None,
+            old.thread_id if old else None,
+            effect.files,
+        ):
+            raise ValueError("draft receipt differs from the frozen revision")
+    elif isinstance(effect, FrozenDiscard):
+        receipt = DiscardReceipt.model_validate(value)
+        new = effect.replacement
+        if (
+            receipt.old_draft_id,
+            receipt.old_message_id,
+            receipt.new_draft_id,
+            receipt.new_message_id,
+            receipt.verified_replacement_action_id,
+        ) != (
+            effect.old.draft_id,
+            effect.old.message_id,
+            new.draft_id if new else None,
+            new.message_id if new else None,
+            effect.verified_replacement_action_id,
+        ):
+            raise ValueError("discard receipt names different revisions")
+    else:
+        receipt = CalendarWriteReceipt.model_validate(value)
+        if (
+            receipt.calendar_id != effect.calendar_id
+            or receipt.scope != effect.scope
+            or receipt.notify != effect.notify
+            or (effect.event_id is not None and receipt.event_id != effect.event_id)
+            or receipt.outcome
+            != {
+                "calendar.create_event": "created",
+                "calendar.update_event": "updated",
+                "calendar.delete_event": "deleted",
+            }[frozen.tool]
+        ):
+            raise ValueError("calendar receipt differs from its frozen operation")
+    if (receipt.action_id, receipt.grant_id, receipt.account) != (
+        stored.id,
+        frozen.grant_id,
+        frozen.account,
+    ):
+        raise ValueError("workspace receipt names a different action or enrollment")
+    return receipt
+
+
+def _same_workspace_ack(ack: object, latest: object) -> bool:
+    if not isinstance(ack, dict) or not isinstance(latest, dict):
+        return False
+    original = cast(dict[str, object], ack)
+    observed = cast(dict[str, object], latest)
+    # A draft acknowledgement may omit the message id that readback establishes.
+    stable = (
+        "action_id",
+        "grant_id",
+        "account",
+        "outcome",
+        "acknowledged_at",
+        "new_draft_id",
+        "old_draft_id",
+        "old_message_id",
+        "event_id",
+        "calendar_id",
+        "verified_replacement_action_id",
+    )
+    return all(original.get(key) == observed.get(key) for key in stable) and all(
+        original.get(key) is None
+        or observed.get(key) is None
+        or original[key] == observed[key]
+        for key in ("new_message_id", "new_thread_id")
+    )
+
+
+def _verified_replacement(
+    source: StoredAction | None, grant_id: UUID, account: str
+) -> DraftWriteReceipt:
+    if (
+        source is None
+        or source.tool_name != "gmail.prepare_replacement"
+        or source.status != "succeeded"
+        or not isinstance(source.execution_contract, ExecutionContract)
+    ):
+        raise WorkspaceError("unverified_replacement")
+    receipt = _verify_workspace_receipt(source, _stored_tool_result(source)["value"])
+    if (
+        not isinstance(receipt, DraftWriteReceipt)
+        or receipt.verification != "verified"
+        or not receipt.old_draft_id
+        or (receipt.grant_id, receipt.account) != (grant_id, account)
+    ):
+        raise WorkspaceError("unverified_replacement")
+    return receipt
+
+
+async def _prior_discard(
+    connection: AsyncConnection, replacement_id: UUID, origin_id: UUID
+) -> StoredAction | None:
+    previous = (
+        (
+            await connection.execute(
+                select(action)
+                .where(
+                    action.c.tool_name == "gmail.discard_draft",
+                    action.c.arguments["arguments"]["target"][
+                        "verified_replacement_action_id"
+                    ].as_string()
+                    == str(replacement_id),
+                )
+                .order_by(action.c.created_at.desc(), action.c.id.desc())
+                .limit(1)
+                .with_for_update()
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if previous is None:
+        return None
+    if previous["attempts"] > 0 or previous["status"] in {
+        "awaiting_approval",
+        "queued",
+        "executing",
+    }:
+        return _stored_action(previous)
+    fresh = await connection.scalar(
+        select(message.c.id).where(
+            message.c.id == origin_id,
+            message.c.role == "owner",
+            message.c.created_at > previous["completed_at"],
+            message.c.id != previous["origin_message_id"],
+        )
+    )
+    if fresh is None:
+        raise WorkspaceError("fresh_owner_required")
+    return None
+
+
+async def _linked_discard(
+    connection: AsyncConnection, frozen: FrozenWorkspaceWrite, origin_id: UUID
+) -> StoredAction | None:
+    effect = frozen.effect
+    assert (
+        isinstance(effect, FrozenDiscard)
+        and effect.verified_replacement_action_id is not None
+    )
+    source = await require_locked_action(
+        connection, effect.verified_replacement_action_id
+    )
+    receipt = _verified_replacement(source, frozen.grant_id, frozen.account)
+    new = effect.replacement
+    if new is None or (
+        effect.old.draft_id,
+        effect.old.message_id,
+        effect.old.digest,
+        effect.old.thread_id,
+        new.draft_id,
+        new.message_id,
+        new.digest,
+        new.thread_id,
+    ) != (
+        receipt.old_draft_id,
+        receipt.old_message_id,
+        receipt.old_digest,
+        receipt.old_thread_id,
+        receipt.new_draft_id,
+        receipt.new_message_id,
+        receipt.new_digest,
+        receipt.new_thread_id,
+    ):
+        raise WorkspaceError("unverified_replacement")
+    return await _prior_discard(connection, source.id, origin_id)
+
+
 async def _lock_new_action(
     connection: AsyncConnection,
     origin_id: UUID,
@@ -1487,6 +1988,12 @@ async def _lock_new_action(
         raise ActionPersistenceDefect(
             "action origin is no longer a live waking request"
         )
+    if tool_name in WRITE_TOOL_IDS and (
+        origin["role"] != "owner" or origin["source"] == "initialize_state"
+    ):
+        raise WorkspaceError("owner_required")
+    if standing_workspace_input(origin):
+        raise WorkspaceError("owner_required")
     if len(inputs) != len(contract.input_message_ids) or any(
         row["source_conversation_id"] != scope for row in inputs
     ):
@@ -1511,8 +2018,9 @@ async def _lock_new_action(
                 and_(
                     action.c.status == "uncertain",
                     ~(
-                        action.c.tool_name.in_(GMAIL_WRITE_NAMES)
+                        (action.c.tool_name == "gmail.send_draft")
                         & ~action.c.execution_contract.op("?")("mail")
+                        & ~action.c.execution_contract.op("?")("workspace")
                     ),
                 ),
                 and_(
@@ -1569,6 +2077,7 @@ async def _lock_new_action(
         or attempt["terminal_at"] is not None
         or attempt["settled"]
         or invocation["request_message_id"] != origin_id
+        or invocation["tool_id"] != str(tool_name)
         or contract.claim_id != str(attempt_id)
         or contract.model_step_ordinal != invocation["ordinal"]
         or invocation["validation"] != "accepted"
@@ -1868,7 +2377,7 @@ def _stored_action(row: RowMapping) -> StoredAction:
                 str(row["tool_name"]), envelope.implementation_revision
             )
             or envelope.implementation_revision
-            in _RETIRED_MAIL_REVISIONS.get(str(row["tool_name"]), set())
+            in _RETIRED_WORKSPACE_REVISIONS.get(str(row["tool_name"]), set())
         ):
             if status not in {"succeeded", "failed", "uncertain", "cancelled"}:
                 raise ValueError("retired action must drain before activation")
@@ -1921,20 +2430,32 @@ def _validate_new_action(
     if contract.tool_effect is not ToolEffect.Write:
         raise ValueError("actions require the Write effect")
     if not historical and (
-        tool_name in AGENT_WRITE_IDS and tool_name not in AGENT_LOCAL_IDS
+        (tool_name in AGENT_WRITE_IDS and tool_name not in AGENT_LOCAL_IDS)
+        or tool_name in WRITE_TOOL_IDS
     ) != (contract.replay_policy is ReplayPolicy.BilledOnce):
         raise ValueError("write action replay policy differs from its tool family")
     if raw_input_digest(ParsedJson(arguments)) != contract.input_digest:
         raise ValueError("execution contract has a different input digest")
     if str(origin_message_id) not in contract.input_message_ids:
         raise ValueError("origin request must be delivered in this attempt")
-    if isinstance(contract, ExecutionContract) and (
-        (str(tool_name) == "gmail.send_draft")
-        != isinstance(contract.mail, GmailSendContract)
-        or (str(tool_name) in {"gmail.create_draft", "gmail.update_draft"})
-        != isinstance(contract.mail, GmailComposeContract)
-    ):
-        raise ValueError("action lacks its matching mail authority")
+    if isinstance(contract, ExecutionContract):
+        if (tool_name in WRITE_TOOL_IDS) != (contract.workspace is not None):
+            raise ValueError("workspace write requires its exact frozen effect")
+        if contract.workspace is not None and (
+            contract.workspace.tool != tool_name
+            or contract.implementation_revision != WORKSPACE_IMPLEMENTATION
+        ):
+            raise ValueError("workspace effect differs from its binding")
+        if contract.workspace is None and (
+            contract.workspace_prepare_seconds or contract.workspace_prepare_attempts
+        ):
+            raise ValueError("only workspace actions have a preparation budget")
+        if contract.workspace_grant_id is not None and tool_name not in {
+            "work.create",
+            "work.update",
+            "attachment.retain",
+        }:
+            raise ValueError("unexpected captured workspace grant")
     if not historical and arguments.get("request_ref") != str(origin_message_id):
         raise ValueError("origin request differs from the exact ActionRequest")
 
@@ -1987,9 +2508,23 @@ def _validate_stored_action(stored: StoredAction) -> None:
         # Original bytes remain audit facts; no current tool interprets them.
         return
     if (
-        stored.tool_name in AGENT_WRITE_IDS and stored.tool_name not in AGENT_LOCAL_IDS
+        (
+            stored.tool_name in AGENT_WRITE_IDS
+            and stored.tool_name not in AGENT_LOCAL_IDS
+        )
+        or stored.tool_name in WRITE_TOOL_IDS
     ) != (stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce):
         raise ValueError("write action replay policy differs from its tool family")
+    if stored.tool_name in WRITE_TOOL_IDS:
+        frozen = stored.current_execution_contract.workspace
+        if (
+            frozen is None
+            or frozen.action_id != stored.id
+            or stored.arguments["request_ref"] != str(stored.origin_message_id)
+        ):
+            raise ValueError("workspace action identity changed")
+        if stored.status == "succeeded":
+            _verify_workspace_receipt(stored, _stored_tool_result(stored)["value"])
     if str(stored.tool_name).startswith("agent."):
         if (
             stored.tool_name not in AGENT_WRITE_IDS
@@ -2099,9 +2634,15 @@ async def recorded_action_result(
 ) -> ToolResult | None:
     """Project the original tool result within the caller's transaction."""
     stored = await recorded_action(connection, action_id)
-    if stored is None or isinstance(
-        stored.execution_contract, _ArchivedExecutionContract
-    ):
+    if stored is None:
+        return None
+    if isinstance(stored.execution_contract, _ArchivedExecutionContract):
+        if (
+            stored.status in {"succeeded", "failed"}
+            and stored.result
+            and stored.result.get("type") in {"Success", "Failure"}
+        ):
+            return _stored_tool_result(stored)
         return None
     return action_replay_result(stored)
 
@@ -2121,6 +2662,11 @@ def action_replay_result(stored: StoredAction) -> ToolResult | None:
                 mode="json"
             ),
         }
+    if stored.status == "uncertain" and stored.tool_name in WRITE_TOOL_IDS:
+        return {
+            "type": "Failure",
+            "error": WorkspaceWriteFailure(code="uncertain").model_dump(mode="json"),
+        }
     if stored.status in {"succeeded", "failed"} and stored.result is not None:
         return _stored_tool_result(stored)
     return None
@@ -2133,33 +2679,6 @@ def _recovery_external_attempts(stored: StoredAction) -> int:
     return cast(int, recovery["actual_external_attempts"])
 
 
-async def _stage_mail_progress(
-    connection: AsyncConnection,
-    stored: StoredAction,
-    progress: MailProgress,
-    attempts: int,
-) -> StoredAction:
-    if (
-        stored.status != "executing"
-        or stored.current_execution_contract.mail is None
-        or not stored.recovered_external_attempts
-        <= attempts
-        <= GMAIL_WRITE_POLICY.max_attempts
-    ):
-        raise ActionPersistenceDefect(
-            "Gmail progress lacks current execution authority"
-        )
-    return await _update_action(
-        connection,
-        stored.id,
-        result={
-            "type": "action_recovery_v1",
-            "actual_external_attempts": attempts,
-            "reconciliation_basis": progress.model_dump(mode="json"),
-        },
-    )
-
-
 def _recovery_state(result: dict[str, object]) -> dict[str, object]:
     canonical = _json_object(result, "action recovery state")
     if set(canonical) != {
@@ -2169,7 +2688,9 @@ def _recovery_state(result: dict[str, object]) -> dict[str, object]:
     } or (canonical.get("type") != "action_recovery_v1"):
         raise ActionPersistenceDefect("action recovery state is invalid")
     if canonical["reconciliation_basis"] is not None:
-        MailProgress.model_validate(canonical["reconciliation_basis"])
+        raise ActionPersistenceDefect(
+            "current re-dispatchable action has unexpected recovery evidence"
+        )
     attempts = canonical["actual_external_attempts"]
     if type(attempts) is not int or attempts < 0:
         raise ActionPersistenceDefect("action recovery attempts are invalid")
@@ -2181,12 +2702,6 @@ def _uncertainty_result(
 ) -> dict[str, object]:
     canonical = _json_object(result, "action uncertainty result")
     keys = {"type", "evidence_code", "recorded_at"}
-    if (
-        "reconciliation_basis" in canonical
-        and str(stored.tool_name) in GMAIL_WRITE_NAMES
-    ):
-        keys.add("reconciliation_basis")
-        MailProgress.model_validate(canonical["reconciliation_basis"])
     if canonical.get("type") == "agent_uncertainty_v1":
         keys.add("control")
         _agent_evidence(stored, canonical.get("control"))

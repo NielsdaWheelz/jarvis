@@ -34,6 +34,7 @@ from jarvis.read_tools import (
     ReadResponse,
     attachment_media_type,
 )
+from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS
 
 # Two worst-case delete entries (8 reads/mutations each) and bounded recovery (3).
 ATTACHMENT_EXTERNAL_ATTEMPTS = 20
@@ -205,10 +206,10 @@ ATTACHMENT_RETAIN_SPEC = ToolSpec[
     AttachmentRetainInput, AttachmentSnapshot, AttachmentError
 ](
     id=ToolId("attachment.retain"),
-    summary="keep the exact selected source file privately and indefinitely.",
+    summary="keep the exact source file selected by the owner.",
     documentation=PromptDocument(
-        "select exact gmail message/part ids from "
-        "observed descriptors. no URL, path or model-supplied account. owner web "
+        "retain only at the owner's request. select exact gmail message and part ids "
+        "from a recorded descriptor. no URL, path or model-supplied account. owner web "
         "uploads enter automatic retention; their manifest proves receipt, not "
         "storage completion. ready sources reuse their original; failed/deleted "
         "sources may be captured anew. saved bytes do not prove inspection."
@@ -218,7 +219,10 @@ ATTACHMENT_RETAIN_SPEC = ToolSpec[
     error_type=cast(type[AttachmentError], AttachmentError),
     effect=ToolEffect.Write,
     limits=ToolLimits(
-        8_192, 4_096, ATTACHMENT_EXTERNAL_ATTEMPTS, ATTACHMENT_OPERATION_SECONDS
+        8_192,
+        4_096,
+        ATTACHMENT_EXTERNAL_ATTEMPTS,
+        ATTACHMENT_OPERATION_SECONDS + HUMAN_WAIT_SECONDS,
     ),
 )
 ATTACHMENT_OPEN_SPEC = ToolSpec[
@@ -350,7 +354,7 @@ def attachment_family(store: AttachmentToolStore) -> ToolFamily:
                 implementation_revision="jarvis-"
                 + str(spec.id).replace(".", "-")
                 + {
-                    ATTACHMENT_RETAIN_SPEC.id: "-v3",
+                    ATTACHMENT_RETAIN_SPEC.id: "-workspace-v4",
                     ATTACHMENT_OPEN_SPEC.id: "-v2",
                     ATTACHMENT_DELETE_SPEC.id: "-v1",
                 }[spec.id],

@@ -51,9 +51,15 @@ from jarvis.db import (
 from jarvis.event_tools import EVENT_READ_IDS
 from jarvis.messages import causal_component_ids
 from jarvis.ownership import Database, DeploymentOwnershipDefect, lock_conversation
-from jarvis.receipt_tools import RECEIPT_READ_ID
-from jarvis.tool_results import completed_tool_result
+from jarvis.receipt_tools import RECEIPT_READ_ID, original_read_position, receipt_scope
+from jarvis.tool_results import completed_tool_result, host_rejected
 from jarvis.work_tools import WORK_READ_IDS
+from jarvis.workspace_host import (
+    WORKSPACE_READ_IDS,
+    NativeWorkspaceRead,
+    native_read_at,
+)
+from jarvis.workspace_mcp import WorkspaceError
 
 if TYPE_CHECKING:
     from jarvis.memory_service import MemoryService
@@ -64,18 +70,8 @@ FRESH_READ_IDS = (
     WORK_READ_IDS
     | EVENT_READ_IDS
     | ATTACHMENT_READ_IDS
-    | {
-        ToolId("gmail.search"),
-        RECEIPT_READ_ID,
-        ToolId("gmail.list_thread_messages"),
-        ToolId("gmail.list_attachments"),
-        ToolId("gmail.read_message"),
-        ToolId("calendar.list_calendars"),
-        ToolId("calendar.read_calendar"),
-        ToolId("calendar.list_events"),
-        ToolId("calendar.get_event"),
-        ToolId("web.read"),
-    }
+    | WORKSPACE_READ_IDS
+    | {RECEIPT_READ_ID, ToolId("web.read")}
 )
 
 
@@ -311,7 +307,21 @@ class PostgresReadRecorder:
                             .where(read_position.c.position == str(lineage.position))
                             .values(state="prepared", updated_at=datetime.now(UTC))
                         )
-            if binding.spec.id in FRESH_READ_IDS:
+            workspace_read = binding.spec.id in WORKSPACE_READ_IDS
+            if workspace_read:
+                access = native_read_at(lineage.position)
+                if access is None:
+                    raise ValueError("workspace read is outside its native callback")
+                original = await connection.scalar(
+                    select(read_position.c.contract).where(
+                        read_position.c.position == str(lineage.position)
+                    )
+                )
+                if original is not None and original.get("workspace_grant_id") != str(
+                    access.grant_id
+                ):
+                    return host_rejected("workspace_grant_changed")
+            if binding.spec.id in FRESH_READ_IDS and not workspace_read:
                 return None
             unfinished = set(
                 (
@@ -330,6 +340,30 @@ class PostgresReadRecorder:
             if not unfinished:
                 return None
             component = set(await causal_component_ids(connection, tuple(unfinished)))
+            if workspace_read:
+                access = native_read_at(lineage.position)
+                assert access is not None
+                outstanding = await connection.scalar(
+                    select(read_position.c.position)
+                    .select_from(native_invocation)
+                    .join(
+                        native_attempt,
+                        native_attempt.c.id == native_invocation.c.attempt_id,
+                    )
+                    .join(read_position, original_read_position())
+                    .where(
+                        *receipt_scope(lineage.permit.scope_id, tuple(component)),
+                        native_invocation.c.id != UUID(lineage.invocation_id),
+                        native_invocation.c.validation == "accepted",
+                        read_position.c.state.in_(("dispatched", "uncertain")),
+                        read_position.c.contract["workspace_source_digest"].as_string()
+                        == access.source_digest,
+                    )
+                    .limit(1)
+                )
+                if outstanding is not None:
+                    return _paid_read_barrier(outstanding, "paid_read_outcome_unknown")
+                return None
             rows = (
                 (
                     await connection.execute(
@@ -510,6 +544,12 @@ class PostgresReadRecorder:
             "input_digest": input_digest,
             "replay_policy": replay_policy.value,
         }
+        if tool_id in WORKSPACE_READ_IDS:
+            access = native_read_at(position)
+            if access is None:
+                raise ValueError("workspace read position lacks its native grant")
+            contract["workspace_grant_id"] = str(access.grant_id)
+            contract["workspace_source_digest"] = access.source_digest
         if tool_id == ToolId("web.search"):
             if position not in self._web_operations:
                 raise ValueError(
@@ -696,6 +736,16 @@ class PostgresReadRecorder:
         ):
             raise ValueError("read settlement exceeds its reservation")
         async with self._database.begin() as connection:
+            if result["type"] == "Success" and isinstance(
+                access := native_read_at(position), NativeWorkspaceRead
+            ):
+                try:
+                    await access.require_current(connection)
+                except WorkspaceError as exc:
+                    result = host_rejected(exc.kind).result
+                    settlement = Settlement(
+                        settlement.actual_attempts, len(canonical_json_bytes(result))
+                    )
             row = (
                 (
                     await connection.execute(

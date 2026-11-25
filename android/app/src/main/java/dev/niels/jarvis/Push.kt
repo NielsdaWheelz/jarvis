@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -67,13 +68,15 @@ import org.json.JSONObject
 private const val PHONE = "/api/push/phone"
 private const val REPLY = "reply"
 private const val QUESTION = "question"
+private const val WORKSPACE = "workspace_check"
 private const val LINKED = "alerts linked to this phone"
 
 private fun NotificationManager.prepareChannels() {
     createNotificationChannels(
         listOf(
             NotificationChannel(REPLY, "replies", NotificationManager.IMPORTANCE_DEFAULT),
-            NotificationChannel(QUESTION, "questions", NotificationManager.IMPORTANCE_HIGH)
+            NotificationChannel(QUESTION, "questions", NotificationManager.IMPORTANCE_HIGH),
+            NotificationChannel(WORKSPACE, "scheduled checks", NotificationManager.IMPORTANCE_HIGH)
         )
     )
 }
@@ -90,24 +93,33 @@ class Push : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        if (data.keys != setOf("notice_id", "message_id", "kind")) return
-        val notice = data["notice_id"] ?: return
-        val reply = data["message_id"] ?: return
-        val route = Route.Message(reply)
-        if (runCatching { UUID.fromString(notice).toString() }.getOrNull() != notice ||
-            Routes.parse(Routes.url(route)) != route
-        ) return
+        val notice = data["notice_id"]?.takeIf(::canonicalUuid) ?: return
         val kind = data["kind"] ?: return
-        val title = when (kind) {
-            REPLY -> "jarvis replied"
-            QUESTION -> "jarvis needs a reply"
-            else -> return
+        val title: String
+        val destination: Intent
+        if (kind == WORKSPACE) {
+            if (data.keys != setOf("kind", "notice_id", "todo_id")) return
+            val todo = data["todo_id"]?.takeIf(::canonicalUuid) ?: return
+            title = "open jarvis"
+            destination = Intent(this, WorkspaceTapActivity::class.java).setData(
+                Uri.Builder().scheme("jarvis-check").authority("tap")
+                    .appendPath(notice).appendPath(todo).build()
+            )
+        } else {
+            if (data.keys != setOf("kind", "notice_id", "message_id")) return
+            val reply = data["message_id"]?.takeIf(::canonicalUuid) ?: return
+            title = when (kind) {
+                REPLY -> "jarvis replied"
+                QUESTION -> "jarvis needs a reply"
+                else -> return
+            }
+            destination = Intent(Intent.ACTION_VIEW, Routes.url(Route.Message(reply)), this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         val manager = getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return
         manager.prepareChannels()
-        val destination = Intent(Intent.ACTION_VIEW, Routes.url(route), this, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (manager.getNotificationChannel(kind)?.importance == NotificationManager.IMPORTANCE_NONE) return
         val tap = PendingIntent.getActivity(this, 0, destination, PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(this, kind)
             .setSmallIcon(R.drawable.ic_notification)

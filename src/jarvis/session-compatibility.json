@@ -1,5 +1,5 @@
 {
-  "application_session_contract_revision": "jarvis-outgoing-mail-v3",
+  "application_session_contract_revision": "jarvis-google-workspace-v1",
   "dependencies": {
     "llm-agent-kernel": "a6e06de43145e07c65c982e78e85e5693998fc94",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
@@ -20,7 +20,7 @@
     "main": {
       "effort": "max",
       "model": "gpt-6.2-astra",
-      "revision": "jarvis-main-pdf-citations-v26"
+      "revision": "jarvis-main-google-workspace-v27"
     }
   },
   "schema_version": "jarvis-session-compatibility.v4"

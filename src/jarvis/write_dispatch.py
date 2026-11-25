@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
-from collections.abc import Callable
-from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
+from hashlib import sha256
 from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
@@ -34,24 +36,24 @@ from llm_tools import (
     ToolExecutor,
     ToolId,
     ToolResult,
+    canonical_json_bytes,
     raw_input_digest,
 )
 from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncConnection
 from universal_memory.tools import MEMORY_SAVE_NOTE_SPEC
 
 from jarvis._secrets import contains_secret
 from jarvis.action_requests import ActionRequest
 from jarvis.actions import (
     ACTION_MAX_ATTEMPTS,
-    GMAIL_WRITE_NAMES,
-    ActionPersistenceDefect,
     ActionPositionRecorder,
     ActionStore,
     ExecutionContract,
     StoredAction,
     action_replay_result,
     retired_worker_action,
+    workspace_owner_live,
 )
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.agent_control import AgentController
@@ -61,34 +63,28 @@ from jarvis.agent_tools import (
     AgentTargetInput,
 )
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
-from jarvis.attachment_tools import ATTACHMENT_WRITE_IDS
+from jarvis.attachment_tools import ATTACHMENT_WRITE_IDS, AttachmentRetainInput
 from jarvis.attachments import AttachmentStore
 from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.events import EventStore
-from jarvis.gmail_drafts import verified_draft
 from jarvis.mail_files import MailFileFailure, MailFiles
 from jarvis.native_journal import PostgresNativeJournal
 from jarvis.read_dispatch import ReadDispatchPort
 from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
 from jarvis.work import WorkStore
 from jarvis.work_tools import WORK_MUTATION_IDS
-from jarvis.write_connectors import GoogleWriteConnector
-from jarvis.write_policy import classify_write
-from jarvis.write_tools import (
-    WRITE_TOOL_IDS,
-    CalendarCreateEventInput,
-    CalendarDeleteEventInput,
-    CalendarUpdateEventInput,
-    ExistingMailPart,
-    GmailComposeContract,
-    GmailCreateDraftInput,
-    GmailRetainedPart,
-    GmailSendContract,
-    GmailSendDraftInput,
-    GmailStagedPart,
-    GmailUpdateDraftInput,
-    ReconciliationResult,
+from jarvis.workspace_enrollment import WorkspaceEnrollment
+from jarvis.workspace_host import NativeWorkspaceRead, bind_workspace_read
+from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, WorkspaceError, workspace_attempts
+from jarvis.workspace_write_models import (
+    DiscardDraft,
+    FrozenCompose,
+    workspace_write_arguments,
 )
+from jarvis.workspace_writes import WorkspaceWrites
+from jarvis.write_connectors import WorkspaceWriteEntry, workspace_failure
+from jarvis.write_policy import classify_write
+from jarvis.write_tools import GMAIL_WRITE_POLICY, WRITE_TOOL_IDS
 
 _INVALID_INPUT: ToolResult = {"type": "Failure", "error": {"type": "InvalidInput"}}
 _UNAVAILABLE: ToolResult = {
@@ -113,7 +109,8 @@ class WriteToolDispatcher:
         checkpoint: WriteAuthority,
         journal: PostgresNativeJournal,
         actions: ActionStore,
-        google_write: GoogleWriteConnector,
+        workspace_writes: WorkspaceWrites,
+        workspace_grant: Callable[[], WorkspaceEnrollment | None],
         work: WorkStore,
         events: EventStore,
         attachments: AttachmentStore,
@@ -121,14 +118,14 @@ class WriteToolDispatcher:
         agents: AgentController,
         read: ReadDispatchPort,
         source_conversation_id: str,
-        verified_owner_only_calendar_ids: tuple[str, ...],
         host_secrets: tuple[str, ...],
         dispatch_lane: asyncio.Lock,
     ) -> None:
         self._checkpoint = checkpoint
         self._journal = journal
         self._actions = actions
-        self._google_write = google_write
+        self._workspace_writes = workspace_writes
+        self._workspace_grant = workspace_grant
         self._work = work
         self._events = events
         self._attachments = attachments
@@ -136,7 +133,6 @@ class WriteToolDispatcher:
         self._agents = agents
         self._read = read
         self._source_conversation_id = source_conversation_id
-        self._verified_calendar_ids = verified_owner_only_calendar_ids
         self._host_secrets = host_secrets
         self._dispatch_lane = dispatch_lane
         self._effects: set[asyncio.Task[DispatchResult]] = set()
@@ -173,6 +169,8 @@ class WriteToolDispatcher:
 
         async def invoke() -> DispatchResult:
             async with self._dispatch_lane:
+                if await self._actions.is_standing_check(UUID(lineage.input_ids[-1])):
+                    return host_rejected("workspace_check_read_only")
                 if binding.spec.id == MEMORY_SAVE_NOTE_SPEC.id:
                     return await self._read.save_note(
                         binding=binding,
@@ -186,12 +184,14 @@ class WriteToolDispatcher:
                     if not isinstance(validated_input, ApprovalRespondInput):
                         raise ToolDispatchDefect("approval decision input is invalid")
                     result = await self._journal.respond_approval(
-                        lineage.invocation_id, validated_input
+                        lineage.invocation_id,
+                        validated_input,
+                        workspace_grant=self._workspace_grant,
                     )
                     if result.result["type"] == "Success":
                         task = asyncio.create_task(
                             self._finish_decision(
-                                UUID(validated_input.action_id), plan, cancellation
+                                validated_input, plan, cancellation, lineage
                             ),
                             name=f"jarvis-decision:{validated_input.action_id}",
                         )
@@ -236,8 +236,43 @@ class WriteToolDispatcher:
         request_id = UUID(request.request_ref)
         await self._checkpoint.require_live_request(lineage, request_id)
         await self._read.recover_budget(lineage=lineage, budgets=budgets)
-        previous, blocked = await self._actions.accepted_actions(request_id)
+        tool_id = binding.spec.id
         payload = request.arguments
+        if await self._actions.is_standing_check(request_id):
+            return host_rejected("workspace_check_read_only")
+        grant = (
+            self._workspace_grant()
+            if tool_id in WRITE_TOOL_IDS
+            or tool_id in {"work.create", "work.update", "attachment.retain"}
+            else None
+        )
+        authorize = None
+        retention = None
+        if tool_id in WRITE_TOOL_IDS or tool_id == "attachment.retain":
+            if grant is None:
+                return host_rejected("workspace_grant_unavailable")
+            authorize = self._workspace_authority(
+                lineage,
+                request_id,
+                tool_id,
+                grant.grant_id,
+                grant.account,
+                cancellation,
+            )
+            try:
+                await authorize(None)
+            except WorkspaceError as exc:
+                return host_rejected(exc.kind)
+            if tool_id == "attachment.retain":
+                if not isinstance(payload, AttachmentRetainInput):
+                    raise ToolDispatchDefect("retain requires its exact file source")
+                source = payload.source.model_dump(mode="json")
+                if not await self._attachments.workspace_source_observed(
+                    source, account=grant.account, grant_id=grant.grant_id
+                ):
+                    return host_rejected("workspace_file_not_observed")
+                retention = self._retention_access(lineage, source, grant, authorize)
+        previous, blocked = await self._actions.accepted_actions(request_id)
         if request.existing_action_ref is not None:
             selected = next(
                 (
@@ -258,15 +293,27 @@ class WriteToolDispatcher:
                 or selected.payload != payload.model_dump(mode="json")
             ):
                 return host_rejected("action_reference_contract_changed")
-            reference = HostRef(str(selected.id))
-            if selected.status == "awaiting_approval":
-                return DispatchSuspended(reference, WaitingFor.user)
-            recorded = action_replay_result(selected)
-            if recorded is not None:
-                return completed_tool_result(recorded, reference)
-            if selected.status in {"queued", "executing", "uncertain"}:
-                return DispatchSuspended(reference, WaitingFor.system)
-            return host_rejected("action_was_cancelled", reference)
+            return _existing_action_result(selected)
+        replacement = None
+        if (
+            isinstance(payload, DiscardDraft)
+            and payload.target.verified_replacement_action_id is not None
+        ):
+            assert grant is not None and authorize is not None
+            try:
+                replacement, prior = await self._actions.replacement_for_discard(
+                    payload.target.verified_replacement_action_id,
+                    request_id,
+                    UUID(lineage.invocation_id),
+                    grant.grant_id,
+                    grant.account,
+                    self._source_conversation_id,
+                    authorize,
+                )
+            except WorkspaceError as exc:
+                return host_rejected(exc.kind)
+            if prior is not None:
+                return _existing_action_result(prior)
         if blocked and binding.spec.id not in (*WORK_MUTATION_IDS, *EVENT_MUTATION_IDS):
             return host_rejected("effect_outcome_unknown")
         if binding.replay_policy not in {
@@ -277,45 +324,75 @@ class WriteToolDispatcher:
         arguments = request.model_dump(mode="json")
         if contains_secret(arguments, self._host_secrets):
             return completed_tool_result(dict(_INVALID_INPUT))
-        tool_id = binding.spec.id
         target = None
         if tool_id in AGENT_WRITE_IDS and isinstance(payload, AgentTargetInput):
             target = await self._agents.locate(tool_id, payload)
-        live_event = None
-        if isinstance(payload, CalendarUpdateEventInput | CalendarDeleteEventInput):
-            observed = await self._google_write.calendar_current_snapshot(
-                payload.expected.calendar_id, payload.expected.event_id
-            )
-            if observed.outcome != "found":
-                return completed_tool_result(dict(_UNAVAILABLE))
-            live_event = observed.value
-        authority = classify_write(
-            tool_id,
-            payload,
-            verified_owner_only_calendar_ids=self._verified_calendar_ids,
-            live_calendar_event=live_event,
-        )
+        authority = classify_write(tool_id, payload)
         if authority == "rejected":
             return completed_tool_result(dict(_UNAVAILABLE))
 
-        def check_admitted() -> None:
+        async def check_admitted(connection: AsyncConnection) -> None:
+            if authorize is not None:
+                await authorize(connection)
             if cancellation.cancelled or self._closing:
                 raise asyncio.CancelledError
 
-        check_admitted()
+        if cancellation.cancelled or self._closing:
+            raise asyncio.CancelledError
         action_id = uuid4()
-        mail = None
-        if isinstance(
-            payload, GmailCreateDraftInput | GmailUpdateDraftInput | GmailSendDraftInput
-        ):
+        frozen = None
+        prepare_attempts = 0
+        prepare_seconds = 0.0
+        staging = tool_id in {"gmail.create_draft", "gmail.prepare_replacement"}
+        if tool_id in WRITE_TOOL_IDS and grant is not None and authorize is not None:
+
+            async def before_prepare() -> None:
+                await authorize(None)
+
             try:
-                mail = await self._freeze_mail(action_id, payload)
-            except MailFileFailure as exc:
-                return completed_tool_result({"type": "Failure", "error": exc.error})
-            if mail is None:
-                return completed_tool_result(
-                    {"type": "Failure", "error": {"type": "DraftChanged"}}
+                limits = plan.grant(tool_id).limits
+                with workspace_attempts(
+                    GMAIL_WRITE_POLICY.max_attempts,
+                    seconds=limits.deadline_seconds - HUMAN_WAIT_SECONDS,
+                ) as meter:
+                    async with asyncio.timeout(limits.deadline_seconds):
+                        frozen = await self._workspace_writes.prepare(
+                            str(tool_id),
+                            workspace_write_arguments(payload),
+                            action_id=action_id,
+                            grant_id=grant.grant_id,
+                            account=grant.account,
+                            invocation_id=lineage.invocation_id,
+                            before_send=before_prepare,
+                            replacement=replacement,
+                        )
+                prepare_attempts, prepare_seconds = meter.attempts, meter.elapsed
+                if (frozen.action_id, frozen.tool, frozen.grant_id, frozen.account) != (
+                    action_id,
+                    tool_id,
+                    grant.grant_id,
+                    grant.account,
+                ):
+                    raise ToolDispatchDefect(
+                        "workspace preparation changed its action identity"
+                    )
+            except (WorkspaceError, MailFileFailure, TimeoutError) as exc:
+                if staging:
+                    await _discard_mail_stage(self._mail_files, action_id)
+                detail = (
+                    exc.error
+                    if isinstance(exc, MailFileFailure)
+                    else workspace_failure(
+                        WorkspaceError("temporary")
+                        if isinstance(exc, TimeoutError)
+                        else exc
+                    ).model_dump(mode="json")
                 )
+                return completed_tool_result({"type": "Failure", "error": detail})
+            except BaseException:
+                if staging:
+                    await _discard_mail_stage(self._mail_files, action_id)
+                raise
 
         contract = ExecutionContract(
             schema_version="jarvis.action.v2",
@@ -337,7 +414,13 @@ class WriteToolDispatcher:
             model_step_ordinal=lineage.ordinal,
             input_message_ids=tuple(map(str, lineage.input_ids)),
             agent_target=target,
-            mail=mail,
+            workspace=frozen,
+            workspace_prepare_attempts=prepare_attempts,
+            workspace_prepare_seconds=prepare_seconds,
+            workspace_grant_id=grant.grant_id
+            if grant is not None
+            and tool_id in {"work.create", "work.update", "attachment.retain"}
+            else None,
         )
         insert = (
             self._actions.insert_awaiting_approval
@@ -354,112 +437,187 @@ class WriteToolDispatcher:
                 invocation_id=UUID(lineage.invocation_id),
                 check_admitted=check_admitted,
             )
-        except (ActionPersistenceDefect, IntegrityError, asyncio.CancelledError):
-            if (
-                isinstance(mail, GmailComposeContract)
-                and await self._actions.get(action_id) is None
-            ):
+        except BaseException as exc:
+            if staging and await self._actions.get(action_id) is None:
                 await _discard_mail_stage(self._mail_files, action_id)
+            if isinstance(exc, WorkspaceError):
+                return host_rejected(exc.kind)
             raise
         if authority == "approval_required":
-            reference = HostRef(str(stored.id))
-            if stored.status == "awaiting_approval":
-                return DispatchSuspended(reference, WaitingFor.user)
-            recorded = action_replay_result(stored)
-            if recorded is not None:
-                return completed_tool_result(recorded, reference)
-            return DispatchSuspended(reference, WaitingFor.system)
-        result = await execute_recorded_action(
-            self._actions,
-            action_id=action_id,
-            binding=binding,
-            plan=plan,
-            budgets=budgets,
-            source_conversation_id=self._source_conversation_id,
+            return _existing_action_result(stored)
+        entry = (
+            WorkspaceWriteEntry(
+                frozen,
+                UUID(lineage.invocation_id),
+                authorize,
+                prepare_attempts,
+                prepare_seconds,
+            )
+            if frozen is not None and authorize is not None
+            else None
         )
-        if isinstance(mail, GmailComposeContract) and not isinstance(
-            result, DispatchSuspended
-        ):
+        with bind_workspace_read(retention) if retention is not None else nullcontext():
+            result = await execute_recorded_action(
+                self._actions,
+                action_id=stored.id,
+                binding=binding,
+                plan=plan,
+                budgets=budgets,
+                source_conversation_id=self._source_conversation_id,
+                workspace_entry=entry,
+            )
+        if staging and not isinstance(result, DispatchSuspended):
             await _discard_mail_stage(self._mail_files, action_id)
         self._agents.notify_wait_changed()
         return result
 
-    async def _freeze_mail(
+    def _retention_access(
         self,
-        action_id: UUID,
-        payload: GmailCreateDraftInput | GmailUpdateDraftInput | GmailSendDraftInput,
-    ) -> GmailComposeContract | GmailSendContract | None:
-        creation_id = action_id
-        revision = None
-        old_files = ()
-        if isinstance(payload, GmailCreateDraftInput):
-            requested = payload.files
-        else:
-            source = await self._actions.get(payload.draft_ref)
-            if source is None or (verified := verified_draft(source)) is None:
-                return None
-            revision = verified.receipt.revision
-            creation_id = verified.creation_id
-            if isinstance(payload, GmailSendDraftInput):
-                return GmailSendContract(
-                    creation_id=creation_id,
-                    revision=revision,
-                    snapshot=verified.snapshot,
-                )
-            if payload.replacement.reply_to != verified.reply_to:
-                return None
-            old_files = verified.receipt.files
-            requested = (
-                tuple(
-                    ExistingMailPart(kind="existing", existing_part=number)
-                    for number in range(1, len(old_files) + 1)
-                )
-                if payload.files is None
-                else payload.files
-            )
+        lineage: NativeDispatchLineage,
+        source: dict[str, object],
+        grant: WorkspaceEnrollment,
+        authorize: Callable[[AsyncConnection | None], Awaitable[None]],
+    ) -> NativeWorkspaceRead:
+        async def require_current(connection: AsyncConnection | None) -> None:
+            await authorize(connection)
+            if not await self._attachments.workspace_source_observed(
+                source, account=grant.account, grant_id=grant.grant_id
+            ):
+                raise WorkspaceError("workspace_file_not_observed")
 
-        positions = tuple(
-            item.existing_part
-            for item in requested
-            if isinstance(item, ExistingMailPart)
-        )
-        if len(positions) != len(set(positions)) or any(
-            number > len(old_files) for number in positions
-        ):
-            return None
-        files = await self._mail_files.stage(
-            action_id,
-            tuple(
-                old_files[item.existing_part - 1]
-                if isinstance(item, ExistingMailPart)
-                else item
-                for item in requested
-            ),
-        )
-        return GmailComposeContract(
-            creation_id=creation_id,
-            base_revision=revision,
-            parts=tuple(
-                GmailRetainedPart(existing_part=item.existing_part, file=file)
-                if isinstance(item, ExistingMailPart)
-                else GmailStagedPart(slot=slot, file=file)
-                for slot, (item, file) in enumerate(
-                    zip(requested, files, strict=True), 1
+        async def before_send(
+            public: str,
+            selectors: dict[str, object],
+            product: str,
+            operation: str,
+            wire: dict[str, object],
+        ) -> None:
+            if (
+                public != "attachment.retain"
+                or selectors != {"source": source}
+                or product != "gmail"
+            ):
+                raise WorkspaceError("source_changed")
+            if operation == "get_message":
+                exact = not str(source["part_id"]).startswith("mime1.d") and wire == {
+                    "messageId": source["message_id"],
+                    "messageFormat": "RAW",
+                }
+            elif operation == "get_draft" and isinstance(wire.get("draftId"), str):
+                draft = str(wire["draftId"])
+                tag = base64.urlsafe_b64encode(draft.encode()).decode().rstrip("=")
+                exact = wire == {"draftId": draft, "messageFormat": "RAW"} and str(
+                    source["part_id"]
+                ).startswith(f"mime1.d{tag}.")
+            else:
+                exact = False
+            if not exact:
+                raise WorkspaceError("source_changed")
+            await require_current(None)
+
+        return NativeWorkspaceRead(
+            invocation_id=lineage.invocation_id,
+            background=False,
+            before_send=before_send,
+            grant_id=grant.grant_id,
+            source_digest=sha256(
+                canonical_json_bytes(
+                    [str(grant.grant_id), "attachment.retain", source, None]
                 )
-            ),
+            ).hexdigest(),
+            require_current=require_current,
         )
+
+    def _workspace_authority(
+        self,
+        lineage: NativeDispatchLineage,
+        owner_id: UUID,
+        tool: ToolId,
+        grant_id: UUID,
+        account: str,
+        cancellation: CancellationToken,
+        *,
+        decision_for: UUID | None = None,
+    ) -> Callable[[AsyncConnection | None], Awaitable[None]]:
+        async def authorize(connection: AsyncConnection | None) -> None:
+            if connection is None:
+                async with self._actions.engine.connect() as local:
+                    await authorize(local)
+                return
+            if (
+                lineage.permit.scope_id != self._source_conversation_id
+                or lineage.permit.owner_token != self._journal.owner.token
+                or not await workspace_owner_live(
+                    connection,
+                    lineage,
+                    owner_id,
+                    APPROVAL_RESPOND_SPEC.id if decision_for else tool,
+                    decision_for=decision_for,
+                )
+            ):
+                raise WorkspaceError("owner_required")
+            current = self._workspace_grant()
+            if current is None or (current.grant_id, current.account) != (
+                grant_id,
+                account,
+            ):
+                raise WorkspaceError("grant_unavailable")
+            if tool in {"gmail.prepare_replacement", "gmail.discard_draft"} and (
+                "https://www.googleapis.com/auth/gmail.messages.delete"
+                not in current.scopes
+            ):
+                raise WorkspaceError("scope_missing")
+            if cancellation.cancelled or self._closing:
+                raise WorkspaceError("cancelled")
+
+        return authorize
 
     async def _finish_decision(
-        self, action_id: UUID, plan: FrozenToolPlan, cancellation: CancellationToken
+        self,
+        decision: ApprovalRespondInput,
+        plan: FrozenToolPlan,
+        cancellation: CancellationToken,
+        lineage: NativeDispatchLineage,
     ) -> DispatchResult:
+        action_id = UUID(decision.action_id)
         async with self._dispatch_lane:
             stored = await self._actions.get(action_id)
             if stored is None:
                 raise ToolDispatchDefect("decided action disappeared")
-            if stored.status in {"queued", "executing"}:
+            if stored.tool_name in WRITE_TOOL_IDS and stored.status == "queued":
+                contract = stored.current_execution_contract
+                frozen = contract.workspace
+                if frozen is None or decision.decision != "approve":
+                    raise ToolDispatchDefect(
+                        "decided workspace action lacks its exact effect"
+                    )
+                entry = WorkspaceWriteEntry(
+                    frozen,
+                    await self._actions.original_invocation(stored),
+                    self._workspace_authority(
+                        lineage,
+                        UUID(decision.owner_message_id),
+                        stored.tool_name,
+                        frozen.grant_id,
+                        frozen.account,
+                        cancellation,
+                        decision_for=action_id,
+                    ),
+                    contract.workspace_prepare_attempts,
+                    contract.workspace_prepare_seconds,
+                )
+                await execute_recorded_action(
+                    self._actions,
+                    action_id=action_id,
+                    binding=require_current_action_binding(stored, plan),
+                    plan=plan,
+                    budgets=ExactToolBudgetFactory().create(plan),
+                    source_conversation_id=self._source_conversation_id,
+                    workspace_entry=entry,
+                )
+            elif stored.status in {"queued", "executing"}:
                 await ActionRecovery(
                     actions=self._actions,
-                    google_write=self._google_write,
                     work=self._work,
                     events=self._events,
                     attachments=self._attachments,
@@ -509,6 +667,18 @@ class WriteToolDispatcher:
         return bool(self._effects)
 
 
+def _existing_action_result(stored: StoredAction) -> DispatchResult:
+    reference = HostRef(str(stored.id))
+    if stored.status == "awaiting_approval":
+        return DispatchSuspended(reference, WaitingFor.user)
+    recorded = action_replay_result(stored)
+    if recorded is not None:
+        return completed_tool_result(recorded, reference)
+    if stored.status in {"queued", "executing", "uncertain"}:
+        return DispatchSuspended(reference, WaitingFor.system)
+    return host_rejected("action_was_cancelled", reference)
+
+
 async def execute_recorded_action(
     actions: ActionStore,
     *,
@@ -517,6 +687,7 @@ async def execute_recorded_action(
     plan: FrozenToolPlan,
     budgets: BudgetState,
     source_conversation_id: str,
+    workspace_entry: WorkspaceWriteEntry | None = None,
 ) -> DispatchResult:
     """Enter the same durable position for immediate, approved and recovered work."""
     stored = await actions.get(action_id, source_conversation_id=source_conversation_id)
@@ -530,6 +701,7 @@ async def execute_recorded_action(
         implementation_revision=binding.implementation_revision,
         max_external_attempts=grant.limits.max_attempts,
         source_conversation_id=source_conversation_id,
+        workspace_entry=workspace_entry,
     )
     try:
         result = await ToolExecutor.execute(
@@ -567,7 +739,6 @@ class ActionRecovery:
         self,
         *,
         actions: ActionStore,
-        google_write: GoogleWriteConnector,
         work: WorkStore,
         events: EventStore,
         attachments: AttachmentStore,
@@ -577,7 +748,6 @@ class ActionRecovery:
         wait_changed: Callable[[], None],
     ) -> None:
         self._actions = actions
-        self._google_write = google_write
         self._work = work
         self._events = events
         self._attachments = attachments
@@ -648,6 +818,26 @@ class ActionRecovery:
             raise RuntimeError(
                 "entered action has no supported reconciliation procedure"
             )
+        if stored.tool_name in WRITE_TOOL_IDS:
+            self._binding(stored)
+            if stored.status == "executing":
+                await self._actions.mark_workspace_uncertain(stored.id)
+            elif stored.status == "queued":
+                if not allow_queued_execution:
+                    return
+                await self._actions.cancel_nonexecuting(
+                    action_id=stored.id,
+                    result={
+                        "type": "workspace_cancelled_v1",
+                        "reason_code": "fresh_owner_required",
+                    },
+                )
+            elif stored.status == "awaiting_approval":
+                return
+            frozen = stored.current_execution_contract.workspace
+            if frozen is not None and isinstance(frozen.effect, FrozenCompose):
+                await _discard_mail_stage(self._mail_files, stored.id)
+            return
         if (
             stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce
             and stored.status == "executing"
@@ -661,16 +851,36 @@ class ActionRecovery:
         for _ in range(maximum_transitions):
             current = await self._require(stored.id)
             if current.status in {"succeeded", "failed", "uncertain", "cancelled"}:
-                if isinstance(
-                    current.current_execution_contract.mail, GmailComposeContract
-                ):
-                    await _discard_mail_stage(self._mail_files, current.id)
                 return
             if current.tool_name in ATTACHMENT_WRITE_IDS:
+                if (
+                    current.tool_name == "attachment.retain"
+                    and current.status == "queued"
+                ):
+                    if allow_queued_execution:
+                        await self._actions.cancel_nonexecuting(
+                            action_id=current.id,
+                            result={
+                                "type": "workspace_cancelled_v1",
+                                "reason_code": "fresh_owner_required",
+                            },
+                        )
+                    return
                 recovered = await self._attachments.recover_action(current.id)
                 if recovered is not None:
                     return
                 current = await self._require(current.id)
+                if current.tool_name == "attachment.retain":
+                    # No original put entered. New source bytes need a new owner.
+                    await self._actions.resolve_reconciliation(
+                        action_id=current.id,
+                        status="failed",
+                        result={
+                            "type": "Failure",
+                            "error": {"type": "Unavailable", "id": None},
+                        },
+                    )
+                    return
                 if current.status == "executing":
                     if current.attempts >= current.execution_contract.max_attempts:
                         raise RuntimeError(
@@ -734,100 +944,7 @@ class ActionRecovery:
                 if not await self._execute(current.id, binding):
                     return
                 continue
-            if current.status == "queued":
-                if not allow_queued_execution:
-                    return
-                if not await self._execute(current.id, binding):
-                    return
-                continue
-            if current.recovered_external_attempts == 0:
-                if current.attempts >= current.execution_contract.max_attempts:
-                    await self._actions.resolve_reconciliation(
-                        action_id=current.id,
-                        status="failed",
-                        result={
-                            "type": "Failure",
-                            "error": {"type": "BudgetExceeded"},
-                        },
-                    )
-                    continue
-                if not allow_queued_execution:
-                    return
-                await self._actions.requeue_after_proved_absence(
-                    current.id,
-                    actual_external_attempts=0,
-                    max_external_attempts=self._plan.grant(
-                        current.tool_name
-                    ).limits.max_attempts,
-                )
-                continue
-            reconciliation = await self._reconcile(current, binding)
-            if reconciliation.outcome == "succeeded":
-                assert reconciliation.value is not None
-                await self._actions.resolve_reconciliation(
-                    action_id=current.id,
-                    status="succeeded",
-                    result={
-                        "type": "Success",
-                        "value": reconciliation.value.model_dump(mode="json"),
-                    },
-                )
-                continue
-            if (
-                current.tool_name == ToolId("gmail.create_draft")
-                and current.mail_progress.entered
-                and reconciliation.outcome == "absent"
-            ):
-                await self._actions.resolve_reconciliation(
-                    action_id=current.id,
-                    status="uncertain",
-                    result={
-                        "type": "action_uncertainty_v1",
-                        "evidence_code": "gmail-create-absence-is-not-repeat-safe",
-                        "recorded_at": datetime.now(UTC).isoformat(),
-                    },
-                )
-                continue
-            if reconciliation.outcome == "absent" and (
-                current.attempts < current.execution_contract.max_attempts
-                and current.recovered_external_attempts
-                < self._plan.grant(current.tool_name).limits.max_attempts
-            ):
-                if not allow_queued_execution:
-                    return
-                await self._actions.requeue_after_proved_absence(
-                    current.id,
-                    actual_external_attempts=0,
-                    max_external_attempts=self._plan.grant(
-                        current.tool_name
-                    ).limits.max_attempts,
-                )
-                continue
-            if reconciliation.outcome == "absent":
-                await self._actions.resolve_reconciliation(
-                    action_id=current.id,
-                    status="failed",
-                    result={"type": "Failure", "error": {"type": "BudgetExceeded"}},
-                )
-                continue
-            await self._actions.resolve_reconciliation(
-                action_id=current.id,
-                status="uncertain",
-                result={
-                    "type": "action_uncertainty_v1",
-                    "evidence_code": reconciliation.evidence,
-                    "recorded_at": datetime.now(UTC).isoformat(),
-                    **(
-                        {
-                            "reconciliation_basis": current.mail_progress.model_dump(
-                                mode="json"
-                            )
-                        }
-                        if str(current.tool_name) in GMAIL_WRITE_NAMES
-                        else {}
-                    ),
-                },
-            )
+            raise RuntimeError("action has no supported recovery procedure")
         current = await self._require(stored.id)
         if current.status not in {"succeeded", "failed", "uncertain", "cancelled"}:
             raise RuntimeError("bounded action recovery did not reach a safe state")
@@ -849,22 +966,6 @@ class ActionRecovery:
             not isinstance(result, DispatchSuspended)
             or (await self._require(action_id)).status != "queued"
         )
-
-    async def _reconcile(
-        self,
-        stored: StoredAction,
-        binding: ToolBinding[Any, Any, Any],
-    ) -> ReconciliationResult[Any]:
-        value = binding.spec.input_type.model_validate(stored.arguments).arguments
-        if stored.current_execution_contract.mail is not None:
-            return await self._google_write.reconcile_gmail(stored)
-        if isinstance(value, CalendarCreateEventInput):
-            return await self._google_write.reconcile_calendar_create(value, stored.id)
-        if isinstance(value, CalendarUpdateEventInput):
-            return await self._google_write.reconcile_calendar_update(value)
-        if isinstance(value, CalendarDeleteEventInput):
-            return await self._google_write.reconcile_calendar_delete(value)
-        raise RuntimeError("action has no reconciliation procedure")
 
     def _binding(self, stored: StoredAction) -> ToolBinding[Any, Any, Any]:
         return require_current_action_binding(stored, self._plan)

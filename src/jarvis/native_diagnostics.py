@@ -20,7 +20,7 @@ from provider_runtime.agent_runtime import (
 from pydantic import ValidationError
 from pydantic_core.core_schema import ErrorType
 
-from jarvis.terminal import JarvisNativeMessage
+from jarvis.native_protocol import JarvisNativeMessage
 
 _KINDS: dict[type[BaseException], str] = {
     kind: kind.__name__

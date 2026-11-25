@@ -27,7 +27,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 from jarvis.read_tools import Preview
 from jarvis.work_tools import HostUtc
 
-POLL_SECONDS = 60
+POLL_SECONDS = 300
 
 
 def provider_id(value: str) -> str:
@@ -36,14 +36,7 @@ def provider_id(value: str) -> str:
     return value
 
 
-def _token(value: str) -> str:
-    if not value or "\0" in value or len(value.encode()) > 8192:
-        raise ValueError("invalid bounded provider token")
-    return value
-
-
 ProviderId = Annotated[str, AfterValidator(provider_id)]
-Token = Annotated[str, AfterValidator(_token)]
 type FailureCode = Literal[
     "TransportUnavailable",
     "RateLimited",
@@ -52,6 +45,9 @@ type FailureCode = Literal[
     "InvalidResponse",
     "ResponseTooLarge",
     "CursorExpired",
+    "AckUncertain",
+    "ConsentRequired",
+    "LabelUnavailable",
 ]
 
 
@@ -59,18 +55,26 @@ class _Closed(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
 
+class MailAcknowledgment(_Closed):
+    message_id: ProviderId
+    phase: Literal["ready", "entered"]
+
+
+class MailResidual(_Closed):
+    total: Annotated[int, Field(strict=True, gt=0)]
+    recheck_at: HostUtc
+
+
 class MailProgress(_Closed):
-    history_id: Token | None
-    page_token: Token | None
-    consumed: Annotated[int, Field(strict=True, ge=0, le=2**53 - 1)]
-    prefix_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None
+    grant_id: UUID
+    label_id: ProviderId
+    ack: MailAcknowledgment | None
+    residual: MailResidual | None
 
     @model_validator(mode="after")
     def consistent(self) -> MailProgress:
-        if (self.consumed == 0) != (self.prefix_sha256 is None):
-            raise ValueError("mail prefix and consumed count disagree")
-        if self.history_id is None and (self.page_token is not None or self.consumed):
-            raise ValueError("mail baseline has no continuation")
+        if self.ack is not None and self.residual is not None:
+            raise ValueError("unsettled mail cannot have a completed scan")
         return self
 
 
@@ -120,7 +124,16 @@ class SourceStatus(_Closed):
     coverage: Literal["current_only", "unknown_gap", "unavailable"]
 
 
-type EventPayload = EmailAdded | SourceStatus
+class RestoredInterval(_Closed):
+    kind: Literal["gmail_restore_interval"] = "gmail_restore_interval"
+    account: ProviderId
+    cut_at: HostUtc
+    restored_at: HostUtc
+    coverage: Literal["unverified"] = "unverified"
+    reconstruction: Literal["owner_request_required"] = "owner_request_required"
+
+
+type EventPayload = EmailAdded | SourceStatus | RestoredInterval
 
 
 class EventsConfigureInput(_Closed):
@@ -135,11 +148,25 @@ class EventsStatusInput(_Closed):
     pass
 
 
+class AckRepair(_Closed):
+    message_id: ProviderId
+    label_id: ProviderId
+    event_source_id: str
+    remedy: Literal["confirm_only_after_this_label_is_observed_absent"] = (
+        "confirm_only_after_this_label_is_observed_absent"
+    )
+
+
 class EventsStatusSuccess(_Closed):
     account: ProviderId | None
     observed_at: HostUtc
     paused: bool
-    poll_seconds: Literal[60]
+    poll_seconds: Literal[300]
+    coverage: Literal["unavailable", "incomplete", "visible_labels_only"]
+    residual: MailResidual | None
+    failure_code: FailureCode | None
+    ack_repair: AckRepair | None
+    count_unreported: bool
     enabled: bool | None
     state: Literal[
         "unverified",
@@ -181,7 +208,7 @@ EVENT_STATUS_SPEC = ToolSpec[EventsStatusInput, EventsStatusSuccess, NoDeclaredE
     id=ToolId("events.status"),
     summary="read fresh gmail observation status without provider calls.",
     documentation=PromptDocument(
-        "last success records the last complete poll or baseline. pause is "
+        "report pending-label observations and the last completed check. pause is "
         "independent. resumed polling cannot reconstruct an expired interval."
     ),
     input_type=EventsStatusInput,
@@ -226,8 +253,8 @@ def events_family(store: EventToolStore) -> ToolFamily:
             spec=spec,
             execute=Available(execute),
             replay_policy=ReplayPolicy.ReDispatchable,
-            implementation_revision="jarvis-" + str(spec.id).replace(".", "-") + "-v2",
-            policy_epoch=PolicyEpoch("jarvis-events-v2"),
+            implementation_revision="jarvis-" + str(spec.id).replace(".", "-") + "-v3",
+            policy_epoch=PolicyEpoch("jarvis-events-v3"),
             policy_inputs={
                 "authority": "delivered-live-request",
                 "external_attempts": 0,

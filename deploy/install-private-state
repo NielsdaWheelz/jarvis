@@ -22,10 +22,9 @@ else
 fi
 target=dev-server-deploy
 source_environment="${JARVIS_SOURCE_ENVIRONMENT:-$repo_dir/.secrets/jarvis.slice0.env}"
-source_google="${JARVIS_SOURCE_GOOGLE_STATE:-$repo_dir/.secrets/google-connector-state.jarvis.json}"
 source_memory="${JARVIS_SOURCE_MEMORY_CONFIG:-$repo_dir/deploy/memory-config.example.json}"
 
-for path in "$source_environment" "$source_google" "$source_memory"; do
+for path in "$source_environment" "$source_memory"; do
   [[ "$path" = /* && -f "$path" && ! -L "$path" ]] || {
     printf 'missing or unsafe private deployment source: %s\n' "$path" >&2
     exit 1
@@ -53,21 +52,20 @@ source = pathlib.Path(sys.argv[1])
 target = pathlib.Path(sys.argv[2])
 required = {
     "JARVIS_BRAVE_API_KEY",
-    "JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION",
-    "JARVIS_CONNECTOR_ENCRYPTION_SECRET",
     "JARVIS_OWNER_SCOPE",
     "JARVIS_OWNER_ARCHIVE_KEY",
     "JARVIS_EMBEDDING_OPENAI_API_KEY",
-    "JARVIS_GOOGLE_OAUTH_CLIENT_ID",
-    "JARVIS_GOOGLE_OAUTH_CLIENT_SECRET",
     "JARVIS_MAPS_API_KEY",
     "JARVIS_ATTACHMENT_R2_ACCOUNT_ID",
     "JARVIS_ATTACHMENT_R2_BUCKET",
     "JARVIS_ATTACHMENT_R2_ACCESS_KEY_ID",
     "JARVIS_ATTACHMENT_R2_SECRET_ACCESS_KEY",
-    "JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS",
 }
-allowed = required | {"JARVIS_GOOGLE_OAUTH_REDIRECT_URI"}
+allowed = required | {
+    "JARVIS_WORKSPACE_PROJECT_ID", "JARVIS_GOOGLE_OAUTH_CLIENT_ID",
+    "JARVIS_GOOGLE_OAUTH_CLIENT_SECRET", "JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION",
+    "JARVIS_CONNECTOR_ENCRYPTION_SECRET",
+}
 raw = source.read_bytes()
 if b"\x00" in raw:
     raise SystemExit("private environment contains a NUL byte")
@@ -124,8 +122,6 @@ shutil.copyfile(source, target)
 target.chmod(0o600)
 PY
 
-cp -p "$source_google" "$scratch/google-oauth-state.json"
-chmod 0600 "$scratch/google-oauth-state.json"
 
 owner="${JARVIS_AGENT_STATE_OWNER:?supply the enrolled account}"
 source_state="${JARVIS_AGENT_SOURCE_STATE_DIRECTORY:?supply the enrolled state path}"
@@ -142,7 +138,7 @@ import json
 import sys
 from pathlib import Path
 stage = Path(sys.argv[1])
-payload = {name: (stage / name).read_text() for name in ("jarvis.env", "memory.json", "google-oauth-state.json")}
+payload = {name: (stage / name).read_text() for name in ("jarvis.env", "memory.json")}
 payload["agent"] = sys.argv[2:]
 json.dump(payload, sys.stdout)
 PYCODE

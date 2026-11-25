@@ -187,7 +187,11 @@ def _entry(row: RowMapping, result: dict[str, Any] | None) -> Entry:
             if isinstance(content, str)
             else canonical_json_bytes(value).decode()
         )
-    if row["tool_id"] == "gmail.read_message" and isinstance(arguments, dict):
+    if (
+        row["tool_id"] == "gmail.read_message"
+        and row["implementation_revision"] == "jarvis-gmail-read_message-v1"
+        and isinstance(arguments, dict)
+    ):
         args = cast(dict[str, Any], arguments)
         locator = ", ".join(
             str(args.get(k)) for k in ("message_id", "section", "offset")
@@ -212,6 +216,35 @@ def _entry(row: RowMapping, result: dict[str, Any] | None) -> Entry:
                     summary = "metadata fragment: " + locator
     else:
         locator = canonical_json_bytes(arguments).decode()
+        if (
+            isinstance(value, dict)
+            and row["implementation_revision"]
+            == ("jarvis-" + str(row["tool_id"]).replace(".", "-") + "-workspace-v1")
+            and row["tool_id"]
+            in {
+                "gmail.search",
+                "gmail.read_thread",
+                "gmail.get_message",
+                "gmail.list_drafts",
+                "gmail.get_draft",
+                "calendar.list_calendars",
+                "calendar.list_events",
+                "calendar.get_event",
+            }
+            and "coverage" in value
+        ):
+            page = cast(dict[str, Any], value)
+            state = page.get("coverage", {}).get("state", "partial")
+            items = page.get("items")
+            chunk = page.get("chunk")
+            if isinstance(items, list):
+                summary = f"{len(cast(list[Any], items))} visible items, {state}"
+            elif isinstance(chunk, dict):
+                detail = cast(dict[str, Any], chunk)
+                summary = (
+                    f"bytes {detail.get('offset')} to {detail.get('end_offset')}, "
+                    f"{state}"
+                )
     return Entry(
         invocation_id=str(row["id"]),
         tool_id=row["tool_id"],
@@ -236,6 +269,9 @@ _originals = select(
     *_order,
     native_invocation.c.tool_id,
     native_invocation.c.validation,
+    native_invocation.c.frozen_contract["implementation_revision"]
+    .as_string()
+    .label("implementation_revision"),
     native_invocation.c.action_id,
     native_invocation.c.proposal["arguments"].label("arguments"),
     native_invocation.c.reply_receipt.label("reply"),

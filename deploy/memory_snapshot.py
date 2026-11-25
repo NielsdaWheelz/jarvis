@@ -23,6 +23,7 @@ STOPPED_TABLE_KEYS = {
     "work": "id",
     "attachment": "id",
     "event_cursor": 'account_id COLLATE "C"',
+    "gmail_usage": 'project_id COLLATE "C"',
     "home_notice": "id",
     "memory_log": "id",
     "memory_summary": "id",
@@ -45,7 +46,7 @@ SEQUENCES = (
     "message_control_sequence",
 )
 # A new app schema can ship before its restore boundary is qualified.
-SCHEMA_REVISION = "0023"
+SCHEMA_REVISION = "0024"
 VECTOR_VERSION = "0.8.6"
 WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
 RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")
@@ -423,7 +424,12 @@ async def snapshot(conn):
         "cut_utc": cut.astimezone(UTC).isoformat(),
         **facts,
         "schema": await schema_inventory(conn),
-        "tables": await table_inventory(conn),
+        "tables": await table_inventory(
+            conn,
+            projections={
+                "gmail_usage": "(SELECT * FROM public.gmail_usage WHERE false)"
+            },
+        ),
         "coverage": scope,
         "witnesses": await collect_witnesses(conn, scope["admitted_through"]),
     }

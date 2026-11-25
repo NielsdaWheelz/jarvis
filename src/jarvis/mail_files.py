@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import io
 import json
 import logging
 import mimetypes
@@ -283,11 +284,18 @@ def publish_native(
 
 
 @dataclass(frozen=True, slots=True)
+class ObservedMailPart:
+    """One complete, ordered part decoded from a verified Workspace draft."""
+
+    file: MailFile
+    data: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class _SourceCopy:
     slot: int
-    ref: NewMailFile
-    root: Path
     file: MailFile
+    source: tuple[Path, NewMailFile] | bytes
 
 
 class MailFiles:
@@ -305,7 +313,9 @@ class MailFiles:
         self._stage = stage_root
 
     async def stage(
-        self, action_id: UUID, sources: tuple[NewMailFile | MailFile, ...]
+        self,
+        action_id: UUID,
+        sources: tuple[NewMailFile | MailFile | ObservedMailPart, ...],
     ) -> tuple[MailFile, ...]:
         if len(sources) > MAIL_MAX_FILES:
             raise MailFileFailure(
@@ -320,9 +330,12 @@ class MailFiles:
                 for slot, source in enumerate(sources, 1):
                     if isinstance(source, MailFile):
                         descriptor = source
+                    elif isinstance(source, ObservedMailPart):
+                        descriptor = source.file
+                        copies.append(_SourceCopy(slot, descriptor, source.data))
                     else:
                         descriptor, root = await self._describe(slot, source)
-                        copies.append(_SourceCopy(slot, source, root, descriptor))
+                        copies.append(_SourceCopy(slot, descriptor, (root, source)))
                     if contains_secret(descriptor.filename, self._secrets):
                         raise MailFileFailure(
                             FileUnavailable(slot=slot, reason="secret")
@@ -398,15 +411,19 @@ class MailFiles:
         opened: list[tuple[_SourceCopy, BinaryIO]] = []
         with ExitStack() as files:
             for copy in copies:
+                if isinstance(copy.source, bytes):
+                    opened.append((copy, files.enter_context(io.BytesIO(copy.source))))
+                    continue
+                root, ref = copy.source
                 try:
                     with (
-                        _directory(copy.root) as directory,
-                        _directory(str(copy.ref.id), directory) as entry,
+                        _directory(root) as directory,
+                        _directory(str(ref.id), directory) as entry,
                     ):
                         original = files.enter_context(_regular(entry, "original"))
                 except FileNotFoundError as exc:
-                    if isinstance(copy.ref, OriginalFileRef):
-                        missing[copy.ref.id] = None
+                    if isinstance(ref, OriginalFileRef):
+                        missing[ref.id] = None
                         continue
                     raise MailFileFailure(
                         FileUnavailable(slot=copy.slot, reason="native_missing")

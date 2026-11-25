@@ -33,8 +33,11 @@ _UNREADABLE_ITEM = {
 }
 
 
-class _NotAdmitted(Exception):
-    pass
+class _NotAdmitted(WorkspaceError):
+    """The local poll lost authority before transmission or commit."""
+
+    def __init__(self) -> None:
+        super().__init__("not_admitted")
 
 
 class EventPoller:
@@ -180,6 +183,8 @@ class EventPoller:
                 {"messageId": message_id, "labelIds": [label]},
                 before_send=enter,
             )
+        except _NotAdmitted:
+            raise
         except WorkspaceError as exc:
             # A quota refusal before transmission leaves the ready marker.
             # After entry, even an ambiguous reply never dispatches again.

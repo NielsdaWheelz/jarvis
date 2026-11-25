@@ -342,11 +342,17 @@ async def verify(config: CodexHostConfig, account: CodexAccount) -> None:
                     account.expected_account_id,
                     account.expected_plan_type,
                 ),
+                allow_existing_credits=account.allow_existing_credits,
             )
     finally:
         await control.close()
-    if allowance.state not in {"available", "included_exhausted"}:
-        raise RuntimeError(f"{account.key}: included-only enrollment is unverified")
+    if allowance.state not in {
+        "available",
+        "available_with_credits",
+        "credits_available",
+        "included_exhausted",
+    }:
+        raise RuntimeError(f"{account.key}: account allowance is unverified")
     print(f"{account.key}: qualified contained host, standard tier, {allowance.state}")
 
 

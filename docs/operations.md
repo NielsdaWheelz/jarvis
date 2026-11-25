@@ -336,6 +336,11 @@ endpoint is a mode-000 placeholder and only the app binds the socket into it.
 do not copy account credentials. validate expected subjects and plan types using
 the actual enrolled hosts.
 
+check automatic credit purchases and automatic reset use on all three accounts
+before enrolling them. both must be off. a finite paid balance is eligible on
+the enrolled personal plans under [adr 0109](decisions/0109-existing-codex-credits.md).
+stock can report a balance without reporting the account's purchase settings.
+
 provision scoped access and default acl entries on every existing directory
 in the notes checkout, including nested `.git` directories. give each native uid
 default `rwx`, the jarvis uid default `r-x`, the default group at most `r-x`, and

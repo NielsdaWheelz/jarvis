@@ -1,5 +1,7 @@
 # adr 0108 · codex quota standby
 
+[adr 0109](0109-existing-codex-credits.md) amends the billing and selection rules below for existing paid credits.
+
 **accepted for implementation, 2026-11-25.** the owner authorizes all three accounts to receive jarvis context and reports openai confirmed this use. the owner deferred the documentary custody gate and kept live enrollment in scope. actual identity, independent included quota and included-only billing still govern live eligibility. production logged `compaction quota_exhausted` while both services were active. foreground failure was owner-reported. [incident](../issues/personal-codex-quota-blocks-jarvis.md) · [enrollment](../issues/codex-standby-live-enrollment.md) · [provider terms](https://openai.com/policies/terms-of-use/)
 
 ## target and limits

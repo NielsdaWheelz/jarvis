@@ -94,9 +94,11 @@ describe their original releases.
 admission for the pinned cognition roles, the sealed pre-effect proof and
 recovery boundary, and the same-release cut to three contained account hosts.
 its included-usage and named custody rules supersede the single-account clauses
-in sections 7 and 9 and adr 0093. the assigned account stays fixed through each
-native run. source and isolated qualification precede a separately authorized
-installed cut. section 7's other authority rules still apply.
+in sections 7 and 9 and adr 0093. [adr 0109](docs/decisions/0109-existing-codex-credits.md)
+authorizes existing credits on the enrolled personal accounts after included
+usage is exhausted. the assigned account stays fixed through each native run.
+source and isolated qualification precede a separately authorized installed cut.
+section 7's other authority rules still apply.
 
 
 ## accepted native recovery and memory availability target

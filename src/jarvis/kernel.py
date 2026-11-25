@@ -57,21 +57,21 @@ class CodexStandby:
         self._runtime = runtime
         self._host = host
         self._primary = host.accounts[0]
-        self._subjects: dict[CodexProfile, CodexSubject] = {
-            account.key: CodexSubject(
-                account.expected_user_id,
-                account.expected_account_id,
-                account.expected_plan_type,
-            )
-            for account in host.accounts
-        }
+        self._accounts = {account.key: account for account in host.accounts}
         self._primary_available: tuple[datetime, int, int] | None = None
         self._status: dict[tuple[CodexRole, CodexProfile | None], tuple[str, str]] = {}
 
     async def observe(self, profile: CodexProfile) -> CodexAllowance | CodexBlocked:
+        account = self._accounts[profile]
         try:
             result = await self._runtime.codex.observe_codex_allowance(
-                profile, self._subjects[profile]
+                profile,
+                CodexSubject(
+                    account.expected_user_id,
+                    account.expected_account_id,
+                    account.expected_plan_type,
+                ),
+                allow_existing_credits=account.allow_existing_credits,
             )
         except (AgentRuntimeDefect, AgentRuntimeError, OSError):
             if profile == self._primary.key:
@@ -104,11 +104,13 @@ class CodexStandby:
         self, role: CodexRole, *, pinned_profile: CodexProfile | None = None
     ) -> SelectedCodex | CodexBlocked:
         profiles = (
-            (pinned_profile,) if pinned_profile is not None else tuple(self._subjects)
+            (pinned_profile,) if pinned_profile is not None else tuple(self._accounts)
         )
         failure = CodexBlocked(
             self._primary.key, "allowance_unverified", datetime.now(UTC)
         )
+        admitted: tuple[CodexProfile, CodexAllowance] | None = None
+        paid: tuple[CodexProfile, CodexAllowance] | None = None
         for profile in profiles:
             evidence = await self.observe(profile)
             if isinstance(evidence, CodexBlocked):
@@ -120,12 +122,28 @@ class CodexStandby:
             )
             if reason == "included_exhausted":
                 continue
-            if reason != "available" and not (
+            if reason == "credits_available":
+                if pinned_profile is not None:
+                    if await self._included_exhausted_elsewhere(profile):
+                        admitted = profile, evidence
+                    else:
+                        failure = replace(failure, reason="included_usage_unconfirmed")
+                    break
+                if paid is None:
+                    paid = profile, evidence
+                continue
+            if reason in {"available", "available_with_credits"} or (
                 profile == self._primary.key
                 and reason == "unavailable"
                 and self._primary_grace(evidence.observed_at)
             ):
-                break
+                admitted = profile, evidence
+            break
+        else:
+            admitted = paid
+
+        if admitted is not None:
+            profile, evidence = admitted
             try:
                 selected = (await resolve_role_providers(self._runtime, profile, role))[
                     role
@@ -136,15 +154,21 @@ class CodexStandby:
                 failure = CodexBlocked(
                     profile, "catalog_unverified", evidence.observed_at
                 )
-                break
-            if role == "main":
-                selected = main_provider_configuration(
-                    selected, notes_repository=self._host.notes_repository
+            else:
+                if role == "main":
+                    selected = main_provider_configuration(
+                        selected, notes_repository=self._host.notes_repository
+                    )
+                self._log_selection(
+                    role,
+                    pinned_profile,
+                    profile,
+                    "selected_credit_eligible"
+                    if evidence.state in {"credits_available", "available_with_credits"}
+                    else "selected",
+                    evidence.observed_at,
                 )
-            self._log_selection(
-                role, pinned_profile, profile, "selected", evidence.observed_at
-            )
-            return SelectedCodex(profile, selected)
+                return SelectedCodex(profile, selected)
         self._log_selection(
             role,
             pinned_profile,
@@ -154,6 +178,18 @@ class CodexStandby:
             failure.reset_at,
         )
         return failure
+
+    async def _included_exhausted_elsewhere(self, profile: CodexProfile) -> bool:
+        for other in self._accounts:
+            if other == profile:
+                continue
+            evidence = await self.observe(other)
+            if isinstance(evidence, CodexBlocked) or evidence.state not in {
+                "included_exhausted",
+                "credits_available",
+            }:
+                return False
+        return True
 
     def _primary_grace(self, observed_at: datetime) -> bool:
         if self._primary_available is None:

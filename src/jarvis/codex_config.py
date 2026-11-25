@@ -47,6 +47,10 @@ class CodexAccount(_Closed):
         return Path(self.endpoint[7:])
 
     @property
+    def allow_existing_credits(self) -> bool:
+        return self.expected_plan_type in ("plus", "pro", "promax")
+
+    @property
     def unit(self) -> str:
         suffix = "" if self.key == "personal" else f"-{self.key}"
         return f"jarvis-codex-contained{suffix}.service"

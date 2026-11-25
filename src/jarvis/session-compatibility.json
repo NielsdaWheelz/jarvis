@@ -1,9 +1,9 @@
 {
   "application_session_contract_revision": "jarvis-outgoing-mail-v3",
   "dependencies": {
-    "llm-agent-kernel": "7d5fc5fec5202c633025b18cd12e33039dbb76c9",
+    "llm-agent-kernel": "4115afaf8bbc6c99bf9701c21b2f8482dc138e42",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "c7fb45f1b5bb8b5a6223458cdf52e71309e4ca0c",
+    "provider-runtime": "5acc2c2e483368f3bc9dad224a141855c4e94415",
     "universal-memory": "6cfdf262e3c342ae4701b0587bf7994c03437459"
   },
   "roles": {

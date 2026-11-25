@@ -68,8 +68,12 @@ from jarvis.approval_tools import APPROVAL_RESPOND_SPEC
 from jarvis.attachment_tools import ATTACHMENT_READ_IDS, ATTACHMENT_WRITE_IDS
 from jarvis.config import decode_config_json
 from jarvis.event_tools import EVENT_MUTATION_IDS, EVENT_READ_IDS
+from jarvis.native_protocol import (
+    NATIVE_OUTPUT_NAME,
+    JarvisNativeMessage,
+    workspace_check_native,
+)
 from jarvis.receipt_tools import RECEIPT_READ_ID
-from jarvis.terminal import NATIVE_OUTPUT_NAME, JarvisNativeMessage
 from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
@@ -103,12 +107,12 @@ WEB_SEARCH_LIMITS = ToolLimits(32_768, 65_536, 1, 15.0)
 WEB_READ_LIMITS = ToolLimits(32_768, 65_536, 8, 20.0)
 EXTERNAL_READ_IDS = (
     ToolId("gmail.search"),
-    ToolId("gmail.read_message"),
-    ToolId("gmail.list_thread_messages"),
-    ToolId("gmail.list_attachments"),
+    ToolId("gmail.read_thread"),
+    ToolId("gmail.get_message"),
+    ToolId("gmail.list_drafts"),
+    ToolId("gmail.get_draft"),
     *ATTACHMENT_READ_IDS,
     ToolId("calendar.list_calendars"),
-    ToolId("calendar.read_calendar"),
     ToolId("calendar.list_events"),
     ToolId("calendar.get_event"),
     ToolId("maps.search_places"),
@@ -147,8 +151,8 @@ MAIN_WRITE_IDS = (
     ToolId("calendar.delete_event"),
     ToolId("calendar.update_event"),
     ToolId("gmail.create_draft"),
-    ToolId("gmail.send_draft"),
-    ToolId("gmail.update_draft"),
+    ToolId("gmail.prepare_replacement"),
+    ToolId("gmail.discard_draft"),
     *AGENT_WRITE_IDS,
     *WORK_MUTATION_IDS,
     *EVENT_MUTATION_IDS,
@@ -182,9 +186,8 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "that material limit honestly, usually as partial. unrelated incomplete reads "
     "do not require a notice. never claim a check or success without evidence. "
     "include every non-empty maps route warning in the route answer. "
-    "reads, unsent gmail drafts, private no-attendee calendar work and trusted "
-    "worker controls are automatic. sending mail or shared/unknown-calendar or "
-    "attendee changes need owner consent. use clear earlier consent without asking "
+    "draft creation is owner-grounded. calendar writes and draft discards need "
+    "approval. use clear earlier consent without asking "
     "again. otherwise propose the write, wait for approval with its action_refs "
     "and ask a concrete needs_input or partial question about those proposals. "
     "answer other inputs in that final. presented=true means this action already "
@@ -192,6 +195,7 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "a proposal ref identifies the subject; only canonical owner words supply "
     "consent. approval.respond records the immutable first decision for the action "
     "and actual owner_message_id. await the effect outcome. reject secret exposure. "
+    "the owner sends in gmail. google approvals are owner input in private chat. "
     "application writes use a delivered live owner or host input_id as request_ref. "
     "existing_action_ref is null for a genuinely new invocation, even with equal "
     "arguments; name an original action explicitly to recover its result/pending "
@@ -280,10 +284,8 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "derivatives go in gitignored scratch, originals outside git. distinguish "
     "unreadable saved bytes from unresolved storage; give useful partial work and"
     " exact missing evidence, no forced summary/todo. explain our original/cache "
-    "deletion scope and surviving copies when seeking consent. gmail discovery "
-    "ids are exact and lexical, not chronological; continue digest pages, restart on "
-    "SourceChanged, retain selected parts. source envelopes can exclude small "
-    "selected files. keep one todo per independently finishable outcome. doing_now "
+    "deletion scope and surviving copies when seeking consent. follow digest pages "
+    "and restart changed sources. keep one todo per finishable outcome. doing_now "
     "means actual work; blocked names its condition; next_up holds at most three "
     "priorities. invent no commitments, urgency, dates or success. a wake schedules "
     "reasoning; it does no work. confirm the next local date/time from the committed "
@@ -293,8 +295,10 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "ends the series and clears its wake. edits and deletion stop no worker, "
     "revoke no consent and retract no published input. skipped wakes prove no "
     "missed work. mail events carry metadata; inspect exact references when useful. "
-    "calendar is read on demand. for a watch offer scheduled todo checks and "
-    "explain gaps between checks. a listing proves neither attendance nor "
+    "calendar is read on demand. a standalone workspace wake needs workspace_result "
+    "with its occurrence and completed read invocation ids. other turns use null. "
+    "gmail negatives need every member's full manifest and text parts. partial "
+    "absence is inconclusive. a listing proves neither attendance nor "
     "occurrence. calendar read date_time is utc; convert via native zoneinfo. "
     "events.status reads gmail health. events.configure enables or disables gmail "
     "and re-arms repaired polling. disabling preserves progress and published "
@@ -398,6 +402,7 @@ DEFAULT_NATIVE_CONTEXT_LIMITS = NativeContextLimits()
 @dataclass(frozen=True, slots=True)
 class RoleDefinitions:
     main: NativeDefinition
+    workspace_check: NativeDefinition
     compactor: tuple[AgentDefinition, ...]
     dreamer: AgentDefinition
     plans: Mapping[str, FrozenToolPlan]
@@ -708,13 +713,16 @@ def build_definitions(
             "native main configuration exceeds its explicit operation bounds"
         )
 
+    check, check_plan = workspace_check_native(main, catalog)
     return RoleDefinitions(
-        main,
-        compactor,
-        dreamer,
-        MappingProxyType(
+        main=main,
+        workspace_check=check,
+        compactor=compactor,
+        dreamer=dreamer,
+        plans=MappingProxyType(
             {
                 "main": main_plan,
+                "workspace_check": check_plan,
                 "compactor": compactor_plan,
                 "dreamer": dreamer_plan,
             }

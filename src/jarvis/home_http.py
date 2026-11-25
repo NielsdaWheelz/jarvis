@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from llm_tools import DeclaredToolFailure
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
@@ -24,7 +23,12 @@ from jarvis.db import attachment, message
 from jarvis.home_pages import HOME_ORIGIN, PAGE_CSP, HomePages
 from jarvis.home_reads import conversation, todo_results, visible_message
 from jarvis.home_uploads import attachment_response, read_submission
-from jarvis.messages import IngressUnavailable, InvalidReference, SubmissionConflict
+from jarvis.messages import (
+    IngressUnavailable,
+    InvalidReference,
+    StaleWorkspaceOccurrence,
+    SubmissionConflict,
+)
 from jarvis.ownership import Database, DeploymentOwnershipDefect
 from jarvis.phone import (
     Enrollment,
@@ -34,18 +38,33 @@ from jarvis.phone import (
     canonical_uuid,
 )
 from jarvis.work import WorkStore
+from jarvis.workspace_mcp import WorkspaceApprovals
 
 _STATIC = Path(__file__).parent / "static" / "home"
 _PHONE_ROUTE = "/api/push/phone"
+_WORKSPACE_APPROVALS = "/api/workspace/approvals"
 _SHELL_CSP = (
     "default-src 'self'; object-src 'none'; base-uri 'none'; "
     "frame-ancestors 'none'; form-action 'self'"
 )
 
-type Submit = Callable[
-    [UUID, str, object | None, tuple[WebUpload, ...]],
-    Awaitable[tuple[UUID, bool]],
-]
+
+class Submit(Protocol):
+    async def __call__(
+        self,
+        submission_id: UUID,
+        text: str,
+        ref: object,
+        uploads: tuple[WebUpload, ...],
+        *,
+        workspace_occurrence: UUID | None = None,
+    ) -> tuple[UUID, bool]: ...
+
+
+class WorkspaceChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+
+    choice: str | None = Field(max_length=256)
 
 
 def create_home_app(
@@ -59,6 +78,7 @@ def create_home_app(
     spool: Path,
     pages: Path,
     phone: PhoneSlot,
+    workspace_approvals: WorkspaceApprovals | None = None,
 ) -> FastAPI:
     app = FastAPI(
         docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False
@@ -94,9 +114,37 @@ def create_home_app(
         return response
 
     async def put(submission_id: UUID, request: Request) -> JSONResponse:
+        occurrence = None
+        headers = request.headers.getlist("x-jarvis-workspace-occurrence")
+        if headers:
+            media = (
+                request.headers.get("content-type", "")
+                .partition(";")[0]
+                .strip()
+                .lower()
+            )
+            if len(headers) != 1 or media != "application/json":
+                raise HTTPException(422, "invalid workspace refresh")
+            try:
+                occurrence = canonical_uuid(headers[0])
+            except ValueError as exc:
+                raise HTTPException(422, "invalid workspace occurrence") from exc
         body, raw_ref, uploads = await read_submission(request, submission_id, spool)
         try:
-            identifier, created = await submit(submission_id, body, raw_ref, uploads)
+            if occurrence is None:
+                identifier, created = await submit(
+                    submission_id, body, raw_ref, uploads
+                )
+            else:
+                identifier, created = await submit(
+                    submission_id,
+                    body,
+                    raw_ref,
+                    uploads,
+                    workspace_occurrence=occurrence,
+                )
+        except StaleWorkspaceOccurrence as exc:
+            raise HTTPException(410, "this check is no longer available") from exc
         except IngressUnavailable as exc:
             raise HTTPException(503, "jarvis is offline") from exc
         except SubmissionConflict as exc:
@@ -120,6 +168,18 @@ def create_home_app(
         if identifier is None:
             raise HTTPException(404)
         return {"id": identifier}
+
+    async def approvals() -> list[dict[str, object]]:
+        return [] if workspace_approvals is None else workspace_approvals.pending()
+
+    async def choose(identifier: UUID, body: WorkspaceChoice) -> Response:
+        if workspace_approvals is None:
+            return Response(status_code=409)
+        return Response(
+            status_code=await workspace_approvals.respond(
+                identifier, body.choice, scope
+            )
+        )
 
     async def history(before: str | None = None) -> dict[str, Any]:
         async with database.connect() as conn:
@@ -252,6 +312,8 @@ def create_home_app(
     app.add_api_route("/api/home", home, methods=["GET"])
     app.add_api_route(_PHONE_ROUTE, get_phone, methods=["GET"])
     app.add_api_route(_PHONE_ROUTE, change_phone, methods=["PUT", "DELETE"])
+    app.add_api_route(_WORKSPACE_APPROVALS, approvals, methods=["GET"])
+    app.add_api_route(_WORKSPACE_APPROVALS + "/{identifier}", choose, methods=["POST"])
     app.add_api_route("/api/views/{slug}", view, methods=["GET"])
     app.add_api_route("/api/views/{slug}/{rev}", view, methods=["GET"])
     app.add_api_route("/content/{slug}/{rev}", content, methods=["GET"])

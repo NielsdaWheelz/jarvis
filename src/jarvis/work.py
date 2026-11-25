@@ -56,6 +56,11 @@ from jarvis.work_tools import (
     WorkUpdateInput,
     validate_work_result,
 )
+from jarvis.workspace_checks import (
+    WorkspaceCheck,
+    WorkspaceSelectors,
+    observed_calendar_ids,
+)
 
 _REPEAT = TypeAdapter[RepeatRule](RepeatRule)
 _WEB_PAGE_SIZE = 50
@@ -75,8 +80,17 @@ def _record(row: RowMapping | dict[str, object]) -> WorkRecord:
 
 
 class WorkStore:
-    def __init__(self, database: Database, conversation_id: str) -> None:
+    def __init__(
+        self,
+        database: Database,
+        conversation_id: str,
+        *,
+        owner_timezone: str = "UTC",
+        workspace_grant_id: Callable[[], UUID | None] | None = None,
+    ) -> None:
         self._database = database
+        self._owner_zone = ZoneInfo(owner_timezone)
+        self._workspace_grant_id = workspace_grant_id
         self._conversation_id = conversation_id
         self.notify_changed: Callable[[], None] = lambda: None
 
@@ -231,18 +245,24 @@ class WorkStore:
                 arguments, WorkCreateInput | WorkUpdateInput | WorkDeleteInput
             ):
                 raise ActionPersistenceDefect("work mutation has foreign input")
-            scope = await connection.scalar(
-                select(message.c.source_conversation_id).where(
-                    message.c.id == stored.origin_message_id
+            origin = (
+                await connection.execute(
+                    select(
+                        message.c.source_conversation_id,
+                        message.c.role,
+                        message.c.source,
+                        message.c.control_kind,
+                        message.c.home,
+                    ).where(message.c.id == stored.origin_message_id)
                 )
-            )
+            ).one()
             if (
                 tool_id not in WORK_MUTATION_IDS
                 or stored.tool_name != tool_id
                 or stored.payload != arguments.model_dump(mode="json")
                 or stored.status != "executing"
                 or stored.attempts < 1
-                or scope != self._conversation_id
+                or origin.source_conversation_id != self._conversation_id
             ):
                 raise ActionPersistenceDefect(
                     "work mutation differs from its entered action"
@@ -266,12 +286,31 @@ class WorkStore:
             values: dict[str, object] = {}
             assigning: Wake | None = None
             has_wake = False
+            setting_check = False
+            selectors: WorkspaceSelectors | None = None
+            editing_condition = False
+            old_check = (
+                WorkspaceCheck.model_validate(row["workspace_check"])
+                if row is not None and row["workspace_check"] is not None
+                else None
+            )
+            owner_authorized = (
+                origin.role == "owner"
+                and origin.source != "initialize_state"
+                and origin.control_kind is None
+                and "workspace_refresh" not in (origin.home or {})
+            )
             if isinstance(arguments, WorkCreateInput):
                 if row is not None:
                     raise ActionPersistenceDefect(
                         "creating work already exists without a receipt"
                     )
-                values = arguments.model_dump(mode="python", exclude={"wake"})
+                values = arguments.model_dump(
+                    mode="python", exclude={"wake", "workspace_check"}
+                )
+                values["workspace_check"] = None
+                selectors = arguments.workspace_check
+                setting_check = selectors is not None
                 values.update(id=identifier, created_at=now, updated_at=now)
                 assigning, has_wake = arguments.wake, True
             elif row is None:
@@ -281,9 +320,15 @@ class WorkStore:
                 for change in arguments.changes:
                     if change.field == "wake":
                         assigning, has_wake = change.value, True
+                    elif change.field == "workspace_check":
+                        setting_check, selectors = True, change.value
                     else:
+                        if change.field == "content":
+                            editing_condition = True
                         values[change.field] = change.value
                 values["updated_at"] = now
+            elif old_check is not None and not owner_authorized:
+                error = {"type": "InvalidWorkspaceCheck", "code": "owner_required"}
             if error is None and values:
                 if has_wake:
                     values.update(
@@ -329,6 +374,88 @@ class WorkStore:
                     values.update(
                         wake_id=None, wake_at=None, repeat=None, wake_local_date=None
                     )
+                if (
+                    old_check is not None
+                    and not setting_check
+                    and (
+                        values["state"] in {"done", "cancelled"}
+                        or (has_wake and assigning is None)
+                    )
+                ):
+                    setting_check = True
+                changing_check = setting_check or (
+                    old_check is not None and (editing_condition or has_wake)
+                )
+                if error is None and changing_check:
+                    if not owner_authorized:
+                        error = {
+                            "type": "InvalidWorkspaceCheck",
+                            "code": "owner_required",
+                        }
+                    elif setting_check and selectors is None:
+                        values["workspace_check"] = None
+                    elif values.get("repeat") is None:
+                        error = {
+                            "type": "InvalidWorkspaceCheck",
+                            "code": "recurring_wake_required",
+                        }
+                    elif not str(values["content"]).strip():
+                        error = {
+                            "type": "InvalidWorkspaceCheck",
+                            "code": "condition_required",
+                        }
+                    else:
+                        grant = (
+                            self._workspace_grant_id()
+                            if self._workspace_grant_id
+                            else None
+                        )
+                        selected = selectors or old_check
+                        contract = stored.current_execution_contract
+                        admitted = contract.workspace_grant_id
+                        if (
+                            grant is None
+                            or grant != admitted
+                            or (
+                                not setting_check
+                                and old_check is not None
+                                and old_check.grant_id != str(grant)
+                            )
+                        ):
+                            error = {
+                                "type": "InvalidWorkspaceCheck",
+                                "code": "grant_unavailable",
+                            }
+                        elif selected is not None and selected.expired(
+                            now, self._owner_zone
+                        ):
+                            error = {"type": "InvalidWorkspaceCheck", "code": "expired"}
+                        elif (
+                            selectors is not None
+                            and selectors.calendar is not None
+                            and not await observed_calendar_ids(
+                                connection,
+                                selectors.calendar,
+                                attempt_id=contract.claim_id,
+                                grant_id=grant,
+                                input_ids=contract.input_message_ids,
+                                before_ordinal=contract.model_step_ordinal,
+                                admitted_at=stored.created_at,
+                            )
+                        ):
+                            error = {
+                                "type": "InvalidWorkspaceCheck",
+                                "code": "calendar_not_observed",
+                            }
+                        elif selectors is not None:
+                            values["workspace_check"] = {
+                                **selectors.model_dump(mode="json"),
+                                "grant_id": str(grant),
+                            }
+                    if values.get("wake_id") is not None:
+                        values["wake_id"] = action_id
+                if values["state"] in {"done", "cancelled"}:
+                    values["workspace_check"] = None
                 if values["state"] == "next_up":
                     count = await connection.scalar(
                         select(func.count())
@@ -440,6 +567,21 @@ class WorkStore:
             if row is None:
                 return None
             record = _record(row)
+            if record.workspace_check is not None and record.workspace_check.expired(
+                as_of, self._owner_zone
+            ):
+                await connection.execute(
+                    update(work)
+                    .where(work.c.id == row["id"])
+                    .values(
+                        wake_id=None,
+                        wake_at=None,
+                        repeat=None,
+                        wake_local_date=None,
+                        workspace_check=None,
+                    )
+                )
+                return None
             if record.state in {"done", "cancelled"} or row["wake_id"] is None:
                 raise ValueError("inactive work has a persisted schedule")
             rule = (

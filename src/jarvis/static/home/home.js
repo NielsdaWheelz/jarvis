@@ -73,6 +73,7 @@ function setPanel() {
   $("sidebar-open").setAttribute("aria-expanded", String(open));
   const todo = location.pathname.startsWith("/t/") && !history.state?.chat;
   $("chat").hidden = todo;
+  $("workspace-approval").hidden = todo || !$("workspace-approval").dataset.round;
   $("records").hidden = !todo;
   $("chat-tab").setAttribute("aria-pressed", String(!todo));
 }
@@ -1124,7 +1125,54 @@ function refresh() {
   poll("canvas", canvasRead);
   poll("detail", detailRead);
   poll("chat", messages);
+  if (!$("chat").hidden && (!mobile.matches || history.state?.panel)) {
+    poll("workspace approval", workspaceApproval);
+  }
   if (!pendingSend && draft.uncertain) poll("receipt", recover);
+}
+
+async function workspaceApproval(ver) {
+  const [approval] = await read("/api/workspace/approvals");
+  if (ver !== routeVersion) return;
+  const node = $("workspace-approval");
+  if (!approval) {
+    node.replaceChildren();
+    node.hidden = true;
+    delete node.dataset.round;
+    return;
+  }
+  if (node.dataset.round === approval.id) return;
+  const status = el("p");
+  status.setAttribute("role", "status");
+  const answer = async (choice) => {
+    const controls = [...node.querySelectorAll("button")];
+    controls.forEach((control) => { control.disabled = true; });
+    try {
+      await request("/api/workspace/approvals/" + encodeURIComponent(approval.id), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ choice }),
+      });
+      status.textContent = "choice recorded.";
+    } catch (error) {
+      status.textContent = error.login ? "sign in to answer google." :
+        "couldn’t record that choice. checking whether the request is still open.";
+      controls.forEach((control) => { control.disabled = false; });
+    }
+    refresh();
+  };
+  const choices = approval.choices.map(({ value, label }) =>
+    button(label, () => answer(value))
+  );
+  node.replaceChildren(
+    el("p", approval.prompt),
+    el("small", "google · expires " + time(approval.expires_at)),
+    el("div"),
+    status,
+  );
+  node.querySelector("div").append(...choices, button("cancel", () => answer(null)));
+  node.dataset.round = approval.id;
+  node.hidden = false;
 }
 updateComposer();
 startRoute();

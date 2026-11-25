@@ -33,12 +33,15 @@ from jarvis.event_tools import (
     EVENT_MUTATION_IDS,
     POLL_SECONDS,
     AccountUnavailable,
+    AckRepair,
     EventPayload,
     EventsConfigureInput,
     EventsConfigureSuccess,
     EventsStatusSuccess,
     FailureCode,
     MailProgress,
+    MailResidual,
+    RestoredInterval,
     SourceError,
     SourceStatus,
     SourceStream,
@@ -73,6 +76,7 @@ class Failure:
     code: FailureCode
     retry_at: datetime | None = None
     blocked: bool = False
+    poll_again: bool = False
 
 
 def source_identity(identity: tuple[object, ...]) -> str:
@@ -81,6 +85,25 @@ def source_identity(identity: tuple[object, ...]) -> str:
 
 def _progress(value: dict[str, object]) -> dict[str, object]:
     return MailProgress.model_validate(value).model_dump(mode="json")
+
+
+def _ack_repair(
+    account: str, progress: dict[str, object], error_code: str | None
+) -> AckRepair | None:
+    if error_code not in {"AuthUnavailable", "AckUncertain"}:
+        return None
+    marker = MailProgress.model_validate(progress)
+    if marker.ack is None or (
+        error_code == "AckUncertain" and marker.ack.phase != "entered"
+    ):
+        return None
+    return AckRepair(
+        account=account,
+        grant_id=marker.grant_id,
+        message_id=marker.ack.message_id,
+        label_id=marker.label_id,
+        event_source_id=source_identity((account, marker.ack.message_id)),
+    )
 
 
 class EventStore:
@@ -92,36 +115,74 @@ class EventStore:
         self.notify_input: Callable[[], None] = lambda: None
         self.publication_allowed: Callable[[], bool] = lambda: True
 
-    async def initialize(self, account: str, history_id: str) -> bool:
+    async def enroll(
+        self,
+        account: str,
+        grant_id: UUID,
+        label_id: str,
+        *,
+        expected_progress: dict[str, object] | None,
+    ) -> None:
+        """Stopped operator handoff after an independently verified empty-label cut.
+
+        expected_progress is the exact inventoried predecessor, or None for a
+        fresh account. Its retained copy and overlap proof belong to the operator.
+        Rebinding cannot discard a ready or entered acknowledgment.
+        """
         account = provider_id(account)
-        if self.account is not None and self.account != account:
-            raise ValueError("verified source account cannot change during a process")
+        progress = _progress(
+            {
+                "grant_id": str(grant_id),
+                "label_id": label_id,
+                "ack": None,
+                "residual": None,
+            }
+        )
         async with self._database.begin() as connection:
             await lock_conversation(connection, self._conversation_id)
-            if await self._paused(connection) or not self.publication_allowed():
-                return False
-            now = datetime.now(UTC)
-            await connection.execute(
-                insert(event_cursor)
-                .values(
-                    account_id=account,
-                    enabled=True,
-                    progress=_progress(
-                        {
-                            "history_id": history_id,
-                            "page_token": None,
-                            "consumed": 0,
-                            "prefix_sha256": None,
-                        }
-                    ),
-                    next_poll_at=now + timedelta(seconds=POLL_SECONDS),
-                    last_success_at=now,
+            row = (
+                (
+                    await connection.execute(
+                        select(event_cursor)
+                        .where(event_cursor.c.account_id == account)
+                        .with_for_update()
+                    )
                 )
-                .on_conflict_do_nothing()
+                .mappings()
+                .one_or_none()
             )
+            if (row is None) != (expected_progress is None) or (
+                row is not None and row["progress"] != expected_progress
+            ):
+                raise ValueError("enrolled cursor changed since the handoff inventory")
+            if row is not None and row["progress"].get("ack") is not None:
+                raise ValueError(
+                    "outstanding acknowledgment prevents grant replacement"
+                )
+            now = datetime.now(UTC)
+            if row is None:
+                await connection.execute(
+                    insert(event_cursor).values(
+                        account_id=account,
+                        enabled=True,
+                        progress=progress,
+                        next_poll_at=now,
+                        last_success_at=None,
+                    )
+                )
+            else:
+                await connection.execute(
+                    update(event_cursor)
+                    .where(event_cursor.c.account_id == account)
+                    .values(
+                        progress=progress,
+                        next_poll_at=now if row["enabled"] else None,
+                        last_success_at=None,
+                        error=None,
+                    )
+                )
         self.account = account
         self.notify_changed()
-        return True
 
     async def _paused(self, connection: AsyncConnection) -> bool:
         return (
@@ -148,7 +209,7 @@ class EventStore:
         if locked:
             statement = statement.with_for_update()
         row = (await connection.execute(statement)).mappings().one_or_none()
-        if row is None:
+        if row is None or "grant_id" not in row["progress"]:
             return None
         error = row["error"]
         return Cursor(
@@ -203,16 +264,102 @@ class EventStore:
         async with self._database.begin() as connection:
             return await connection.scalar(query.limit(1)) is not None
 
+    async def confirm_removed_ack(
+        self, account: str, *, grant_id: UUID, label_id: str, message_id: str
+    ) -> None:
+        """Record explicit stopped-owner verification of the named removal."""
+        async with self._database.begin() as connection:
+            await lock_conversation(connection, self._conversation_id)
+            row = (
+                (
+                    await connection.execute(
+                        select(event_cursor)
+                        .where(event_cursor.c.account_id == account)
+                        .with_for_update()
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise ValueError("missing enrolled cursor")
+            progress = row["progress"]
+            error_code = row["error"]["code"] if row["error"] is not None else None
+            repair = _ack_repair(account, progress, error_code)
+            if (
+                repair is None
+                or repair.grant_id != grant_id
+                or repair.label_id != label_id
+                or repair.message_id != message_id
+            ):
+                raise ValueError("verification does not match the outstanding marker")
+            published = await connection.scalar(
+                select(message.c.id).where(
+                    message.c.source == "email_event",
+                    message.c.source_conversation_id == self._conversation_id,
+                    message.c.source_message_id == repair.event_source_id,
+                )
+            )
+            if published is None:
+                raise ValueError("original published event is unavailable")
+            await connection.execute(
+                update(event_cursor)
+                .where(event_cursor.c.account_id == account)
+                .values(
+                    progress={**progress, "ack": None},
+                    next_poll_at=datetime.now(UTC)
+                    if row["enabled"] and error_code == "AckUncertain"
+                    else None,
+                )
+            )
+        self.notify_changed()
+
+    async def record_restored_interval(
+        self, account: str, *, cut_at: datetime, restored_at: datetime
+    ) -> bool:
+        """Record one local coverage fact during a stopped restore, before resume."""
+        if cut_at > restored_at:
+            raise ValueError("restore predates its source cut")
+        payload = RestoredInterval(
+            account=account, cut_at=cut_at, restored_at=restored_at
+        )
+        identity = (account, "restore_gap", cut_at.isoformat(), restored_at.isoformat())
+        async with self._database.begin() as connection:
+            await lock_conversation(connection, self._conversation_id)
+            row = await connection.scalar(
+                select(event_cursor.c.account_id).where(
+                    event_cursor.c.account_id == account
+                )
+            )
+            if row is None:
+                raise ValueError("restored source account has no cursor")
+            inserted = await self._publish(
+                connection,
+                Observation("event_status", identity, payload, restored_at),
+                restored_at,
+                account=account,
+            )
+        if inserted:
+            self.notify_input()
+        return inserted
+
     async def _publish(
-        self, connection: AsyncConnection, observation: Observation, now: datetime
+        self,
+        connection: AsyncConnection,
+        observation: Observation,
+        now: datetime,
+        *,
+        account: str | None = None,
     ) -> bool:
         expected = {
             "email_added": "email_event",
             "source_status": "event_status",
+            "gmail_restore_interval": "event_status",
         }
-        if (
-            observation.source != expected[observation.payload.kind]
-            or observation.payload.account != self.account
+        if observation.source != expected[
+            observation.payload.kind
+        ] or observation.payload.account != (
+            self.account if account is None else account
         ):
             raise ValueError("source publication has foreign kind or account")
         identity = source_identity(observation.identity)
@@ -305,7 +452,6 @@ class EventStore:
         *,
         complete: bool = False,
         failure: Failure | None = None,
-        gap: bool = False,
     ) -> bool:
         progress = _progress(progress)
         published = False
@@ -352,13 +498,6 @@ class EventStore:
                         )
                         or published
                     )
-            if gap:
-                expired = current.progress["history_id"]
-                tag = hashlib.sha256(canonical_json_bytes(expired)).hexdigest()
-                published = (
-                    await self._status_fact(connection, current, "gap", tag, now)
-                    or published
-                )
             if failure is not None:
                 previous = current.error
                 count = 1 if previous is None else min(5, previous.retry_count + 1)
@@ -372,6 +511,8 @@ class EventStore:
                 values["next_poll_at"] = (
                     None
                     if failure.blocked
+                    else now + timedelta(seconds=POLL_SECONDS)
+                    if failure.poll_again
                     else max(
                         now + timedelta(seconds=(60, 120, 240, 480, 900)[count - 1]),
                         failure.retry_at or now,
@@ -476,15 +617,12 @@ class EventStore:
             now = datetime.now(UTC)
             paused = await self._paused(connection)
             cursor = await self._load_cursor(connection)
-        baselining = cursor is not None and cursor.progress["history_id"] is None
-        catching_up = (
-            cursor is not None
-            and not baselining
-            and (
-                cursor.progress["page_token"] is not None
-                or cursor.progress["consumed"] != 0
-            )
+        residual = (
+            None
+            if cursor is None or cursor.progress["residual"] is None
+            else (MailResidual.model_validate(cursor.progress["residual"]))
         )
+        catching_up = cursor is not None and cursor.progress["ack"] is not None
         blocked = cursor is not None and cursor.next_poll_at is None
         failing = cursor is not None and cursor.error is not None
         return EventsStatusSuccess(
@@ -501,9 +639,7 @@ class EventStore:
                 else "blocked"
                 if blocked
                 else "degraded"
-                if failing
-                else "baselining"
-                if baselining
+                if failing or residual is not None
                 else "catching_up"
                 if catching_up
                 else "healthy"
@@ -512,7 +648,30 @@ class EventStore:
             next_poll_at=cursor.next_poll_at
             if cursor is not None and cursor.enabled
             else None,
-            baselining=baselining,
+            baselining=False,
+            coverage="unavailable"
+            if cursor is None or not cursor.enabled or blocked or paused
+            else "incomplete"
+            if failing
+            or residual is not None
+            or catching_up
+            or cursor.last_success_at is None
+            else "visible_labels_only",
+            residual=residual,
+            ack_repair=_ack_repair(
+                cursor.account_id, cursor.progress, cursor.error.code
+            )
+            if cursor is not None and cursor.error is not None
+            else None,
+            count_unreported=(
+                cursor is not None
+                and cursor.error is not None
+                and cursor.error.code == "LabelUnavailable"
+                and cursor.next_poll_at is not None
+            ),
+            failure_code=cursor.error.code
+            if cursor is not None and cursor.error
+            else None,
             catching_up=catching_up,
             blocked=blocked,
             failing=failing,

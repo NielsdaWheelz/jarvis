@@ -44,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0023"
+APPLICATION_SCHEMA_REVISION = "0024"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -620,6 +620,7 @@ work = Table(
     Column("wake_id", UUID(as_uuid=True), ForeignKey("action.id", ondelete="RESTRICT")),
     Column("wake_at", DateTime(timezone=True)),
     Column("repeat", JSONB(none_as_null=True)),
+    Column("workspace_check", JSONB(none_as_null=True)),
     Column("wake_local_date", Date),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
@@ -631,6 +632,12 @@ work = Table(
         "title ~ '[^[:space:]]' AND octet_length(title) <= 240", name="title"
     ),
     CheckConstraint("octet_length(content) <= 8192", name="content"),
+    CheckConstraint(
+        "workspace_check IS NULL OR (wake_id IS NOT NULL AND wake_at IS NOT NULL "
+        "AND repeat IS NOT NULL AND content ~ '[^[:space:]]' "
+        "AND jarvis_workspace_check_valid(workspace_check)) IS TRUE",
+        name="workspace_check",
+    ),
     CheckConstraint(
         "((wake_id IS NULL AND wake_at IS NULL AND repeat IS NULL "
         "AND wake_local_date IS NULL) OR (wake_id IS NOT NULL "
@@ -651,6 +658,17 @@ Index(
 )
 
 
+gmail_usage = Table(
+    "gmail_usage",
+    metadata,
+    Column("project_id", Text, primary_key=True),
+    Column("pacific_day", Date, nullable=False),
+    Column("units", Integer, nullable=False),
+    CheckConstraint("length(project_id) > 0", name="project_id"),
+    CheckConstraint("units BETWEEN 0 AND 5000", name="units"),
+)
+
+
 # Gmail progress is independent of conversation history and stores no provider content.
 event_cursor = Table(
     "event_cursor",
@@ -663,7 +681,7 @@ event_cursor = Table(
     Column("error", JSONB(none_as_null=True)),
     CheckConstraint("octet_length(account_id) BETWEEN 1 AND 1024", name="identity"),
     CheckConstraint(
-        "(jsonb_typeof(progress) = 'object' AND progress ?& "
+        "((jsonb_typeof(progress) = 'object' AND progress ?& "
         "ARRAY['history_id','page_token','consumed','prefix_sha256'] AND "
         "progress - "
         "ARRAY['history_id','page_token','consumed','prefix_sha256'] = "
@@ -677,7 +695,28 @@ event_cursor = Table(
         "progress->>'prefix_sha256' ~ '^[0-9a-f]{64}$') AND "
         "(progress->'history_id' <> 'null'::jsonb OR "
         "(progress->'page_token'='null'::jsonb AND "
-        "(progress->>'consumed')::numeric=0))) IS TRUE",
+        "(progress->>'consumed')::numeric=0))) IS TRUE"
+        " OR (jsonb_typeof(progress) = 'object' "
+        "AND progress ?& ARRAY['grant_id','label_id','ack','residual'] "
+        "AND progress - ARRAY['grant_id','label_id','ack','residual'] = '{}'::jsonb "
+        "AND jsonb_typeof(progress->'grant_id')='string' AND progress->>'grant_id' "
+        "~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' "
+        "AND jsonb_typeof(progress->'label_id')='string' "
+        "AND octet_length(progress->>'label_id') BETWEEN 1 AND 1024 "
+        "AND (progress->'ack'='null'::jsonb OR (progress->'residual'='null'::jsonb "
+        "AND jsonb_typeof(progress->'ack')='object' "
+        "AND (progress->'ack') ?& ARRAY['message_id','phase'] "
+        "AND (progress->'ack') - ARRAY['message_id','phase']='{}'::jsonb "
+        "AND jsonb_typeof(progress#>'{ack,message_id}')='string' "
+        "AND octet_length(progress#>>'{ack,message_id}') BETWEEN 1 AND 1024 "
+        "AND progress#>>'{ack,phase}' IN ('ready','entered'))) "
+        "AND (progress->'residual'='null'::jsonb OR "
+        "(jsonb_typeof(progress->'residual')='object' "
+        "AND (progress->'residual') ?& ARRAY['total','recheck_at'] "
+        "AND (progress->'residual') - ARRAY['total','recheck_at']='{}'::jsonb "
+        "AND jsonb_typeof(progress#>'{residual,total}')='number' "
+        "AND progress#>>'{residual,total}' ~ '^[1-9][0-9]*$' "
+        "AND jsonb_typeof(progress#>'{residual,recheck_at}')='string'))) IS TRUE)",
         name="progress",
     ),
     CheckConstraint(
@@ -686,7 +725,8 @@ event_cursor = Table(
         "ARRAY['episode_id','code','since','retry_count'] = '{}'::jsonb "
         "AND error->>'code' IN "
         "('TransportUnavailable','RateLimited','AuthUnavailable','Forbidden',"
-        "'InvalidResponse','ResponseTooLarge','CursorExpired') "
+        "'InvalidResponse','ResponseTooLarge','CursorExpired','AckUncertain',"
+        "'ConsentRequired','LabelUnavailable') "
         "AND jsonb_typeof(error->'retry_count')='number' AND "
         "(error->>'retry_count')::numeric BETWEEN 1 AND 5 AND "
         "(error->>'retry_count')::numeric = "

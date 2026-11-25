@@ -1,27 +1,22 @@
-"""Exact, bounded source reads; provider locations never leave this module."""
+"""Resolve and revalidate observed Gmail file selectors before storing their bytes."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx
-
 from jarvis._thread_io import joined_thread
-from jarvis.connectors import (
-    GmailPart,
-    GoogleReadConnector,
-    OriginalTooLarge,
-    decode_gmail_body,
-)
+from jarvis.connectors import OriginalTooLarge
 from jarvis.read_tools import (
-    ATTACHMENT_MAX_BYTES,
     ATTACHMENT_OPERATION_SECONDS,
     ConnectorFailure,
     ReadResponse,
+    display_descriptor,
 )
+from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, WorkspaceError, workspace_attempts
+from jarvis.workspace_mime import MailPart
+from jarvis.workspace_reads import WorkspaceReads
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,105 +25,65 @@ class SourceOriginal:
     filename: str | None
     media_type: str | None
     advertised_size: int | None
+    content: bytes = field(repr=False)
 
 
 class AttachmentSources:
-    def __init__(self, *, google: GoogleReadConnector) -> None:
+    def __init__(self, *, google: WorkspaceReads | None) -> None:
         self._google = google
 
-    async def _part(
-        self, source: dict[str, object], attempt_started: Callable[[], None]
-    ) -> tuple[str, GmailPart, int]:
-        if source["kind"] != "gmail":
+    async def _part(self, source: dict[str, object]) -> ReadResponse[MailPart]:
+        if self._google is None:
+            raise ConnectorFailure("provider_unavailable", attempts=0)
+        if source.get("kind") != "gmail" or not str(
+            source.get("part_id", "")
+        ).startswith("mime1."):
             raise ConnectorFailure("source_changed", attempts=0)
-        response = await self._google.gmail_attachment_message(
-            str(source["message_id"]), attempt_started=attempt_started
-        )
-        original = response.value
-        if "account" in source and source["account"] != original.account:
-            raise ConnectorFailure("source_changed", attempts=response.attempts)
-        selected = next(
-            (part for part in original.files if part.part_id == source["part_id"]), None
-        )
-        if selected is None:
-            raise ConnectorFailure(
-                "source_changed" if "account" in source else "not_found",
-                attempts=response.attempts,
-            )
-        return original.account, selected, response.attempts
+        # Leave room in the retain action for object observation and upload.
+        with workspace_attempts(8, seconds=ATTACHMENT_OPERATION_SECONDS) as meter:
+            try:
+                async with asyncio.timeout(
+                    ATTACHMENT_OPERATION_SECONDS + HUMAN_WAIT_SECONDS
+                ):
+                    part = await self._google.original(source)
+                return ReadResponse(part, meter.attempts)
+            except WorkspaceError as exc:
+                code = {
+                    "not_found": "not_found",
+                    "source_changed": "source_changed",
+                    "partial": "provider_response_too_large",
+                }.get(exc.kind, "provider_unavailable")
+                raise ConnectorFailure(code, attempts=meter.attempts) from exc
+            except OriginalTooLarge:
+                raise ConnectorFailure("too_large", attempts=meter.attempts) from None
+            except (TimeoutError, ValueError, RecursionError, OSError):
+                raise ConnectorFailure(
+                    "provider_unavailable", attempts=meter.attempts
+                ) from None
 
     async def resolve(self, source: dict[str, object]) -> ReadResponse[SourceOriginal]:
-        attempts = 0
-
-        def attempted() -> None:
-            nonlocal attempts
-            attempts += 1
-
-        try:
-            async with asyncio.timeout(ATTACHMENT_OPERATION_SECONDS):
-                account, selected, attempts = await self._part(source, attempted)
-                return ReadResponse(
-                    SourceOriginal(
-                        {
-                            "kind": "gmail",
-                            "account": account,
-                            "message_id": source["message_id"],
-                            "part_id": selected.part_id,
-                        },
-                        selected.filename or None,
-                        selected.media_type,
-                        selected.advertised_size,
-                    ),
-                    attempts,
-                )
-        except (TimeoutError, httpx.HTTPError, OSError):
-            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+        if self._google is None or self._google.account is None:
+            raise ConnectorFailure("provider_unavailable", attempts=0)
+        qualified = {"account": self._google.account, **source}
+        response = await self._part(qualified)
+        part = response.value
+        assert part.content is not None
+        size = len(part.content)
+        desc = display_descriptor(part.filename, part.media_type, size)
+        return ReadResponse(
+            SourceOriginal(
+                qualified,
+                str(desc["name"]) if desc["name"] is not None else None,
+                part.media_type,
+                size,
+                part.content,
+            ),
+            response.attempts,
+        )
 
     async def download(self, source: dict[str, object], destination: Path) -> int:
-        attempts = 0
-        starts = 0
-
-        def attempted() -> None:
-            nonlocal starts
-            starts += 1
-
-        try:
-            async with asyncio.timeout(ATTACHMENT_OPERATION_SECONDS):
-                _, part, attempts = await self._part(source, attempted)
-                if (
-                    part.advertised_size is not None
-                    and part.advertised_size > ATTACHMENT_MAX_BYTES
-                ):
-                    raise ConnectorFailure("too_large", attempts=attempts)
-                if part.external_id is not None:
-                    try:
-                        body = await self._google.gmail_attachment_body(
-                            str(source["message_id"]),
-                            part.external_id,
-                            attempt_started=attempted,
-                        )
-                    except ConnectorFailure as exc:
-                        raise ConnectorFailure(
-                            exc.code, attempts=attempts + exc.attempts
-                        ) from None
-                    attempts += body.attempts
-                    content = body.value
-                else:
-                    content = await joined_thread(self._inline, part, attempts)
-                await joined_thread(destination.write_bytes, content)
-                return attempts
-        except (TimeoutError, httpx.HTTPError, OSError):
-            raise ConnectorFailure(
-                "provider_unavailable", attempts=max(attempts, starts)
-            ) from None
-
-    @staticmethod
-    def _inline(part: GmailPart, attempts: int) -> bytes:
-        if part.data is None:
-            raise ConnectorFailure("provider_unavailable", attempts=attempts)
-        try:
-            return decode_gmail_body(part.data)
-        except OriginalTooLarge:
-            raise ConnectorFailure("too_large", attempts=attempts) from None
-        except ValueError:
-            raise ConnectorFailure("provider_unavailable", attempts=attempts) from None
+        response = await self._part(source)
+        part = response.value
+        assert part.content is not None
+        await joined_thread(destination.write_bytes, part.content)
+        return response.attempts

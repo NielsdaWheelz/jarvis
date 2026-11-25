@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from llm_agent_kernel import (
     CancellationToken,
     DispatchCompleted,
+    HostRef,
     NativeDispatchLineage,
     ToolDispatchDefect,
     ToolDispatchLineage,
@@ -38,8 +40,10 @@ from jarvis.attachment_tools import ATTACHMENT_READ_IDS
 from jarvis.event_tools import EVENT_READ_IDS
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
 from jarvis.receipt_tools import RECEIPT_READ_ID
-from jarvis.tool_results import NoTelemetry, completed_tool_result
+from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
 from jarvis.work_tools import WORK_READ_IDS
+from jarvis.workspace_host import WORKSPACE_READ_IDS, WorkspaceHost, bind_workspace_read
+from jarvis.workspace_mcp import WorkspaceError
 
 if TYPE_CHECKING:
     from jarvis.memory_service import MemoryService
@@ -100,11 +104,13 @@ class ReadToolDispatcher:
         recorder: ReadRecorder,
         memory: MemoryService,
         cutoff: int,
+        workspace: WorkspaceHost | None = None,
     ) -> None:
         self._host_secrets = tuple(value for value in host_secrets if value)
         self._recorder = recorder
         self._memory = memory
         self._cutoff = cutoff
+        self._workspace = workspace
 
     async def save_note(
         self,
@@ -177,6 +183,7 @@ class ReadToolDispatcher:
             tool_id
             not in (
                 *AUTOMATIC_READ_TOOL_IDS,
+                *WORKSPACE_READ_IDS,
                 *AGENT_READ_IDS,
                 *MEMORY_READ_IDS,
                 *WORK_READ_IDS,
@@ -204,32 +211,54 @@ class ReadToolDispatcher:
             return completed_tool_result(dict(_INVALID_INPUT))
         position = lineage.position
         try:
-            if isinstance(lineage, NativeDispatchLineage):
-                recorded = await self._recorder.recover_native_read(
-                    lineage=lineage, binding=binding, plan=plan, arguments=value
+            access = None
+            if tool_id in WORKSPACE_READ_IDS:
+                if (
+                    not isinstance(lineage, NativeDispatchLineage)
+                    or self._workspace is None
+                ):
+                    return host_rejected("workspace_read_not_authorized")
+                access = await self._workspace.read_access(lineage, str(tool_id), value)
+            elif (
+                isinstance(lineage, NativeDispatchLineage)
+                and self._workspace is not None
+                and not await self._workspace.permits_local_read(
+                    lineage, str(tool_id), value
                 )
-                if recorded is not None:
-                    return recorded
-            await self.recover_budget(lineage=lineage, budgets=budgets)
-            result = await ToolExecutor.execute(
-                binding,
-                ParsedJson(value),
-                ExecutionContext(
-                    plan=plan,
-                    grant=plan.grant(tool_id),
-                    catalog_view=plan.catalog_view,
-                    position=position,
-                    recorder=self._recorder,
-                    effect_id=None,
-                    budgets=budgets,
-                    principal=Principal("jarvis-owner"),
-                    scope=Scope(f"memory-through:{self._cutoff}")
-                    if tool_id in MEMORY_READ_IDS
-                    else Scope("automatic-read"),
-                    cancellation=cancellation,
-                    telemetry=NoTelemetry(),
-                ),
-            )
+            ):
+                return host_rejected("workspace_read_outside_check")
+            with bind_workspace_read(access) if access is not None else nullcontext():
+                if isinstance(lineage, NativeDispatchLineage):
+                    recorded = await self._recorder.recover_native_read(
+                        lineage=lineage, binding=binding, plan=plan, arguments=value
+                    )
+                    if recorded is not None:
+                        return recorded
+                await self.recover_budget(lineage=lineage, budgets=budgets)
+                result = await ToolExecutor.execute(
+                    binding,
+                    ParsedJson(value),
+                    ExecutionContext(
+                        plan=plan,
+                        grant=plan.grant(tool_id),
+                        catalog_view=plan.catalog_view,
+                        position=position,
+                        recorder=self._recorder,
+                        effect_id=None,
+                        budgets=budgets,
+                        principal=Principal("jarvis-owner"),
+                        scope=Scope(f"memory-through:{self._cutoff}")
+                        if tool_id in MEMORY_READ_IDS
+                        else Scope("automatic-read"),
+                        cancellation=cancellation,
+                        telemetry=NoTelemetry(),
+                    ),
+                )
+                if access is not None:
+                    await access.require_current(None)
+                    return completed_tool_result(result, HostRef(str(position)))
+        except WorkspaceError as exc:
+            return host_rejected(exc.kind)
         except (
             ExecutorConfigurationDefect,
             PositionConflictDefect,

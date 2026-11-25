@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from datetime import datetime
@@ -18,13 +19,25 @@ from jarvis.actions import ActionPersistenceDefect, recorded_action_result
 from jarvis.db import action, message
 from jarvis.home_notices import enqueue_notice
 from jarvis.ownership import memory_is_admitted
-from jarvis.write_tools import CALENDAR_CREATE_EVENT_SPEC, CALENDAR_UPDATE_EVENT_SPEC
+from jarvis.workspace_host import is_workspace_wake
+from jarvis.workspace_write_models import CalendarWriteReceipt
+from jarvis.write_tools import (
+    CALENDAR_CREATE_EVENT_SPEC,
+    CALENDAR_UPDATE_EVENT_SPEC,
+    HISTORICAL_CALENDAR_CREATE_EVENT_SPEC,
+    HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC,
+)
 
 _CALENDAR_WRITES = {
-    spec.id: (action_request_spec(spec).tool_contract_revision, spec.success_type, verb)
+    (spec.id, action_request_spec(spec).tool_contract_revision): (
+        spec.success_type,
+        verb,
+    )
     for spec, verb in (
         (CALENDAR_CREATE_EVENT_SPEC, "created"),
         (CALENDAR_UPDATE_EVENT_SPEC, "updated"),
+        (HISTORICAL_CALENDAR_CREATE_EVENT_SPEC, "created"),
+        (HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC, "updated"),
     )
 }
 _HOST_SOURCES = {
@@ -83,12 +96,10 @@ def _bounded_list(labels: list[str]) -> str:
 async def _calendar_operation(
     connection: AsyncConnection, row: RowMapping
 ) -> tuple[str, str, tuple[str, str, str] | None] | None:
-    spec = _CALENDAR_WRITES.get(row["tool_name"])
+    spec = _CALENDAR_WRITES.get((row["tool_name"], row["tool_contract_revision"]))
     if spec is None or row["status"] != "succeeded":
         return None
-    revision, success_type, verb = spec
-    if row["tool_contract_revision"] != revision:
-        return None
+    success_type, verb = spec
     try:
         receipt = await recorded_action_result(connection, row["id"])
         if receipt is None or receipt["type"] != "Success":
@@ -98,6 +109,8 @@ async def _calendar_operation(
         # Optional copy cannot prevent parking. The recorded status still applies.
         return None
     label = "calendar event"
+    if isinstance(proof, CalendarWriteReceipt):
+        return label, verb, (proof.account, proof.calendar_id, proof.event_id)
     if title := _quote(proof.event.writable.summary):
         label += " " + title
     key = (
@@ -118,15 +131,25 @@ async def record_parking_notice(
     attempt_id: str | None,
 ) -> None:
     inputs = (
-        await connection.execute(
-            select(
-                message.c.source,
-                case((message.c.role == "owner", message.c.text)).label("owner_text"),
+        (
+            await connection.execute(
+                select(
+                    message.c.id,
+                    message.c.source,
+                    message.c.text,
+                    case((message.c.role == "owner", message.c.text)).label(
+                        "owner_text"
+                    ),
+                )
+                .where(
+                    message.c.id.in_(origins), message.c.source_conversation_id == scope
+                )
+                .order_by(message.c.created_at, message.c.id)
             )
-            .where(message.c.id.in_(origins), message.c.source_conversation_id == scope)
-            .order_by(message.c.created_at, message.c.id)
         )
-    ).mappings()
+        .mappings()
+        .all()
+    )
     actions = (
         await connection.execute(
             select(
@@ -202,17 +225,28 @@ async def record_parking_notice(
     if proposals:
         lines.append("pending proposals need repair before a decision.")
     identifier = uuid4()
+    home: dict[str, object] = {"proposal_ids": proposals} if proposals else {}
+    check_only = len(inputs) == 1 and is_workspace_wake(
+        inputs[0]["source"], inputs[0]["text"]
+    )
+    if check_only:
+        home["todo_result"] = {
+            "todo_id": json.loads(inputs[0]["text"])["record"]["id"],
+            "request_id": str(inputs[0]["id"]),
+            "label": "scheduled check did not finish",
+        }
     await connection.execute(
         insert(message).values(
             id=identifier,
             role="assistant",
             text=" ".join(lines),
             source="native_failure",
-            home={"proposal_ids": proposals} if proposals else None,
+            home=home or None,
             source_conversation_id=scope,
             memory_admitted=memory_is_admitted(connection),
             processed_at=timestamp,
             trace={"native_attempt_id": attempt_id} if attempt_id is not None else {},
         )
     )
-    await enqueue_notice(connection, identifier)
+    if not check_only:
+        await enqueue_notice(connection, identifier)

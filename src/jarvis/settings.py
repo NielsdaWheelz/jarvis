@@ -23,6 +23,7 @@ from universal_memory.policy import EMBEDDING_DIMENSIONS
 
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError
+from jarvis.workspace_enrollment import HELD_PRODUCTION_PROJECT
 
 EMBEDDING_MODEL: Final[Literal["text-embedding-3-small"]] = "text-embedding-3-small"
 EMBEDDING_DIMENSION: Final[Literal[1536]] = EMBEDDING_DIMENSIONS
@@ -179,29 +180,28 @@ class Settings(MemoryJobSettings):
     home_socket_path: AbsolutePath = HOME_SOCKET_PATH
     agent_cli_path: Path
     agent_state_directory: Path
-    google_oauth_state_path: Path
-    google_oauth_client_id: SecretStr = Field(repr=False)
-    google_oauth_client_secret: SecretStr = Field(repr=False)
-    connector_encryption_key_version: str = Field(min_length=1, max_length=32)
-    connector_encryption_secret: SecretStr = Field(repr=False)
+    workspace_project_id: str | None = Field(
+        default=None, pattern=r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+    )
+    google_oauth_state_path: Path = Path(
+        "/var/lib/jarvis/connectors/google-oauth-state.json"
+    )
+    google_oauth_client_id: SecretStr = Field(default=SecretStr(""), repr=False)
+    google_oauth_client_secret: SecretStr = Field(default=SecretStr(""), repr=False)
+    connector_encryption_key_version: str = Field(
+        default="v1", min_length=1, max_length=32
+    )
+    connector_encryption_secret: SecretStr = Field(default=SecretStr(""), repr=False)
     maps_api_key: SecretStr = Field(repr=False)
     brave_api_key: SecretStr = Field(repr=False)
     attachment_r2_account_id: str
     attachment_r2_bucket: str = Field(min_length=1, max_length=63)
     attachment_r2_access_key_id: SecretStr = Field(repr=False)
     attachment_r2_secret_access_key: SecretStr = Field(repr=False)
-    verified_owner_only_calendar_ids: tuple[str, ...] = Field(
-        min_length=1,
-        max_length=32,
-        repr=False,
-    )
     maximum_batch_size: int = Field(default=20, ge=1, le=MAXIMUM_BATCH_SIZE)
     delivery_batch_size: int = Field(default=20, ge=1, le=100)
 
     @field_validator(
-        "google_oauth_client_id",
-        "google_oauth_client_secret",
-        "connector_encryption_secret",
         "maps_api_key",
         "brave_api_key",
         "attachment_r2_access_key_id",
@@ -301,22 +301,12 @@ class Settings(MemoryJobSettings):
                 raise ConfigurationError(f"{name} must be a positive integer")
             return value
 
-        calendar_ids = tuple(
-            value.strip()
-            for value in required("JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS").split(",")
-        )
-        if (
-            not calendar_ids
-            or any(
-                not value or len(value.encode("utf-8")) > 1_024
-                for value in calendar_ids
-            )
-            or len(set(calendar_ids)) != len(calendar_ids)
-        ):
-            raise ConfigurationError(
-                "JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS must be a unique, "
-                "non-empty comma-separated list"
-            )
+        project = source.get("JARVIS_WORKSPACE_PROJECT_ID") or None
+        if project == HELD_PRODUCTION_PROJECT:
+            project = None
+
+        def workspace_value(name: str, disabled_default: str = "") -> str:
+            return required(name) if project is not None else disabled_default
 
         try:
             return cls(
@@ -341,20 +331,24 @@ class Settings(MemoryJobSettings):
                 memory_nightly_time=time.fromisoformat(
                     source.get("JARVIS_MEMORY_NIGHTLY_TIME", "03:00")
                 ),
+                workspace_project_id=project,
                 google_oauth_state_path=Path(
-                    required("JARVIS_GOOGLE_OAUTH_STATE_PATH")
+                    workspace_value(
+                        "JARVIS_GOOGLE_OAUTH_STATE_PATH",
+                        "/var/lib/jarvis/connectors/google-oauth-state.json",
+                    )
                 ),
                 google_oauth_client_id=SecretStr(
-                    required("JARVIS_GOOGLE_OAUTH_CLIENT_ID")
+                    workspace_value("JARVIS_GOOGLE_OAUTH_CLIENT_ID")
                 ),
                 google_oauth_client_secret=SecretStr(
-                    required("JARVIS_GOOGLE_OAUTH_CLIENT_SECRET")
+                    workspace_value("JARVIS_GOOGLE_OAUTH_CLIENT_SECRET")
                 ),
-                connector_encryption_key_version=required(
-                    "JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION"
+                connector_encryption_key_version=workspace_value(
+                    "JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION", "v1"
                 ),
                 connector_encryption_secret=SecretStr(
-                    required("JARVIS_CONNECTOR_ENCRYPTION_SECRET")
+                    workspace_value("JARVIS_CONNECTOR_ENCRYPTION_SECRET")
                 ),
                 maps_api_key=SecretStr(required("JARVIS_MAPS_API_KEY")),
                 brave_api_key=SecretStr(required("JARVIS_BRAVE_API_KEY")),
@@ -369,7 +363,6 @@ class Settings(MemoryJobSettings):
                 attachment_cache_directory=Path(
                     required("JARVIS_ATTACHMENT_CACHE_DIRECTORY")
                 ),
-                verified_owner_only_calendar_ids=calendar_ids,
                 maximum_batch_size=positive_int("JARVIS_MAXIMUM_BATCH_SIZE", 20),
                 delivery_batch_size=positive_int("JARVIS_DELIVERY_BATCH_SIZE", 20),
             )

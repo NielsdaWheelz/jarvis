@@ -37,6 +37,7 @@ from pydantic import (
 
 from jarvis.action_requests import CanonicalUuid
 from jarvis.work_schedule import RepeatRule, Wake
+from jarvis.workspace_checks import WorkspaceCheck, WorkspaceSelectors
 
 WORK_STATES = ("doing_now", "blocked", "next_up", "backlog", "done", "cancelled")
 ACTIVE_WORK_STATES = WORK_STATES[:4]
@@ -92,6 +93,7 @@ class WorkCreateInput(_Closed):
     content: Content
     due_date: CalendarDate | None
     wake: Wake | None
+    workspace_check: WorkspaceSelectors | None = None
 
 
 class TitleChange(_Closed):
@@ -119,15 +121,25 @@ class WakeChange(_Closed):
     value: Wake | None
 
 
+class WorkspaceCheckChange(_Closed):
+    field: Literal["workspace_check"]
+    value: WorkspaceSelectors | None
+
+
 type WorkChange = Annotated[
-    TitleChange | StateChange | ContentChange | DueDateChange | WakeChange,
+    TitleChange
+    | StateChange
+    | ContentChange
+    | DueDateChange
+    | WakeChange
+    | WorkspaceCheckChange,
     Field(discriminator="field"),
 ]
 
 
 class WorkUpdateInput(_Closed):
     id: CanonicalUuid
-    changes: Annotated[list[WorkChange], Field(min_length=1, max_length=5)]
+    changes: Annotated[list[WorkChange], Field(min_length=1, max_length=6)]
 
     @field_validator("changes")
     @classmethod
@@ -170,6 +182,7 @@ class WorkSummary(_Closed):
 
 
 class WorkRecord(WorkSummary):
+    workspace_check: WorkspaceCheck | None = None
     content: Content
     created_at: HostUtc
 
@@ -207,15 +220,33 @@ class InvalidSchedule(_Closed):
     code: Literal["not_future_at_admission", "inactive", "invalid_zone", "out_of_range"]
 
 
+class InvalidWorkspaceCheck(_Closed):
+    type: Literal["InvalidWorkspaceCheck"] = "InvalidWorkspaceCheck"
+    code: Literal[
+        "owner_required",
+        "grant_unavailable",
+        "recurring_wake_required",
+        "condition_required",
+        "calendar_not_observed",
+        "expired",
+    ]
+
+
 type WorkError = NotFound | NextUpFull | InvalidSchedule
+type CheckMutationError = (
+    NotFound | NextUpFull | InvalidSchedule | InvalidWorkspaceCheck
+)
 
 _WAKE_CONTENT_GUIDANCE = (
     "for a future wake, preserve the intended outcome, needed sources/locations "
     "and material owner constraints in content; the current row supplies that "
-    "turn's brief, and the original conversation may be absent."
+    "turn's brief, and the original conversation may be absent. "
+    "for an owner-requested recurring gmail/calendar check, put the condition in "
+    "content and its exact query, observed calendar ids/day window and optional "
+    "inclusive end date in workspace_check; show the selected scope to the owner."
 )
 
-WORK_CREATE_SPEC = ToolSpec[WorkCreateInput, WorkMutationSuccess, WorkError](
+WORK_CREATE_SPEC = ToolSpec[WorkCreateInput, WorkMutationSuccess, CheckMutationError](
     id=ToolId("work.create"),
     summary="record one outcome, optionally with a separate deadline and wake.",
     documentation=PromptDocument(
@@ -230,15 +261,15 @@ WORK_CREATE_SPEC = ToolSpec[WorkCreateInput, WorkMutationSuccess, WorkError](
     ),
     input_type=WorkCreateInput,
     success_type=WorkMutationSuccess,
-    error_type=cast(type[WorkError], WorkError),
+    error_type=cast(type[CheckMutationError], CheckMutationError),
     effect=ToolEffect.Write,
     limits=ToolLimits(65_536, 4_096, 0, 5.0),
 )
-WORK_UPDATE_SPEC = ToolSpec[WorkUpdateInput, WorkMutationSuccess, WorkError](
+WORK_UPDATE_SPEC = ToolSpec[WorkUpdateInput, WorkMutationSuccess, CheckMutationError](
     id=ToolId("work.update"),
     summary="change named todo fields; omitted fields retain their values.",
     documentation=PromptDocument(
-        "supply 1-5 unique field changes. null clears due_date or the whole "
+        "supply 1-6 unique field changes. null clears due_date or the whole "
         "wake. non-null wake replaces the schedule even when equal; ordinary edits "
         "retain it. validate the final state independently of change order. "
         "NextUpFull changes nothing; do not silently demote another priority. "
@@ -248,11 +279,11 @@ WORK_UPDATE_SPEC = ToolSpec[WorkUpdateInput, WorkMutationSuccess, WorkError](
     ),
     input_type=WorkUpdateInput,
     success_type=WorkMutationSuccess,
-    error_type=cast(type[WorkError], WorkError),
+    error_type=cast(type[CheckMutationError], CheckMutationError),
     effect=ToolEffect.Write,
     limits=ToolLimits(65_536, 4_096, 0, 5.0),
 )
-WORK_DELETE_SPEC = ToolSpec[WorkDeleteInput, WorkMutationSuccess, WorkError](
+WORK_DELETE_SPEC = ToolSpec[WorkDeleteInput, WorkMutationSuccess, CheckMutationError](
     id=ToolId("work.delete"),
     summary="physically delete a todo and disable its future wakes.",
     documentation=PromptDocument(
@@ -262,7 +293,7 @@ WORK_DELETE_SPEC = ToolSpec[WorkDeleteInput, WorkMutationSuccess, WorkError](
     ),
     input_type=WorkDeleteInput,
     success_type=WorkMutationSuccess,
-    error_type=cast(type[WorkError], WorkError),
+    error_type=cast(type[CheckMutationError], CheckMutationError),
     effect=ToolEffect.Write,
     limits=ToolLimits(1_024, 4_096, 0, 5.0),
 )
@@ -377,7 +408,9 @@ def work_family(store: WorkToolStore) -> ToolFamily:
             spec=spec,
             execute=Available(execute),
             replay_policy=ReplayPolicy.ReDispatchable,
-            implementation_revision="jarvis-" + str(spec.id).replace(".", "-") + "-v1",
+            implementation_revision="jarvis-"
+            + str(spec.id).replace(".", "-")
+            + ("-v2" if spec != WORK_LIST_SPEC else "-v1"),
             policy_epoch=PolicyEpoch("jarvis-work-v1"),
             policy_inputs={
                 "authority": "delivered-live-request",

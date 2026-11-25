@@ -15,14 +15,16 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequen
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
-from typing import Annotated, Literal, Protocol, Self
+from typing import Annotated, Literal, Protocol, Self, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import httpx
 import uvicorn
 from llm_agent_kernel import CancellationToken, CodexProvider, ProviderConfiguration
-from llm_tools import FrozenToolPlan, ToolId
+from llm_tools import FrozenToolPlan
 from provider_runtime.agent_runtime import (
     AgentRuntime,
     AgentRuntimeDefect,
@@ -44,7 +46,6 @@ from jarvis._atomic_json import read_private_json
 from jarvis.actions import (
     ActionPersistenceDefect,
     ActionStore,
-    ExecutionContract,
     StoredAction,
     archived_worker_action,
 )
@@ -52,7 +53,7 @@ from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError
-from jarvis.connectors import GoogleReadConnector
+from jarvis.connectors import GoogleTokenManager
 from jarvis.db import (
     ASSISTANT_MEMORY_READS,
     action,
@@ -73,11 +74,11 @@ from jarvis.events import EventStore
 from jarvis.fcm import FcmSender
 from jarvis.gmail_cut import (
     CUT_RECEIPT,
-    audit_mail_cut,
     historical_mail,
     verified_cut_ids,
 )
 from jarvis.home_http import create_home_app
+from jarvis.home_notices import deliver_workspace_match
 from jarvis.home_pages import DEFAULT_EXPORT, NOTES_ROOT
 from jarvis.kernel import (
     CodexStandby,
@@ -142,14 +143,16 @@ from jarvis.tool_composition import (
 )
 from jarvis.tool_results import memory_result_size, memory_view_size
 from jarvis.work import WorkStore
-from jarvis.write_connectors import GoogleWriteConnector
+from jarvis.workspace_enrollment import enroll_workspace
+from jarvis.workspace_host import WorkspaceHost, current_workspace_read
+from jarvis.workspace_mcp import WorkspaceError
+from jarvis.workspace_write_models import FrozenCompose
 from jarvis.write_dispatch import (
     RECOVERABLE_ACTION_IDS,
     ActionRecovery,
     WriteToolDispatcher,
     require_current_action_binding,
 )
-from jarvis.write_tools import GmailComposeContract, GmailSendContract
 
 LOGGER = logging.getLogger(__name__)
 # initialize-state bootstraps only a fresh database stopped at this revision.
@@ -449,7 +452,7 @@ async def _compose_main(
     events: EventStore,
     event_admitted: Callable[[], Awaitable[bool]],
     memory: MemoryService,
-    google_oauth_http: httpx.AsyncClient,
+    tokens: GoogleTokenManager,
     google_api_http: httpx.AsyncClient,
     maps_http: httpx.AsyncClient,
     brave_http: httpx.AsyncClient,
@@ -472,7 +475,8 @@ async def _compose_main(
     composition = build_tool_composition(
         owner=owner,
         settings=settings,
-        google_oauth_http=google_oauth_http,
+        tokens=tokens,
+        workspace_access=current_workspace_read,
         google_api_http=google_api_http,
         maps_http=maps_http,
         brave_http=brave_http,
@@ -533,7 +537,6 @@ async def _serve(
                 if await store.current_control(owner.scope_id) is None:
                     raise StartupDefect("serve requires initialized canonical control")
                 await _require_standby_data(database, owner.scope_id)
-                await recover_native_products(owner)
                 paused = PausedState(store, owner.scope_id)
                 dispatch_lane = asyncio.Lock()
                 async with AsyncExitStack() as clients:
@@ -555,8 +558,24 @@ async def _serve(
                     memory = await clients.enter_async_context(
                         _memory_service(settings, config, database)
                     )
+                    tokens = google_tokens(settings, google_oauth_http)
+                    workspace = WorkspaceHost(
+                        owner,
+                        owner_zone=ZoneInfo(settings.owner_timezone),
+                        enrollment=tokens.enrollment,
+                    )
+                    await recover_native_products(owner, workspace=workspace)
                     actions = ActionStore(database)
-                    work = WorkStore(database, settings.owner_scope)
+                    work = WorkStore(
+                        database,
+                        settings.owner_scope,
+                        owner_timezone=settings.owner_timezone,
+                        workspace_grant_id=lambda: (
+                            enrollment.grant_id
+                            if (enrollment := tokens.enrollment())
+                            else None
+                        ),
+                    )
                     await work.recompute_calendar_wakes()
                     events = EventStore(database, settings.owner_scope)
 
@@ -577,12 +596,12 @@ async def _serve(
                         events=events,
                         event_admitted=event_admitted,
                         memory=memory,
-                        google_oauth_http=google_oauth_http,
+                        tokens=tokens,
                         google_api_http=google_api_http,
                         maps_http=maps_http,
                         brave_http=brave_http,
                     )
-                    clients.push_async_callback(composition.google_read.aclose)
+                    clients.push_async_callback(composition.workspace_approvals.close)
                     _require_mail_cut(
                         await historical_mail(actions),
                         settings.runtime_state_directory / CUT_RECEIPT,
@@ -615,6 +634,11 @@ async def _serve(
                         owner_timezone=settings.owner_timezone,
                         nightly_time=settings.memory_nightly_time,
                     )
+                    delivery = FcmSender(fcm_http, settings.fcm_project)
+                    phone = PhoneSlot(
+                        PHONE_DIRECTORY / "slot.json",
+                        lambda: service.request_delivery(),
+                    )
                     runner = NativeRunner(
                         settings=settings,
                         store=store,
@@ -629,7 +653,8 @@ async def _serve(
                                 dispatch_lane=dispatch_lane,
                                 journal=journal,
                                 actions=actions,
-                                google_write=composition.google_write,
+                                workspace_writes=composition.workspace_writes,
+                                workspace_grant=tokens.enrollment,
                                 work=work,
                                 events=events,
                                 attachments=composition.attachments,
@@ -645,24 +670,20 @@ async def _serve(
                                     ),
                                     memory=memory,
                                     cutoff=checkpoint.memory_cutoff,
+                                    workspace=workspace,
                                 ),
                                 source_conversation_id=settings.owner_scope,
-                                verified_owner_only_calendar_ids=(
-                                    settings.verified_owner_only_calendar_ids
-                                ),
                                 host_secrets=settings.host_secrets,
                             )
                         ),
                         memory=memory,
-                    )
-                    delivery = FcmSender(fcm_http, settings.fcm_project)
-                    phone = PhoneSlot(
-                        PHONE_DIRECTORY / "slot.json",
-                        lambda: service.request_delivery(),
+                        workspace=workspace,
+                        notify_workspace_match=partial(
+                            deliver_workspace_match, delivery, phone
+                        ),
                     )
                     action_recovery = ActionRecovery(
                         actions=actions,
-                        google_write=composition.google_write,
                         work=work,
                         events=events,
                         attachments=composition.attachments,
@@ -679,6 +700,7 @@ async def _serve(
                     service = JarvisService(
                         settings=settings,
                         database=database,
+                        workspace=workspace,
                         paused=paused,
                         delivery=delivery,
                         phone=phone,
@@ -721,6 +743,7 @@ async def _serve(
                         spool=settings.runtime_state_directory / "uploads",
                         pages=DEFAULT_EXPORT,
                         phone=phone,
+                        workspace_approvals=composition.workspace_approvals,
                     )
                     await run_service(service, app, settings.home_socket_path, shutdown)
             finally:
@@ -739,20 +762,93 @@ async def reconcile_attachment(
     _attachment_cache_layout(settings, settings.codex_host_config)
     engine = create_engine(settings.database_url.get_secret_value())
     try:
-        async with (
-            deployment_ownership(engine) as database,
-            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
-        ):
+        async with deployment_ownership(engine) as database:
             store = build_attachment_store(
                 settings=settings,
                 database=database,
-                google=GoogleReadConnector(
-                    client=http, tokens=google_tokens(settings, http)
-                ),
+                google=None,
             )
             return await store.reconcile(
                 attachment_id, after_manual_cleanup=after_manual_cleanup
             )
+    finally:
+        await engine.dispose()
+
+
+async def workspace_operator(settings: Settings, arguments: argparse.Namespace) -> None:
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with (
+            deployment_ownership(engine) as database,
+            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
+        ):
+            await require_native_data(database, conversation_id=settings.owner_scope)
+            if arguments.command == "workspace-confirm-removed":
+                await EventStore(database, settings.owner_scope).confirm_removed_ack(
+                    arguments.account,
+                    grant_id=arguments.grant_id,
+                    label_id=arguments.label_id,
+                    message_id=arguments.message,
+                )
+                print("recorded the verified absence of the named pending label.")
+                return
+            tokens = google_tokens(settings, http)
+            if arguments.command == "workspace-enroll":
+                enrollment = await enroll_workspace(
+                    tokens,
+                    arguments.client,
+                    expected_email=arguments.email,
+                    pending_label_id=arguments.label,
+                    confirm=lambda text: input(f"{text}\ntype yes: ") == "yes",
+                    show_url=print,
+                )
+                print(f"enrolled {enrollment.account} in {enrollment.project_id}.")
+                return
+            enrollment = tokens.enrollment()
+            if enrollment is None:
+                raise WorkspaceError("grant_unavailable")
+            if arguments.command == "workspace-disconnect":
+                await tokens.disconnect(enrollment.grant_id)
+                print("workspace access disabled. revoke this app in google too.")
+                return
+            if arguments.command == "workspace-restore-gap":
+                recorded = await EventStore(
+                    database, settings.owner_scope
+                ).record_restored_interval(
+                    enrollment.account,
+                    cut_at=arguments.cut,
+                    restored_at=arguments.restored,
+                )
+                print(
+                    "arrival gap recorded."
+                    if recorded
+                    else "arrival gap already recorded."
+                )
+                return
+            if arguments.command == "workspace-enroll-arrivals":
+                receipt = read_private_json(arguments.handoff)
+                if (
+                    receipt is None
+                    or receipt.get("account") != enrollment.account
+                    or receipt.get("grant_id") != str(enrollment.grant_id)
+                    or receipt.get("label_id") != enrollment.pending_label_id
+                    or enrollment.pending_label_id is None
+                    or receipt.get("verified_handoff") is not True
+                    or "expected_progress" not in receipt
+                ):
+                    raise ValueError("the receipt does not match this enrollment")
+                prior = receipt["expected_progress"]
+                if prior is not None and not isinstance(prior, dict):
+                    raise ValueError("the inventoried cursor is invalid")
+                await EventStore(database, settings.owner_scope).enroll(
+                    enrollment.account,
+                    enrollment.grant_id,
+                    enrollment.pending_label_id,
+                    expected_progress=cast(dict[str, object] | None, prior),
+                )
+                print("the event cursor now names the verified pending label.")
+                return
+            raise ValueError("unknown workspace maintenance command")
     finally:
         await engine.dispose()
 
@@ -764,100 +860,6 @@ def _require_mail_cut(history: Sequence[RowMapping], receipt: Path) -> frozenset
             "historical Gmail sends require a complete stopped cut audit"
         )
     return cleared
-
-
-async def gmail_cut_audit(
-    settings: Settings,
-    owner_evidence_path: Path | None,
-) -> dict[str, object]:
-    engine = create_engine(settings.database_url.get_secret_value())
-    try:
-        async with (
-            deployment_ownership(engine) as database,
-            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
-        ):
-            require_native_files(settings.runtime_state_directory)
-            await require_native_data(database, conversation_id=settings.owner_scope)
-            if (
-                await MessageStore(database).current_control(settings.owner_scope)
-                is None
-            ):
-                raise StartupDefect(
-                    "gmail cut audit requires initialized owner control"
-                )
-            owner_evidence = None
-            if owner_evidence_path is not None:
-                owner_evidence = read_private_json(owner_evidence_path)
-                if owner_evidence is None:
-                    raise ValueError("owner evidence file is missing")
-            actions = ActionStore(database)
-            connector = GoogleWriteConnector(
-                client=http,
-                tokens=google_tokens(settings, http),
-                actions=actions,
-            )
-            return await audit_mail_cut(
-                connector,
-                await historical_mail(actions),
-                settings.runtime_state_directory / CUT_RECEIPT,
-                owner_evidence,
-            )
-    finally:
-        await engine.dispose()
-
-
-async def reconcile_gmail_action(
-    settings: Settings, action_id: UUID
-) -> dict[str, object]:
-    """Observe an uncertain current send while the application is stopped."""
-    engine = create_engine(settings.database_url.get_secret_value())
-    try:
-        async with (
-            deployment_ownership(engine) as database,
-            httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
-        ):
-            actions = ActionStore(database)
-            stored = await actions.get(action_id)
-            if (
-                stored is None
-                or stored.status != "uncertain"
-                or stored.tool_name != ToolId("gmail.send_draft")
-                or not isinstance(stored.execution_contract, ExecutionContract)
-                or not isinstance(stored.execution_contract.mail, GmailSendContract)
-                or not stored.mail_progress.entered
-            ):
-                raise ValueError(
-                    "reconciliation requires one uncertain current Gmail send"
-                )
-            connector = GoogleWriteConnector(
-                client=http,
-                tokens=google_tokens(settings, http),
-                actions=actions,
-            )
-            evidence = await connector.reconcile_gmail(stored)
-            if evidence.outcome == "succeeded":
-                assert evidence.value is not None
-                await actions.resolve_reconciliation(
-                    action_id=action_id,
-                    status="succeeded",
-                    result={
-                        "type": "Success",
-                        "value": evidence.value.model_dump(mode="json"),
-                    },
-                )
-            elif evidence.outcome == "absent":
-                await actions.resolve_reconciliation(
-                    action_id=action_id,
-                    status="failed",
-                    result={"type": "Failure", "error": {"type": "SendAbsent"}},
-                )
-            return {
-                "action_id": str(action_id),
-                "outcome": evidence.outcome,
-                "evidence": evidence.evidence,
-            }
-    finally:
-        await engine.dispose()
 
 
 async def list_parked(settings: PausedSettings) -> str:
@@ -1082,7 +1084,7 @@ async def check_activation(
                         events=EventStore(database, scope),
                         event_admitted=event_admitted,
                         memory=memory,
-                        google_oauth_http=http,
+                        tokens=google_tokens(settings, http),
                         google_api_http=http,
                         maps_http=http,
                         brave_http=http,
@@ -1316,15 +1318,8 @@ def _changed_action_authority(
     ):
         return "staged gmail subject or grants differ or are unverified"
     if namespace == "gmail":
-        contract = stored.current_execution_contract.mail
-        account = None
-        if isinstance(contract, GmailSendContract):
-            account = contract.revision.account
-        elif isinstance(contract, GmailComposeContract):
-            if contract.base_revision is not None:
-                account = contract.base_revision.account
-            elif stored.mail_progress.basis is not None:
-                account = stored.mail_progress.basis.account
+        contract = stored.current_execution_contract.workspace
+        account = contract.account if contract is not None else None
         candidate = authority.gmail_candidate_account
         source = authority.gmail_source_account
         if candidate is not None and (
@@ -1332,16 +1327,13 @@ def _changed_action_authority(
             or (source is not None and candidate != source)
         ):
             return "stored mail authority differs from the staged gmail account"
-        if "attachments" in changed and (
-            isinstance(contract, GmailComposeContract) and contract.parts
-        ):
-            return "mail draft uses files under the changed attachment authority"
         if (
-            "native" in changed
-            and isinstance(contract, GmailComposeContract)
-            and contract.parts
+            changed.intersection({"attachments", "native"})
+            and contract is not None
+            and isinstance(contract.effect, FrozenCompose)
+            and contract.effect.files
         ):
-            return "mail draft uses files staged under the selected native authority"
+            return "mail draft has files staged under the changed authority"
     if area in changed or changed.intersection({"owner", "database"}):
         return f"the staged {area} authority differs from the selected release"
     return None
@@ -1438,11 +1430,7 @@ async def _action_activation_verdicts(
                 )
                 if status == "uncertain":
                     proof = False
-                    old_draft = tool in {
-                        "gmail.create_draft",
-                        "gmail.update_draft",
-                    } and (not isinstance(stored.execution_contract, ExecutionContract))
-                    if archived_worker_action(stored) or old_draft:
+                    if archived_worker_action(stored):
                         verdict = "compatible"
                         detail = "terminal historical uncertainty remains recorded"
                     else:
@@ -1750,14 +1738,33 @@ def _parser() -> argparse.ArgumentParser:
     )
     attachment.add_argument("id", type=UUID)
     attachment.add_argument("--after-manual-cleanup", action="store_true")
-    cut = commands.add_parser(
-        "gmail-cut-audit", help="audit historical Gmail outcomes during the stopped cut"
+    enrollment = commands.add_parser(
+        "workspace-enroll", help="enroll an isolated workspace grant while stopped"
     )
-    cut.add_argument("--owner-evidence", type=Path)
-    gmail = commands.add_parser(
-        "gmail-send-reconcile", help="observe one uncertain Gmail send while stopped"
+    enrollment.add_argument("--client", required=True, type=Path)
+    enrollment.add_argument("--email", required=True)
+    enrollment.add_argument("--label")
+    commands.add_parser(
+        "workspace-disconnect",
+        help="invalidate the local workspace grant while stopped",
     )
-    gmail.add_argument("id", type=UUID)
+    restore_gap = commands.add_parser(
+        "workspace-restore-gap", help="record the coverage gap from a verified restore"
+    )
+    restore_gap.add_argument("--cut", required=True, type=datetime.fromisoformat)
+    restore_gap.add_argument("--restored", required=True, type=datetime.fromisoformat)
+    arrival = commands.add_parser(
+        "workspace-enroll-arrivals", help="bind a stopped verified arrival handoff"
+    )
+    arrival.add_argument("--handoff", required=True, type=Path)
+    repair = commands.add_parser(
+        "workspace-confirm-removed",
+        help="confirm you verified removal of the pending label on a named message",
+    )
+    repair.add_argument("message")
+    repair.add_argument("--account", required=True)
+    repair.add_argument("--grant-id", required=True, type=UUID)
+    repair.add_argument("--label-id", required=True)
     commands.add_parser("dream", help="run one isolated dream while stopped")
     rebuild = commands.add_parser(
         "rebuild-memory", help="refold derived memory while stopped"
@@ -1881,6 +1888,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings = Settings.from_env()
         if arguments.command == "serve":
             asyncio.run(serve(settings, settings.codex_host_config))
+        elif arguments.command in {
+            "workspace-enroll",
+            "workspace-disconnect",
+            "workspace-restore-gap",
+            "workspace-enroll-arrivals",
+            "workspace-confirm-removed",
+        }:
+            asyncio.run(workspace_operator(settings, arguments))
         elif arguments.command == "check-activation":
             authority = (
                 MaintenanceAuthority.model_validate_json(sys.stdin.buffer.read(16_385))
@@ -1920,14 +1935,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"incompatible={incompatible} in_flight={in_flight}"
                 )
             return 0 if check.passed else 1
-        elif arguments.command == "gmail-cut-audit":
-            result = asyncio.run(gmail_cut_audit(settings, arguments.owner_evidence))
-            print(json.dumps(result, sort_keys=True))
-            return 0 if result["status"] == "clear" else 1
-        elif arguments.command == "gmail-send-reconcile":
-            result = asyncio.run(reconcile_gmail_action(settings, arguments.id))
-            print(json.dumps(result, sort_keys=True))
-            return 1 if result["outcome"] == "uncertain" else 0
         elif arguments.command == "attachment-reconcile":
             result = asyncio.run(
                 reconcile_attachment(
@@ -1941,6 +1948,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise AssertionError("unknown command")
     except (AgentRuntimeError, AgentRuntimeDefect) as exc:
         log_native_failure(LOGGER, exc, attempt_id=None, boundary="command")
+        return 1
+    except WorkspaceError as exc:
+        LOGGER.error("workspace command failed: %s", exc.kind)
         return 1
     except (
         ConfigurationError,

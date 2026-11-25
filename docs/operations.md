@@ -470,14 +470,49 @@ project key restricted to embeddings. The deployment fixes
 `text-embedding-3-small` at 1,536 dimensions. Changing either requires the
 stopped rebuild procedure in SPEC 7.2.
 
-set `JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS` only to unique calendar ids whose
-live acls the operator verified as owner-only. calendar writes for those ids,
-without attendees or notification, are automatic. other calendar writes require
-ordinary conversational consent recorded by main through `approval.respond`.
+the [workspace candidate](decisions/0107-google-workspace.md) removes
+`JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS`. all of its calendar writes require
+ordinary conversational approval. a candidate with no workspace project has
+workspace disabled. use a separate test project and mailbox for google-hosted
+qualification. copied production credentials confer no workspace access.
+production requires the separate
+[recorded permission decision](issues/google-workspace-retention.md).
+
+for a workspace restore, prove exclusive custody of the pending label. if the
+old host may still be running, revoke the app at google before re-enrolling.
+keep workspace disabled through the restored-state checks. on the selected
+stopped host, re-enroll the intended workspace account, then run
+`jarvis workspace-restore-gap --cut CUT_UTC --restored RESTORED_UTC` with the
+generation manifest's `cut_utc` and the recorded restore instant. repeat with
+the same timestamps if needed. start observation only after that fact commits.
+surviving labels drain normally. the reported gap can be searched on request.
 
 for an independent stopped repair, execute the documented service-user command under `sudo -n /opt/jarvis/current/deploy/with-independent-maintenance COMMAND [ARG ...]` on the deployment host. wrap the whole foreground service invocation, including `systemd-run --wait` when used. this holds the shared release lock, checks for a published change and preserves the command’s own writer keys, runtime identity and environment.
 
-if an existing held mail send needs original evidence, record the owner’s authorization for its exact action uuid and the change id. on the deployment host, run the following as one command. set `custodian` to the installed release providing the current hold. use a release that accepts the original immutable effect contract at the observed database revision. if the selected release cannot do that, keep the hold and qualify a schema-capable forward repair. the compatibility check must pass before that repair starts writers.
+if an arrival acknowledgement is blocked, take the original account, grant,
+label and message from `events.status.ack_repair`. after disconnect, use
+the same stopped maintenance custody to inventory the account's `event_cursor`:
+
+```sql
+select account_id, progress->>'grant_id' as grant_id, progress->>'label_id' as label_id,
+       progress->'ack'->>'message_id' as message_id, progress->'ack'->>'phase' as phase,
+       error->>'code' as failure
+from event_cursor
+where account_id = :'original_account' and progress->'ack'->>'message_id' is not null;
+```
+
+verify in the original mailbox that this exact message exists and the named
+label is absent from that message. if you cannot verify this, leave the marker
+in place. under stopped custody run
+`jarvis workspace-confirm-removed MESSAGE --account ACCOUNT --grant-id GRANT --label-id LABEL`.
+this records the observation locally. `AckUncertain` requires an entered
+marker. `AuthUnavailable` permits a ready or entered marker and still requires
+the ordinary verified re-enrollment before polling resumes.
+
+before the 0107 cut, a held mail send may need original evidence. record the
+owner’s authorization for its exact action uuid and the change id. run the
+original reconciliation only on its selected predecessor. hold a cut that
+still has unknown old obligations. the 0107 candidate has no send executor.
 
 ```sh
 sudo -n flock --exclusive /opt/jarvis/.deploy.lock bash -ec '

@@ -56,6 +56,8 @@ class WorkspaceWriteEntry:
     authorize: Callable[[AsyncConnection | None], Awaitable[None]]
     prepare_attempts: int
     prepare_seconds: float
+    prepare_human_elapsed: float
+    prepare_consent_rounds: int
 
     async def before_send(self) -> None:
         await self.authorize(None)
@@ -87,7 +89,12 @@ async def execute_workspace_write(
         maximum = GMAIL_WRITE_POLICY.max_attempts - entry.prepare_attempts
         if seconds <= 0 or maximum <= 0:
             raise WorkspaceError("budget_exceeded")
-        with workspace_attempts(maximum, seconds=seconds):
+        with workspace_attempts(
+            maximum,
+            seconds=seconds,
+            human_elapsed=entry.prepare_human_elapsed,
+            consent_rounds=entry.prepare_consent_rounds,
+        ):
             result = await writes.execute(
                 entry.frozen,
                 invocation_id=str(entry.invocation_id),

@@ -16,7 +16,6 @@ from email.headerregistry import Address
 from email.message import EmailMessage
 from email.parser import BytesParser
 from typing import Literal, cast
-from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -31,6 +30,7 @@ from jarvis.gmail_drafts import (
     workspace_reply_parent,
 )
 from jarvis.mail_files import MailFileFailure, MailFiles, NewMailFile, ObservedMailPart
+from jarvis.workspace_links import workspace_link
 from jarvis.workspace_mcp import (
     Fence,
     Product,
@@ -107,48 +107,6 @@ def _array(value: object) -> list[object]:
     return cast(list[object], value)
 
 
-def _link(
-    value: object, product: Product, resource: str, calendar: str = ""
-) -> str | None:
-    if (
-        not isinstance(value, str)
-        or len(value) > 4096
-        or any(ord(c) < 33 for c in value)
-    ):
-        return None
-    try:
-        url = urlsplit(value)
-        if url.scheme != "https":
-            return None
-        if (
-            product == "gmail"
-            and url.netloc == "mail.google.com"
-            and re.fullmatch(r"/mail/(?:u/[0-9]+/?)?", url.path)
-            and not url.query
-        ):
-            if url.fragment in {f"drafts/{resource}", f"drafts?compose={resource}"}:
-                return value
-        if product == "calendar" and url.netloc in {
-            "calendar.google.com",
-            "www.google.com",
-        }:
-            if url.path in {"/calendar/event", "/calendar/u/0/r/eventedit"}:
-                eid = parse_qs(url.query).get("eid", [])
-                if (
-                    not url.fragment
-                    and set(parse_qs(url.query)) == {"eid"}
-                    and len(eid) == 1
-                    and base64.b64decode(
-                        eid[0] + "=" * (-len(eid[0]) % 4), altchars=b"-_", validate=True
-                    )
-                    == f"{resource} {calendar}".encode()
-                ):
-                    return value
-    except ValueError:
-        pass
-    return None
-
-
 class WorkspaceWriteConflict(WorkspaceError):
     """Only the bounded host-observed differences are safe to surface in chat."""
 
@@ -167,6 +125,7 @@ class WorkspaceWriteConflict(WorkspaceError):
 class _Exchange:
     client: WorkspaceMcpClient
     grant: UUID
+    account: str
     invocation: str
     fence: Fence
     read_resumptions: int = 0
@@ -268,14 +227,17 @@ async def _draft(io: _Exchange, draft_id: str) -> _Draft:
             screen_workspace_content(subject)
         except WorkspaceError:
             subject = None
+        message_id = provider_id(payload, "messageId")
         return _Draft(
             DraftObservation(
                 draft_id=draft_id,
-                message_id=provider_id(payload, "messageId"),
+                message_id=message_id,
                 thread_id=provider_id(payload, "threadId"),
                 digest=_digest(raw),
                 subject=subject,
-                link=_link(payload.get("viewUrl"), "gmail", draft_id),
+                link=workspace_link(
+                    payload.get("viewUrl"), "gmail", message_id, account=io.account
+                ),
                 observed_at=datetime.now(UTC),
             ),
             message,
@@ -455,15 +417,16 @@ async def _compose(
         envelope = snapshot.model_dump(
             include={"to", "cc", "bcc", "subject"}, mode="json"
         )
+        edits = request.changes.model_dump(mode="json")
+        screen_workspace_content(edits)
         content = GmailContent.model_validate(
             {
                 **envelope,
                 "body_text": body,
                 "reply_to": reply,
-                **request.changes.model_dump(mode="json"),
+                **edits,
             }
         )
-        screen_workspace_content(content.model_dump(mode="json"))
         expected_body = _digest((_lf(content.body_text) + quote).encode())
         retained = tuple(
             ObservedMailPart(file, data)
@@ -840,6 +803,12 @@ def _preserved(raw: Obj, changes: CalendarChanges, wire: CalendarMutation) -> st
     return _json_digest(remaining)
 
 
+def _require_supported_patch(wire: CalendarMutation) -> None:
+    # Explicit empty strings and allDay=false need provider presence proof.
+    if wire.allDay is False or "" in (wire.summary, wire.description, wire.location):
+        raise WorkspaceError("unrepresentable_event_change")
+
+
 async def _freeze_event(
     io: _Exchange, request: EventRequest, account: str
 ) -> FrozenCalendar:
@@ -856,7 +825,6 @@ async def _freeze_event(
         calendar, event_id, scope = ref.calendar_id, ref.event_id, ref.scope
         raw = await _event(io, calendar, event_id)
         prior = _observed_event(raw, scope)
-        screen_workspace_content(prior.fields.model_dump(mode="json"))
         if isinstance(request, DeleteEvent):
             return FrozenCalendar(
                 tool="calendar.delete_event",
@@ -917,6 +885,8 @@ async def _freeze_event(
     if prior and not wire:
         raise WorkspaceError("no_changes")
     mutation = CalendarMutation.model_validate(wire)
+    if prior is not None:
+        _require_supported_patch(mutation)
     wanted = CalendarChanges.model_validate(expected)
     return FrozenCalendar(
         tool=tool,
@@ -1011,10 +981,12 @@ class WorkspaceWrites:
             if tool.startswith("gmail.")
             else 20.0,
         ):
-            io = _Exchange(self._client, grant_id, invocation_id, before_send)
-            await io.fence()
+            await before_send()
             try:
                 account = Mailbox(name=None, address=account).address
+                io = _Exchange(
+                    self._client, grant_id, account, invocation_id, before_send
+                )
                 if (
                     tool in {"gmail.prepare_replacement", "gmail.discard_draft"}
                     and not self._discard_qualified
@@ -1091,7 +1063,13 @@ class WorkspaceWrites:
             if frozen.tool.startswith("gmail.")
             else 20.0,
         ):
-            io = _Exchange(self._client, frozen.grant_id, invocation_id, before_send)
+            io = _Exchange(
+                self._client,
+                frozen.grant_id,
+                frozen.account,
+                invocation_id,
+                before_send,
+            )
             await io.fence()
             effect = frozen.effect
             if (
@@ -1118,20 +1096,10 @@ class WorkspaceWrites:
                         await asyncio.shield(commit)
                     except asyncio.CancelledError:
                         await finish_entered(commit)
-                        return receipt.model_copy(
-                            update={
-                                "reason": "readback_unavailable",
-                                "observed_at": datetime.now(UTC),
-                            }
-                        )
+                        return receipt.with_readback("readback_unavailable")
                 except (Exception, asyncio.CancelledError):
                     # Final local settlement can still take custody of this ack.
-                    return receipt.model_copy(
-                        update={
-                            "reason": "ack_recording_failed",
-                            "observed_at": datetime.now(UTC),
-                        }
-                    )
+                    return receipt.with_readback("ack_recording_failed")
             verified_fields: Obj = {}
             try:
                 await io.fence()
@@ -1173,15 +1141,17 @@ class WorkspaceWrites:
                     raw = await _event(io, effect.calendar_id, receipt.event_id)
                     _verify_event(raw, effect)
                     verified_fields["link"] = (
-                        _link(
+                        workspace_link(
                             raw.get("htmlLink"),
                             "calendar",
                             receipt.event_id,
                             effect.calendar_id,
+                            account=io.account,
                         )
                         or receipt.link
                     )
                 await io.fence()
+                return receipt.with_readback(None, **verified_fields)
             except (Exception, asyncio.CancelledError) as exc:
                 # No readback or later ownership failure can revoke the provider's ack.
                 reason = (
@@ -1190,17 +1160,7 @@ class WorkspaceWrites:
                     and re.fullmatch(r"[a-z][a-z0-9_]{0,95}", exc.kind)
                     else "readback_unavailable"
                 )
-                return receipt.model_copy(
-                    update={"reason": reason, "observed_at": datetime.now(UTC)}
-                )
-            return receipt.model_copy(
-                update={
-                    **verified_fields,
-                    "verification": "verified",
-                    "reason": None,
-                    "observed_at": datetime.now(UTC),
-                }
-            )
+                return receipt.with_readback(reason)
 
     async def _create(
         self, io: _Exchange, frozen: FrozenWorkspaceWrite, effect: FrozenCompose
@@ -1285,7 +1245,11 @@ class WorkspaceWrites:
             new_message_id=mid,
             new_digest=None,
             new_thread_id=thread,
-            new_link=_link(result.get("viewUrl"), "gmail", did),
+            new_link=workspace_link(
+                result.get("viewUrl"), "gmail", mid, account=io.account
+            )
+            if mid
+            else None,
             files=effect.files,
             generated_quote=None,
         )
@@ -1326,6 +1290,8 @@ class WorkspaceWrites:
     async def _calendar(
         self, io: _Exchange, frozen: FrozenWorkspaceWrite, effect: FrozenCalendar
     ) -> CalendarWriteReceipt:
+        if effect.tool == "calendar.update_event":
+            _require_supported_patch(effect.wire)
         args = effect.wire.model_dump(mode="json", exclude_none=True)
         args.update(
             calendarId=effect.calendar_id,
@@ -1382,7 +1348,11 @@ class WorkspaceWrites:
             event_id=event_id,
             scope=effect.scope,
             notify=effect.notify,
-            link=_link(
-                result.get("htmlLink"), "calendar", event_id, effect.calendar_id
+            link=workspace_link(
+                result.get("htmlLink"),
+                "calendar",
+                event_id,
+                effect.calendar_id,
+                account=io.account,
             ),
         )

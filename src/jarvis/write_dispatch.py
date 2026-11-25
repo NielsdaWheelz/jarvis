@@ -343,6 +343,8 @@ class WriteToolDispatcher:
         frozen = None
         prepare_attempts = 0
         prepare_seconds = 0.0
+        prepare_human_elapsed = 0.0
+        prepare_consent_rounds = 0
         staging = tool_id in {"gmail.create_draft", "gmail.prepare_replacement"}
         if tool_id in WRITE_TOOL_IDS and grant is not None and authorize is not None:
 
@@ -367,6 +369,8 @@ class WriteToolDispatcher:
                             replacement=replacement,
                         )
                 prepare_attempts, prepare_seconds = meter.attempts, meter.elapsed
+                prepare_human_elapsed = meter.human_elapsed
+                prepare_consent_rounds = meter.consent_rounds
                 if (frozen.action_id, frozen.tool, frozen.grant_id, frozen.account) != (
                     action_id,
                     tool_id,
@@ -417,6 +421,8 @@ class WriteToolDispatcher:
             workspace=frozen,
             workspace_prepare_attempts=prepare_attempts,
             workspace_prepare_seconds=prepare_seconds,
+            workspace_prepare_human_elapsed=prepare_human_elapsed,
+            workspace_prepare_consent_rounds=prepare_consent_rounds,
             workspace_grant_id=grant.grant_id
             if grant is not None
             and tool_id in {"work.create", "work.update", "attachment.retain"}
@@ -452,6 +458,8 @@ class WriteToolDispatcher:
                 authorize,
                 prepare_attempts,
                 prepare_seconds,
+                prepare_human_elapsed,
+                prepare_consent_rounds,
             )
             if frozen is not None and authorize is not None
             else None
@@ -605,6 +613,8 @@ class WriteToolDispatcher:
                     ),
                     contract.workspace_prepare_attempts,
                     contract.workspace_prepare_seconds,
+                    contract.workspace_prepare_human_elapsed,
+                    contract.workspace_prepare_consent_rounds,
                 )
                 await execute_recorded_action(
                     self._actions,

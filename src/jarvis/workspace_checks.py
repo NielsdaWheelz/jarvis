@@ -502,7 +502,8 @@ class WorkspaceOccurrence:
         }
         messages = [item for item in cited.values() if item.tool == "gmail.get_message"]
         if result.outcome == "no_match":
-            if any(item.coverage == "partial" for item in cited.values()):
+            # Citations cannot erase a known omission in this attempt.
+            if any(item.coverage == "partial" for item in valid):
                 return "inconclusive"
             # Search previews can omit members. Traverse each returned conversation
             # and inspect each actual message before accepting a negative result.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -499,6 +499,17 @@ class _Receipt(_StrictModel):
     observed_at: AwareDatetime
     verification: Literal["verified", "unverified"]
     reason: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,95}$")] | None
+
+    def with_readback(self, reason: str | None, **evidence: object) -> Self:
+        return type(self).model_validate(
+            {
+                **self.model_dump(),
+                **evidence,
+                "verification": "verified" if reason is None else "unverified",
+                "reason": reason,
+                "observed_at": datetime.now(UTC),
+            }
+        )
 
     @model_validator(mode="after")
     def verified_or_reason(self) -> Self:

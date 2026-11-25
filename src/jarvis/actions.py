@@ -90,7 +90,7 @@ from jarvis.workspace_host import (
     current_workspace_read,
     is_workspace_wake,
 )
-from jarvis.workspace_mcp import WorkspaceError
+from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, MAX_CONSENT_ROUNDS, WorkspaceError
 from jarvis.workspace_write_models import (
     CalendarWriteReceipt,
     DiscardReceipt,
@@ -224,6 +224,12 @@ class ExecutionContract(_ExecutionEnvelope):
     workspace_grant_id: UUID | None = None
     workspace_prepare_attempts: Annotated[int, Field(ge=0)] = 0
     workspace_prepare_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.0
+    workspace_prepare_human_elapsed: Annotated[
+        float, Field(ge=0, le=HUMAN_WAIT_SECONDS, allow_inf_nan=False)
+    ] = 0.0
+    workspace_prepare_consent_rounds: Annotated[
+        int, Field(ge=0, le=MAX_CONSENT_ROUNDS)
+    ] = 0
 
     def as_json(self) -> dict[str, object]:
         value = cast(dict[str, object], self.model_dump(mode="json"))
@@ -231,6 +237,8 @@ class ExecutionContract(_ExecutionEnvelope):
             del value["workspace"]
             del value["workspace_prepare_attempts"]
             del value["workspace_prepare_seconds"]
+            del value["workspace_prepare_human_elapsed"]
+            del value["workspace_prepare_consent_rounds"]
         if self.workspace_grant_id is None:
             del value["workspace_grant_id"]
         return value
@@ -534,47 +542,7 @@ class ActionStore:
         """Record an acknowledgement even after owner or grant loss."""
         async with self.engine.begin() as connection:
             stored = await require_locked_action(connection, action_id)
-            if (
-                stored.attempts != 1
-                or await _workspace_invocation(connection, stored) != invocation_id
-            ):
-                raise ActionPersistenceDefect(
-                    "acknowledgement is outside the entered invocation"
-                )
-            value = receipt.model_dump(mode="json")
-            _verify_workspace_receipt(stored, value)
-            if stored.status == "executing":
-                evidence = {
-                    "type": "workspace_ack_v1",
-                    "invocation_id": str(invocation_id),
-                    "value": value,
-                }
-                if stored.result is not None and stored.result != evidence:
-                    raise ActionPersistenceDefect("workspace acknowledgement changed")
-                await _update_action(connection, action_id, result=evidence)
-            elif stored.status == "uncertain":
-                scope = (
-                    await connection.execute(
-                        select(message.c.source_conversation_id).where(
-                            message.c.id == stored.origin_message_id
-                        )
-                    )
-                ).scalar_one()
-                await _publish_action_outcome(connection, stored, scope)
-                await resolve_reconciliation_in_transaction(
-                    connection,
-                    stored,
-                    status="succeeded",
-                    result={"type": "Success", "value": value},
-                    resolved_at=datetime.now(UTC),
-                    source_conversation_id=scope,
-                )
-            elif stored.status != "succeeded" or not _same_workspace_ack(
-                _stored_tool_result(stored)["value"], value
-            ):
-                raise ActionPersistenceDefect(
-                    "workspace acknowledgement conflicts with the recorded outcome"
-                )
+            await _record_workspace_ack(connection, stored, invocation_id, receipt)
 
     async def active_mail_stages(self) -> tuple[UUID, ...]:
         async with self.engine.connect() as connection:
@@ -793,7 +761,10 @@ class ActionStore:
     ) -> StoredAction:
         async with self.engine.begin() as connection:
             stored = await require_locked_action(connection, action_id)
-            if stored.current_execution_contract.workspace is not None:
+            if (
+                stored.tool_name in WRITE_TOOL_IDS
+                or stored.tool_name in _RETIRED_WORKSPACE_REVISIONS
+            ):
                 raise ActionPersistenceDefect(
                     "workspace resolution requires its entered acknowledgement"
                 )
@@ -1350,6 +1321,21 @@ class ActionPositionRecorder:
                 raise ValueError("write settlement lost recovered attempt accounting")
             if (
                 self.workspace_entry is not None
+                and canonical_result["type"] == "Success"
+                and stored.status in {"executing", "uncertain"}
+                and (stored.result or {}).get("type") != "workspace_ack_v1"
+            ):
+                # The provider returned an ack while the first local commit failed.
+                receipt = _verify_workspace_receipt(stored, canonical_result["value"])
+                if receipt.reason != "ack_recording_failed":
+                    raise ActionPersistenceDefect(
+                        "workspace success lacks its acknowledgement"
+                    )
+                stored = await _record_workspace_ack(
+                    connection, stored, self.workspace_entry.invocation_id, receipt
+                )
+            if (
+                self.workspace_entry is not None
                 and stored.result is not None
                 and stored.result.get("type") == "workspace_ack_v1"
             ):
@@ -1360,14 +1346,6 @@ class ActionPositionRecorder:
                     raise ActionPersistenceDefect(
                         "workspace readback changed the acknowledged identity"
                     )
-            elif (
-                self.workspace_entry is not None
-                and stored.status == "executing"
-                and canonical_result["type"] == "Success"
-            ):
-                raise ActionPersistenceDefect(
-                    "workspace success lacks its acknowledgement"
-                )
             replay = action_replay_result(stored)
             if replay is not None:
                 if replay != canonical_result and not (
@@ -1600,6 +1578,8 @@ async def current_workspace_owner_delivery(
     attempt_id: UUID,
     input_ids: tuple[UUID, ...],
     owner_id: UUID,
+    *,
+    owner_live: ColumnElement[bool] | None = None,
 ) -> bool:
     """The named owner must be waking in the latest proven input batch."""
     deliveries = (
@@ -1614,6 +1594,7 @@ async def current_workspace_owner_delivery(
                 native_input_delivery.c.attempt_id == attempt_id,
                 proven_native_delivery,
                 message.c.control_kind.is_(None),
+                owner_live if owner_live is not None else literal(True),
             )
             .order_by(native_input_delivery.c.ordinal)
         )
@@ -1640,15 +1621,6 @@ async def workspace_owner_live(
 ) -> bool:
     """Check the live owner input and its exact native invocation."""
     scope = lineage.permit.scope_id
-    if str(
-        owner_id
-    ) not in lineage.input_ids or not await current_workspace_owner_delivery(
-        connection,
-        UUID(lineage.attempt_id),
-        tuple(map(UUID, lineage.input_ids)),
-        owner_id,
-    ):
-        return False
     request = native_invocation.c.proposal["arguments"]
     if decision_for is None:
         addressed = (native_invocation.c.request_message_id == owner_id) & (
@@ -1687,46 +1659,50 @@ async def workspace_owner_live(
                 == "approve"
             )
         )
-    return (
-        await connection.scalar(
-            select(message.c.id)
-            .join(
-                native_attempt,
-                native_attempt.c.conversation_id == message.c.source_conversation_id,
-            )
-            .join(
-                native_invocation, native_invocation.c.attempt_id == native_attempt.c.id
-            )
-            .where(
-                native_invocation.c.id == UUID(lineage.invocation_id),
-                native_invocation.c.tool_id == str(tool),
-                native_invocation.c.ordinal == lineage.ordinal,
-                native_invocation.c.validation == "accepted",
-                addressed,
-                native_invocation.c.proposal["input_ids"] == list(lineage.input_ids),
-                native_invocation.c.proposal["through_checkpoint"].as_string()
-                == str(lineage.through_checkpoint),
-                native_attempt.c.id == UUID(lineage.attempt_id),
-                native_attempt.c.conversation_id == scope,
-                native_attempt.c.owner_epoch == str(lineage.permit.owner_token),
-                native_attempt.c.fenced_at.is_(None),
-                native_attempt.c.terminal_at.is_(None),
-                native_attempt.c.product_outcome.is_(None),
-                message.c.id == owner_id,
-                message.c.role == "owner",
-                message.c.source != "initialize_state",
-                message.c.home["workspace_refresh"].is_(None),
-                message.c.source_conversation_id == scope,
-                message.c.control_kind.is_(None),
-                message.c.processing_parked_at.is_(None),
-                message.c.request_state.in_(("pending", "waiting")),
-                latest_control(scope)
-                .correlate(None)
-                .scalar_subquery()
-                .is_distinct_from("pause"),
-            )
+    owner_live = (
+        select(message.c.id)
+        .join(
+            native_attempt,
+            native_attempt.c.conversation_id == message.c.source_conversation_id,
         )
-        is not None
+        .join(native_invocation, native_invocation.c.attempt_id == native_attempt.c.id)
+        .where(
+            native_invocation.c.id == UUID(lineage.invocation_id),
+            native_invocation.c.tool_id == str(tool),
+            native_invocation.c.ordinal == lineage.ordinal,
+            native_invocation.c.validation == "accepted",
+            addressed,
+            native_invocation.c.proposal["input_ids"] == list(lineage.input_ids),
+            native_invocation.c.proposal["through_checkpoint"].as_string()
+            == str(lineage.through_checkpoint),
+            native_attempt.c.id == UUID(lineage.attempt_id),
+            native_attempt.c.conversation_id == scope,
+            native_attempt.c.owner_epoch == str(lineage.permit.owner_token),
+            native_attempt.c.fenced_at.is_(None),
+            native_attempt.c.terminal_at.is_(None),
+            native_attempt.c.product_outcome.is_(None),
+            message.c.id == owner_id,
+            message.c.role == "owner",
+            message.c.source != "initialize_state",
+            message.c.home["workspace_refresh"].is_(None),
+            message.c.source_conversation_id == scope,
+            message.c.control_kind.is_(None),
+            message.c.processing_parked_at.is_(None),
+            message.c.request_state.in_(("pending", "waiting")),
+            latest_control(scope)
+            .correlate(None)
+            .scalar_subquery()
+            .is_distinct_from("pause"),
+        )
+        .correlate(None)
+        .exists()
+    )
+    return await current_workspace_owner_delivery(
+        connection,
+        UUID(lineage.attempt_id),
+        tuple(map(UUID, lineage.input_ids)),
+        owner_id,
+        owner_live=owner_live,
     )
 
 
@@ -1752,6 +1728,56 @@ async def _workspace_invocation(
             )
         )
     ).scalar_one()
+
+
+async def _record_workspace_ack(
+    connection: AsyncConnection,
+    stored: StoredAction,
+    invocation_id: UUID,
+    receipt: WorkspaceReceipt,
+) -> StoredAction:
+    if (
+        stored.attempts != 1
+        or await _workspace_invocation(connection, stored) != invocation_id
+    ):
+        raise ActionPersistenceDefect(
+            "acknowledgement is outside the entered invocation"
+        )
+    value = receipt.model_dump(mode="json")
+    _verify_workspace_receipt(stored, value)
+    if stored.status == "executing":
+        evidence = {
+            "type": "workspace_ack_v1",
+            "invocation_id": str(invocation_id),
+            "value": value,
+        }
+        if stored.result is not None and stored.result != evidence:
+            raise ActionPersistenceDefect("workspace acknowledgement changed")
+        return await _update_action(connection, stored.id, result=evidence)
+    elif stored.status == "uncertain":
+        scope = (
+            await connection.execute(
+                select(message.c.source_conversation_id).where(
+                    message.c.id == stored.origin_message_id
+                )
+            )
+        ).scalar_one()
+        await _publish_action_outcome(connection, stored, scope)
+        return await resolve_reconciliation_in_transaction(
+            connection,
+            stored,
+            status="succeeded",
+            result={"type": "Success", "value": value},
+            resolved_at=datetime.now(UTC),
+            source_conversation_id=scope,
+        )
+    elif stored.status != "succeeded" or not _same_workspace_ack(
+        _stored_tool_result(stored)["value"], value
+    ):
+        raise ActionPersistenceDefect(
+            "workspace acknowledgement conflicts with the recorded outcome"
+        )
+    return stored
 
 
 def _workspace_uncertainty() -> dict[str, object]:
@@ -2447,7 +2473,10 @@ def _validate_new_action(
         ):
             raise ValueError("workspace effect differs from its binding")
         if contract.workspace is None and (
-            contract.workspace_prepare_seconds or contract.workspace_prepare_attempts
+            contract.workspace_prepare_seconds
+            or contract.workspace_prepare_attempts
+            or contract.workspace_prepare_human_elapsed
+            or contract.workspace_prepare_consent_rounds
         ):
             raise ValueError("only workspace actions have a preparation budget")
         if contract.workspace_grant_id is not None and tool_name not in {
@@ -2638,7 +2667,8 @@ async def recorded_action_result(
         return None
     if isinstance(stored.execution_contract, _ArchivedExecutionContract):
         if (
-            stored.status in {"succeeded", "failed"}
+            stored.tool_name in _RETIRED_WORKSPACE_REVISIONS
+            and stored.status in {"succeeded", "failed"}
             and stored.result
             and stored.result.get("type") in {"Success", "Failure"}
         ):

@@ -219,6 +219,8 @@ class WorkspaceHost:
                     message.c.role == "host",
                     message.c.request_state == "completed",
                     proven_native_delivery,
+                    native_attempt.c.product_outcome["status"].as_string()
+                    == "committed",
                     final.c.source == "native_final",
                     final.c.role == "assistant",
                     final.c.source_conversation_id == self.owner.scope_id,
@@ -288,7 +290,7 @@ class WorkspaceHost:
                 .order_by(native_input_delivery.c.ordinal)
             )
         ).all()
-        if not rows or tuple(str(row.id) for row in rows) != tuple(lineage.input_ids):
+        if not rows:
             raise WorkspaceError("workspace_input_changed")
         return rows
 
@@ -296,19 +298,19 @@ class WorkspaceHost:
         self, lineage: NativeDispatchLineage, tool: str, arguments: dict[str, Any]
     ) -> bool:
         """A check can inspect its own todo and the receipts of its current request."""
-        async with self.owner.database.begin() as connection:
-            await lock_conversation(connection, self.owner.scope_id)
+        async with self.owner.database.connect() as connection:
             rows = await self._delivered_inputs(connection, lineage)
-            origin = rows[0]
+        for origin in rows:
             refresh = origin.home and origin.home.get("workspace_refresh")
             if refresh:
                 todo_id = refresh["todo_id"]
             elif is_workspace_wake(origin.source, origin.wake_text):
                 todo_id = json.loads(origin.wake_text)["record"]["id"]
             else:
-                return True
+                continue
             if (
                 len(rows) != 1
+                or tuple(lineage.input_ids) != (str(origin.id),)
                 or origin.request_state not in {"pending", "waiting"}
                 or origin.processing_parked_at is not None
             ):
@@ -316,6 +318,7 @@ class WorkspaceHost:
             if tool == "receipt.read":
                 return arguments.get("request_ref") == str(origin.id)
             return tool == "work.get" and arguments.get("id") == todo_id
+        return True
 
     async def read_access(
         self, lineage: NativeDispatchLineage, tool: str, arguments: dict[str, Any]
@@ -371,6 +374,8 @@ class WorkspaceHost:
             ):
                 raise WorkspaceError("workspace_read_not_authorized")
             rows = await self._delivered_inputs(connection, lineage)
+            if tuple(str(row.id) for row in rows) != tuple(lineage.input_ids):
+                raise WorkspaceError("workspace_input_changed")
             latest = [row for row in rows if row.delivery_id == rows[-1].delivery_id]
             owners = [
                 row

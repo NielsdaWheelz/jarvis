@@ -661,7 +661,9 @@ CALENDAR_UPDATE_EVENT_SPEC = _workspace_spec(
     "Propose changes to a specific Calendar event.",
     "Name the event, occurrence or series, changed fields, guests to add or remove, "
     "and notification choice. Removal requires an explicit address. Obtain owner "
-    "approval for that scope. Stop on observed drift.",
+    "approval for that scope. Stop on observed drift. Until qualified, the adapter "
+    "refuses requests to clear the summary, description or location or to convert "
+    "an all-day event to a timed event.",
     UpdateEvent,
     CalendarWriteReceipt,
     _CALENDAR_LIMITS,

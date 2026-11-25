@@ -1838,15 +1838,20 @@ async def commit_product(
                 or rendered.content is None
                 or proposed.occurrence_id != str(occurrence.occurrence_id)
             ):
-                if not current:
+                if occurrence.check.expired(timestamp, occurrence.owner_zone):
+                    reason = "the standing check expired."
+                elif not current:
                     reason = "the original check is no longer authorized."
                 else:
                     reason = (
                         "the recorded reads did not establish the result. "
                         "open this todo in chat to check again."
                     )
+                local_time = timestamp.astimezone(occurrence.owner_zone)
                 rendered = RenderedTerminal(
-                    "partial", "conversation", f"check inconclusive. {reason}"
+                    "partial",
+                    "conversation",
+                    f"check inconclusive at {local_time:%Y-%m-%d %H:%M %Z}. {reason}",
                 )
             if not recovering and outcome == "match":
                 workspace_match = occurrence

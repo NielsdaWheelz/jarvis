@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -114,11 +114,13 @@ class WorkspaceError(Exception):
 
 @dataclass(slots=True)
 class WorkspaceAttempts:
-    maximum: int
+    maximum: int | None
     seconds: float | None
     attempts: int = 0
     elapsed: float = 0.0
     reserved: int = 0
+    human_elapsed: float = 0.0
+    consent_rounds: int = 0
 
 
 _attempt_limits: ContextVar[tuple[WorkspaceAttempts, ...]] = ContextVar(
@@ -128,12 +130,24 @@ _attempt_limits: ContextVar[tuple[WorkspaceAttempts, ...]] = ContextVar(
 
 @contextmanager
 def workspace_attempts(
-    maximum: int, *, seconds: float | None = None
+    maximum: int | None,
+    *,
+    seconds: float | None = None,
+    human_elapsed: float = 0.0,
+    consent_rounds: int = 0,
 ) -> Iterator[WorkspaceAttempts]:
-    """Bound and report this invocation's provider HTTP exchanges, including refresh."""
-    if maximum < 0 or (seconds is not None and seconds <= 0):
+    """Bound provider exchanges and cumulative Google consent for one invocation."""
+    if (
+        (maximum is not None and maximum < 0)
+        or (seconds is not None and seconds <= 0)
+        or not 0 <= human_elapsed <= HUMAN_WAIT_SECONDS
+        or type(consent_rounds) is not int
+        or not 0 <= consent_rounds <= MAX_CONSENT_ROUNDS
+    ):
         raise ValueError("invalid workspace request budget")
-    meter = WorkspaceAttempts(maximum, seconds)
+    meter = WorkspaceAttempts(
+        maximum, seconds, human_elapsed=human_elapsed, consent_rounds=consent_rounds
+    )
     reset = _attempt_limits.set((*_attempt_limits.get(), meter))
     try:
         yield meter
@@ -159,14 +173,21 @@ async def workspace_http_attempt(
     io_seconds: float, before_send: Fence | None = None
 ) -> AsyncIterator[None]:
     limits = _attempt_limits.get()
-    if any(m.attempts + m.reserved >= m.maximum for m in limits):
+    if any(
+        m.maximum is not None and m.attempts + m.reserved >= m.maximum for m in limits
+    ):
         raise WorkspaceError("budget_exceeded")
-    remaining = min(
-        (m.seconds - m.elapsed for m in limits if m.seconds is not None),
-        default=io_seconds,
-    )
-    if remaining <= 0:
-        raise WorkspaceError("budget_exceeded")
+
+    def remaining_io() -> float:
+        remaining = min(
+            (m.seconds - m.elapsed for m in limits if m.seconds is not None),
+            default=io_seconds,
+        )
+        if remaining <= 0:
+            raise WorkspaceError("budget_exceeded")
+        return min(remaining, io_seconds)
+
+    remaining = remaining_io()
     for meter in limits:
         meter.reserved += 1
     try:
@@ -174,6 +195,8 @@ async def workspace_http_attempt(
             # A committed quota debit survives a later local refusal.
             with _before_submission():
                 await before_send()
+            # A fresh guard read can consume time within this same invocation.
+            remaining = remaining_io()
     finally:
         for meter in limits:
             meter.reserved -= 1
@@ -182,7 +205,7 @@ async def workspace_http_attempt(
     loop = asyncio.get_running_loop()
     started = loop.time()
     try:
-        async with asyncio.timeout(min(remaining, io_seconds)):
+        async with asyncio.timeout(remaining):
             yield
     finally:
         elapsed = loop.time() - started
@@ -441,14 +464,20 @@ class WorkspaceApprovals:
         tool: str,
         grant_id: UUID,
         invocation: str,
-        number: int,
-        remaining: float,
     ) -> str | None:
         if self._closed:
             raise WorkspaceError("cancelled")
         if self._round is not None:
             raise WorkspaceError("temporary")
+        limits = _attempt_limits.get()
+        number = 1 + max(m.consent_rounds for m in limits)
+        remaining = HUMAN_WAIT_SECONDS - max(m.human_elapsed for m in limits)
+        if number > MAX_CONSENT_ROUNDS or remaining <= 0:
+            raise WorkspaceError("consent_expired")
+        for meter in limits:
+            meter.consent_rounds += 1
         loop = asyncio.get_running_loop()
+        started = loop.time()
         current = _Round(
             uuid4(),
             grant_id,
@@ -458,7 +487,7 @@ class WorkspaceApprovals:
             number,
             form,
             datetime.now(UTC) + timedelta(seconds=remaining),
-            loop.time() + remaining,
+            started + remaining,
             loop.create_future(),
         )
         self._round = current
@@ -479,6 +508,11 @@ class WorkspaceApprovals:
                 raise WorkspaceError("cancelled") from None
             raise
         finally:
+            elapsed = loop.time() - started
+            for meter in limits:
+                meter.human_elapsed = min(
+                    HUMAN_WAIT_SECONDS, meter.human_elapsed + elapsed
+                )
             self._round = None
 
 
@@ -854,87 +888,82 @@ class WorkspaceMcpClient:
         params: Obj = {"name": tool, "arguments": _decode(encoded)}
         rejected = None
         refreshed = False
-        wait_left = float(HUMAN_WAIT_SECONDS)
-        rounds = 0
-        while True:
-            self._check(grant_id)
-            credential = await self._credential(grant_id, rejected)
-            if _SCOPE_PREFIX + scopes[tool] not in credential.scopes:
-                raise WorkspaceError("scope_missing")
-            self._check(grant_id)
-            if tool == "unlabel_message" and (
-                not credential.pending_label_id
-                or _obj(params["arguments"]).get("labelIds")
-                != [credential.pending_label_id]
-            ):
-                raise WorkspaceError("denied")
-
-            async def enter() -> None:
-                if product == "gmail":
-                    await self._debit(grant_id, tool, background)
+        # A raw call also owns a budget shared with its nested guard reads.
+        with nullcontext() if _attempt_limits.get() else workspace_attempts(None):
+            while True:
                 self._check(grant_id)
-                if before_send is not None:
-                    await before_send()
+                credential = await self._credential(grant_id, rejected)
+                if _SCOPE_PREFIX + scopes[tool] not in credential.scopes:
+                    raise WorkspaceError("scope_missing")
                 self._check(grant_id)
+                if tool == "unlabel_message" and (
+                    not credential.pending_label_id
+                    or _obj(params["arguments"]).get("labelIds")
+                    != [credential.pending_label_id]
+                ):
+                    raise WorkspaceError("denied")
 
-            try:
-                if write:
-                    result = await self._rpc(
-                        product,
-                        "tools/call",
-                        params,
-                        credential.access_token,
-                        True,
-                        max_response_bytes,
-                        enter,
-                    )
-                else:
-                    result = await self._read_rpc(
-                        grant_id,
-                        product,
-                        "tools/call",
-                        params,
-                        credential.access_token,
-                        max_response_bytes,
-                        enter,
-                    )
-            except _Unauthorized:
-                if refreshed or write:
-                    raise WorkspaceError("grant_unavailable") from None
-                refreshed = True
-                rejected = credential.access_token
-                continue
-            rejected = None
-            if result.get("resultType") == "complete":
+                async def enter() -> None:
+                    if product == "gmail":
+                        await self._debit(grant_id, tool, background)
+                    self._check(grant_id)
+                    if before_send is not None:
+                        await before_send()
+                    self._check(grant_id)
+
                 try:
-                    return _obj(result["structuredContent"])
+                    if write:
+                        result = await self._rpc(
+                            product,
+                            "tools/call",
+                            params,
+                            credential.access_token,
+                            True,
+                            max_response_bytes,
+                            enter,
+                        )
+                    else:
+                        result = await self._read_rpc(
+                            grant_id,
+                            product,
+                            "tools/call",
+                            params,
+                            credential.access_token,
+                            max_response_bytes,
+                            enter,
+                        )
+                except _Unauthorized:
+                    if refreshed or write:
+                        raise WorkspaceError("grant_unavailable") from None
+                    refreshed = True
+                    rejected = credential.access_token
+                    continue
+                rejected = None
+                if result.get("resultType") == "complete":
+                    try:
+                        return _obj(result["structuredContent"])
+                    except (ValueError, KeyError):
+                        raise WorkspaceError(
+                            "uncertain" if write else "invalid_response"
+                        ) from None
+                if result.get("resultType") != "input_required":
+                    raise WorkspaceError("uncertain" if write else "invalid_response")
+                try:
+                    form = _Form.parse(result, credential.access_token)
                 except (ValueError, KeyError):
-                    raise WorkspaceError(
-                        "uncertain" if write else "invalid_response"
-                    ) from None
-            if result.get("resultType") != "input_required":
-                raise WorkspaceError("uncertain" if write else "invalid_response")
-            try:
-                form = _Form.parse(result, credential.access_token)
-            except (ValueError, KeyError):
-                raise WorkspaceError("unsupported") from None
-            if background:
-                raise WorkspaceError("consent_required")
-            self._check(grant_id)
-            rounds += 1
-            if rounds > MAX_CONSENT_ROUNDS or wait_left <= 0:
-                raise WorkspaceError("consent_expired")
-            started = asyncio.get_running_loop().time()
-            # input_required proves the earlier submission has had no effect.
-            with _before_submission():
-                choice = await self.approvals.ask(
-                    form, product, tool, grant_id, invocation_id, rounds, wait_left
+                    raise WorkspaceError("unsupported") from None
+                if background:
+                    raise WorkspaceError("consent_required")
+                self._check(grant_id)
+                # input_required proves the earlier submission has had no effect.
+                with _before_submission():
+                    choice = await self.approvals.ask(
+                        form, product, tool, grant_id, invocation_id
+                    )
+                answer: Obj = (
+                    {"action": "cancel"}
+                    if choice is None
+                    else {"action": "accept", "content": {"approval_choice": choice}}
                 )
-            wait_left -= asyncio.get_running_loop().time() - started
-            answer: Obj = (
-                {"action": "cancel"}
-                if choice is None
-                else {"action": "accept", "content": {"approval_choice": choice}}
-            )
-            params["requestState"] = form.state
-            params["inputResponses"] = {"approval_choice": answer}
+                params["requestState"] = form.state
+                params["inputResponses"] = {"approval_choice": answer}

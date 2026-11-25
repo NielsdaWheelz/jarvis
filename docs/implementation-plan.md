@@ -197,6 +197,13 @@ opus 5.5 at high effort accepted all three units on 2026-11-20, spec sha256
 
 ## native recovery and memory availability
 
+[adr 0108](decisions/0108-codex-quota-standby.md) owns the provider allowance
+and no-effect evidence, jarvis admission and recovery, and the staged contained
+account cut. qualify provider, jarvis and deployment independently, then the
+immutable combined candidate. independent entitlement, included-only billing
+and provider confirmation belong to enrollment evidence. installed cut is
+separately authorized.
+
 [adr 0106](decisions/0106-interrupted-answers-and-parked-work.md) owns
 interrupted final answers, grouped parking notices and operator inspection.
 provider-runtime owns the protocol rule. qualify the exact provider, kernel and

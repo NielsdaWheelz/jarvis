@@ -88,6 +88,16 @@ settles sealed products locally before catalog discovery. production activation
 requires a separate owner decision. earlier role pins and capacity results
 describe their original releases.
 
+## codex quota standby
+
+[adr 0108](docs/decisions/0108-codex-quota-standby.md) owns ordered account
+admission for the pinned cognition roles, the sealed pre-effect proof and
+recovery boundary, and the same-release cut to three contained account hosts.
+its included-usage and named custody rules supersede the single-account clauses
+in sections 7 and 9 and adr 0093. the assigned account stays fixed through each
+native run. source and isolated qualification precede a separately authorized
+installed cut. section 7's other authority rules still apply.
+
 
 ## accepted native recovery and memory availability target
 
@@ -1460,10 +1470,11 @@ consolidated restore limits; it introduces no general backup platform.
 
 responsibilities:
 
-- `provider-runtime` owns native protocol, prepared turns, submission evidence,
+- `provider-runtime` owns native protocol, account-bound allowance evidence,
+  prepared turns, submission evidence,
   native binding/control, declared callbacks, strict output lowering, terminal
   provenance and usage. it attaches to the host-owned socket; the host owns the
-  process and original personal account credentials.
+  processes and original enrolled account credentials.
 - `llm-tools` owns prompt sections, declarations/bindings, frozen plans,
   consistency/tightening proofs, implementation revisions, pure validation,
   `HostTable`, execution, budgets, positions, recording, replay and portable tools.
@@ -1493,8 +1504,8 @@ by plans, publication and recovery contracts. changes to its handler or transiti
 execution behavior bump that revision unless revisioned policy inputs already
 capture the change. public tool names do not acquire version suffixes.
 
-cognition uses the original personal local-account credential through the
-separate contained host. the compatibility manifest admits exactly
+cognition uses the enrolled local-account credential selected under adr 0108
+through its contained host. the historical compatibility manifest admitted exactly
 `gpt-5.6-terra`; main uses reasoning `high`. retired `gpt-5.4`, model aliases,
 generative API-key substitution and silent provider fallback are rejected before
 I/O. changing the admitted set requires an explicit manifest update and genuine
@@ -1504,7 +1515,7 @@ the manifest's application/role revisions and exact library pins participate in
 session compatibility. the selected model/reasoning, role/output, kernel-owned
 base instruction and complete provider containment policy participate in the
 definition fingerprint. secret bytes, clock and current inputs do not. schema-v3
-session compatibility has no predecessor exceptions; schema-4 host mapping is a
+session compatibility has no predecessor exceptions; schema-6 host mapping is a
 separate operational contract.
 
 the shared `llm-agent-kernel-native-agent-v4` base instruction permits prose in
@@ -2081,19 +2092,18 @@ fail-stop and invalidate the session. raw vendor tool evidence cannot be hidden
 as inert CodeMode activity. a malformed output payload cannot be replaced with
 valid-looking final text.
 
-systemd owns `jarvis-codex-contained.service`, its original host-only account
-home and private mount namespace. it binds its own
-`/run/jarvis-contained` source to stock's physical
+systemd owns each contained codex host, its original host-only account home and
+private mount namespace. each binds its own runtime directory to stock's physical
 `/tmp/codex-daemon-HOSTUID` inside that namespace. startup keeps the source
 `0700`; after public qualification, publication uses source `0710`, physical
-socket `0660` and relative `app-server.sock` alias. the fixed rendezvous is
-`unix:///run/jarvis-contained/app-server.sock`. cleanup removes only the owned
+socket `0660` and a relative `app-server.sock` alias. the assistant binds each
+exact socket file privately. cleanup removes only the owned
 alias and restores private permissions; stock owns stale physical-socket rebind.
 no shared coding daemon, RPC relay, copied credential or app/kernel process
 supervisor is involved.
 
-the root-owned schema-4 `/etc/jarvis/codex-host.json` mapping contains exactly
-the personal endpoint and explicit host/app/group/cwd identities. mapping
+the root-owned schema-6 `/etc/jarvis/codex-host.json` mapping declares the
+ordered contained accounts and explicit host/app/group/cwd identities. mapping
 changes require stopped jarvis and same-release host operations before
 activation. read-only release verification checks the loaded immutable
 `ExecStart`, exact provider version and startup policy. application environment
@@ -2188,8 +2198,8 @@ updates require explicit qualification. this endpoint supersedes adr 0042's
 latest-stable rule without changing unrelated coding services. the application
 owns its host unit; neither kernel nor worker owns native credentials/processes.
 
-the root-owned schema-4 codex host mapping contains only the contained personal
-endpoint and explicit host/app/group/cwd identities. worker routing comes only
+the root-owned schema-6 codex host mapping owns contained cognition accounts
+and their endpoints. worker routing comes only
 from the
 explicit skid settings, `JARVIS_AGENT_CLI_PATH` and
 `JARVIS_AGENT_STATE_DIRECTORY` (adr 0068). deployment owns this mapping;

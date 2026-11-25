@@ -39,7 +39,6 @@ from jarvis.event_tools import (
     EventsConfigureSuccess,
     EventsStatusSuccess,
     FailureCode,
-    MailAcknowledgment,
     MailProgress,
     MailResidual,
     RestoredInterval,
@@ -86,6 +85,25 @@ def source_identity(identity: tuple[object, ...]) -> str:
 
 def _progress(value: dict[str, object]) -> dict[str, object]:
     return MailProgress.model_validate(value).model_dump(mode="json")
+
+
+def _ack_repair(
+    account: str, progress: dict[str, object], error_code: str | None
+) -> AckRepair | None:
+    if error_code not in {"AuthUnavailable", "AckUncertain"}:
+        return None
+    marker = MailProgress.model_validate(progress)
+    if marker.ack is None or (
+        error_code == "AckUncertain" and marker.ack.phase != "entered"
+    ):
+        return None
+    return AckRepair(
+        account=account,
+        grant_id=marker.grant_id,
+        message_id=marker.ack.message_id,
+        label_id=marker.label_id,
+        event_source_id=source_identity((account, marker.ack.message_id)),
+    )
 
 
 class EventStore:
@@ -266,20 +284,20 @@ class EventStore:
             if row is None:
                 raise ValueError("missing enrolled cursor")
             progress = row["progress"]
+            error_code = row["error"]["code"] if row["error"] is not None else None
+            repair = _ack_repair(account, progress, error_code)
             if (
-                progress.get("grant_id") != str(grant_id)
-                or progress.get("label_id") != label_id
-                or progress.get("ack") != {"message_id": message_id, "phase": "entered"}
-                or row["error"] is None
-                or row["error"].get("code") != "AckUncertain"
+                repair is None
+                or repair.grant_id != grant_id
+                or repair.label_id != label_id
+                or repair.message_id != message_id
             ):
-                raise ValueError("verification does not match the uncertain marker")
+                raise ValueError("verification does not match the outstanding marker")
             published = await connection.scalar(
                 select(message.c.id).where(
                     message.c.source == "email_event",
                     message.c.source_conversation_id == self._conversation_id,
-                    message.c.source_message_id
-                    == source_identity((account, message_id)),
+                    message.c.source_message_id == repair.event_source_id,
                 )
             )
             if published is None:
@@ -289,7 +307,9 @@ class EventStore:
                 .where(event_cursor.c.account_id == account)
                 .values(
                     progress={**progress, "ack": None},
-                    next_poll_at=datetime.now(UTC) if row["enabled"] else None,
+                    next_poll_at=datetime.now(UTC)
+                    if row["enabled"] and error_code == "AckUncertain"
+                    else None,
                 )
             )
         self.notify_changed()
@@ -605,19 +625,6 @@ class EventStore:
         catching_up = cursor is not None and cursor.progress["ack"] is not None
         blocked = cursor is not None and cursor.next_poll_at is None
         failing = cursor is not None and cursor.error is not None
-        repair = None
-        if (
-            cursor is not None
-            and cursor.error is not None
-            and cursor.error.code == "AckUncertain"
-            and cursor.progress["ack"] is not None
-        ):
-            ack = MailAcknowledgment.model_validate(cursor.progress["ack"])
-            repair = AckRepair(
-                message_id=ack.message_id,
-                label_id=str(cursor.progress["label_id"]),
-                event_source_id=source_identity((cursor.account_id, ack.message_id)),
-            )
         return EventsStatusSuccess(
             account=self.account,
             observed_at=now,
@@ -651,7 +658,11 @@ class EventStore:
             or cursor.last_success_at is None
             else "visible_labels_only",
             residual=residual,
-            ack_repair=repair,
+            ack_repair=_ack_repair(
+                cursor.account_id, cursor.progress, cursor.error.code
+            )
+            if cursor is not None and cursor.error is not None
+            else None,
             count_unreported=(
                 cursor is not None
                 and cursor.error is not None

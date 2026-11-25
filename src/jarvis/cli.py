@@ -774,6 +774,15 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
             await require_native_data(database, conversation_id=settings.owner_scope)
+            if arguments.command == "workspace-confirm-removed":
+                await EventStore(database, settings.owner_scope).confirm_removed_ack(
+                    arguments.account,
+                    grant_id=arguments.grant_id,
+                    label_id=arguments.label_id,
+                    message_id=arguments.message,
+                )
+                print("recorded the verified absence of the named pending label.")
+                return
             tokens = google_tokens(settings, http)
             if arguments.command == "workspace-enroll":
                 enrollment = await enroll_workspace(
@@ -829,17 +838,6 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
                     expected_progress=cast(dict[str, object] | None, prior),
                 )
                 print("the event cursor now names the verified pending label.")
-                return
-            if arguments.command == "workspace-confirm-removed":
-                if enrollment.pending_label_id is None:
-                    raise WorkspaceError("grant_unavailable")
-                await EventStore(database, settings.owner_scope).confirm_removed_ack(
-                    enrollment.account,
-                    grant_id=enrollment.grant_id,
-                    label_id=enrollment.pending_label_id,
-                    message_id=arguments.message,
-                )
-                print("confirmed the named acknowledgement. polling can continue.")
                 return
             raise ValueError("unknown workspace maintenance command")
     finally:
@@ -1706,6 +1704,9 @@ def _parser() -> argparse.ArgumentParser:
         help="confirm you verified removal of the pending label on a named message",
     )
     repair.add_argument("message")
+    repair.add_argument("--account", required=True)
+    repair.add_argument("--grant-id", required=True, type=UUID)
+    repair.add_argument("--label-id", required=True)
     commands.add_parser("dream", help="run one isolated dream while stopped")
     rebuild = commands.add_parser(
         "rebuild-memory", help="refold derived memory while stopped"

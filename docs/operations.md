@@ -449,6 +449,26 @@ surviving labels drain normally. the reported gap can be searched on request.
 
 for an independent stopped repair, execute the documented service-user command under `sudo -n /opt/jarvis/current/deploy/with-independent-maintenance COMMAND [ARG ...]` on the deployment host. wrap the whole foreground service invocation, including `systemd-run --wait` when used. this holds the shared release lock, checks for a published change and preserves the command’s own writer keys, runtime identity and environment.
 
+if an arrival acknowledgement is blocked, take the original account, grant,
+label and message from `events.status.ack_repair`. after disconnect, use
+the same stopped maintenance custody to inventory the account's `event_cursor`:
+
+```sql
+select account_id, progress->>'grant_id' as grant_id, progress->>'label_id' as label_id,
+       progress->'ack'->>'message_id' as message_id, progress->'ack'->>'phase' as phase,
+       error->>'code' as failure
+from event_cursor
+where account_id = :'original_account' and progress->'ack'->>'message_id' is not null;
+```
+
+verify in the original mailbox that this exact message exists and the named
+label is absent from that message. if you cannot verify this, leave the marker
+in place. under stopped custody run
+`jarvis workspace-confirm-removed MESSAGE --account ACCOUNT --grant-id GRANT --label-id LABEL`.
+this records the observation locally. `AckUncertain` requires an entered
+marker. `AuthUnavailable` permits a ready or entered marker and still requires
+the ordinary verified re-enrollment before polling resumes.
+
 before the 0107 cut, a held mail send may need original evidence. record the
 owner’s authorization for its exact action uuid and the change id. run the
 original reconciliation only on its selected predecessor. hold a cut that

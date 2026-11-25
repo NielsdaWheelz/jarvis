@@ -149,6 +149,8 @@ class EventsStatusInput(_Closed):
 
 
 class AckRepair(_Closed):
+    account: ProviderId
+    grant_id: UUID
     message_id: ProviderId
     label_id: ProviderId
     event_source_id: str

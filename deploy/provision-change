@@ -2,7 +2,6 @@
 """Apply private-state or backup provisioning under the operator's release flock."""
 
 import argparse
-import asyncio
 import grp
 import hashlib
 import json
@@ -17,11 +16,10 @@ import tempfile
 from pathlib import Path
 from uuid import UUID
 
-import httpx
 from memory_backup_storage import producer_settings
 from memory_credentials import ETC, publish, split_environment
 
-from jarvis.connectors import GMAIL_API_BASE_URL, GoogleTokenManager, google_profile
+from jarvis.connectors import GOOGLE_STATE_PROVIDER, GOOGLE_STATE_SCHEMA
 from jarvis.db import APPLICATION_SCHEMA_REVISION
 from jarvis.memory_config import MemoryConfig
 
@@ -88,8 +86,7 @@ def root_command(script, *args, source_env=False, input=None):
 
 def materialize(stage, payload, bootstrap):
     require(
-        set(payload)
-        == {"agent", "memory.json", "jarvis.env", "google-oauth-state.json"},
+        set(payload) == {"agent", "memory.json", "jarvis.env"},
         "unexpected private inputs",
     )
     owner, state, cli = payload["agent"]
@@ -115,10 +112,9 @@ def materialize(stage, payload, bootstrap):
         and stat.S_IMODE(binary.stat().st_mode) == 0o755,
         "enrolled worker executable is unavailable",
     )
-    for name in ("jarvis.env", "memory.json", "google-oauth-state.json"):
+    for name in ("jarvis.env", "memory.json"):
         publish(stage / name, payload[name].encode())
     MemoryConfig.load(stage / "memory.json")
-    json.loads((stage / "google-oauth-state.json").read_bytes())
     assistant, embedding, memory = split_environment(
         (stage / "jarvis.env").read_bytes()
     )
@@ -127,8 +123,6 @@ def materialize(stage, payload, bootstrap):
         group = grp.getgrnam("jarvis-memory").gr_gid
         os.chown(stage / "memory.json", 0, group)
         (stage / "memory.json").chmod(0o640)
-        service = pwd.getpwnam("jarvis")
-        os.chown(stage / "google-oauth-state.json", service.pw_uid, service.pw_gid)
         old, new = env_values((ETC / "jarvis.env").read_bytes()), env_values(assistant)
         require(
             all(
@@ -140,97 +134,23 @@ def materialize(stage, payload, bootstrap):
     return [owner, state, cli, digest(binary)], (assistant, embedding, memory)
 
 
-async def google_authority(stage, old, new):
-    async def require_fresh():
-        raise RuntimeError("maintenance never refreshes a provider credential")
-
-    async def identity(client, codec, state, client_id):
-        try:
-            token, _ = await codec.access_token(before_request=require_fresh)
-            observed = await client.post(
-                "https://www.googleapis.com/oauth2/v2/tokeninfo",
-                params={"access_token": token},
-            )
-            if not observed.is_success:
-                return None
-            info = observed.json()
-            granted = set(info.get("scope", "").split())
-            if (
-                info.get("issued_to") != client_id
-                or not info.get("user_id")
-                or granted != set(json.loads(state.read_bytes())["granted_scopes"])
-            ):
-                return None
-            profile = await client.get(
-                f"{GMAIL_API_BASE_URL}/users/me/profile",
-                params={"fields": "emailAddress,historyId"},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            if profile.is_success:
-                return info["user_id"], google_profile(profile.json()).account, granted
-        except (
-            RuntimeError,
-            httpx.HTTPError,
-            KeyError,
-            TypeError,
-            ValueError,
-            OSError,
-        ):
-            pass
-        return None
-
-    candidate = stage / "google-oauth-state.json"
-    async with httpx.AsyncClient(
-        trust_env=False, follow_redirects=False, timeout=5
-    ) as client:
-
-        def codec(env, path):
-            return GoogleTokenManager(
-                state_path=path,
-                client=client,
-                client_id=env[b"JARVIS_GOOGLE_OAUTH_CLIENT_ID"].decode(),
-                client_secret=env[b"JARVIS_GOOGLE_OAUTH_CLIENT_SECRET"].decode(),
-                active_key_version=env[
-                    b"JARVIS_CONNECTOR_ENCRYPTION_KEY_VERSION"
-                ].decode(),
-                single_secret=env[b"JARVIS_CONNECTOR_ENCRYPTION_SECRET"].decode(),
-            )
-
-        try:
-            source = codec(old, GOOGLE)
-            target = codec(new, candidate)
-            same = target.state_for_same_grant(source)
-        except (RuntimeError, KeyError, TypeError, ValueError, OSError):
-            same = None
-        if same is not None:
-            # The exact effective credential also survives an interrupted private cut.
-            candidate.write_bytes((json.dumps(same, sort_keys=True) + "\n").encode())
-            return set(), {}
-        ids = []
-        for env, path in ((old, GOOGLE), (new, candidate)):
-            try:
-                ids.append(
-                    await identity(
-                        client,
-                        codec(env, path),
-                        path,
-                        env[b"JARVIS_GOOGLE_OAUTH_CLIENT_ID"].decode(),
-                    )
-                )
-            except (RuntimeError, KeyError, TypeError, ValueError):
-                ids.append(None)
-        source_id, target_id = ids
-        paired = {}
-        if source_id and target_id:
-            paired = {
-                "gmail_source_account": source_id[1],
-                "gmail_candidate_account": target_id[1],
+def preserve_local_workspace(stage, *, bootstrap):
+    # Private provisioning never imports an access/refresh token or resurrects an
+    # older grant. On a change the live file is read only after the writers stop.
+    if not bootstrap and GOOGLE.is_file():
+        state = GOOGLE.read_bytes()
+    else:
+        state = json.dumps(
+            {
+                "schema": GOOGLE_STATE_SCHEMA,
+                "provider": GOOGLE_STATE_PROVIDER,
+                "status": "disconnected",
             }
-        return (
-            set()
-            if source_id and source_id == target_id
-            else {"gmail", "calendar", "events"}
-        ), paired
+        ).encode()
+    publish(stage / "google-oauth-state.json", state)
+    if not bootstrap:
+        service = pwd.getpwnam("jarvis")
+        os.chown(stage / "google-oauth-state.json", service.pw_uid, service.pw_gid)
 
 
 def changed_authority(stage, agent, assistant, embedding):
@@ -239,17 +159,21 @@ def changed_authority(stage, agent, assistant, embedding):
     changed = {k.decode() for k in set(old) | set(new) if old.get(k) != new.get(k)}
     domains = set()
     document = {"source_scope": old[b"JARVIS_OWNER_SCOPE"].decode()}
-    google = any(
-        k.startswith(("JARVIS_GOOGLE_", "JARVIS_CONNECTOR_ENCRYPTION")) for k in changed
-    )
-    if (
-        google
-        or (stage / "google-oauth-state.json").read_bytes() != GOOGLE.read_bytes()
+    if any(
+        k.startswith(
+            ("JARVIS_GOOGLE_", "JARVIS_WORKSPACE_", "JARVIS_CONNECTOR_ENCRYPTION")
+        )
+        for k in changed
     ):
-        domains, paired = asyncio.run(google_authority(stage, old, new))
-        document.update(paired)
-    if "JARVIS_VERIFIED_OWNER_ONLY_CALENDAR_IDS" in changed:
-        domains.add("calendar")
+        # A live grant cannot silently move to another project, OAuth client, or
+        # encryption key. Disconnect it under the original stopped declaration.
+        current = json.loads((stage / "google-oauth-state.json").read_bytes())
+        require(
+            current.get("schema") != GOOGLE_STATE_SCHEMA
+            or current.get("status") != "connected",
+            "disconnect the workspace grant before changing its private declaration",
+        )
+        domains.update({"gmail", "calendar", "events"})
     if any(k.startswith("JARVIS_ATTACHMENT_") for k in changed):
         domains.add("attachments")
     if any(k.startswith("JARVIS_CODEX_") for k in changed):
@@ -413,6 +337,7 @@ def main():
                     shutil.which("age") is not None, "backup provisioning requires age"
                 )
         if bootstrap:
+            preserve_local_workspace(stage, bootstrap=True)
             apply_private(stage, agent, expected, change, True)
             print("bootstrap declarations installed. awaiting first owner enablement.")
             return
@@ -470,6 +395,8 @@ def main():
         credential = evidence.parent / "staged-secrets" / f"google-{change}.json"
         previous = json.loads(evidence.read_bytes()) if evidence.is_file() else {}
         if phase == "held" or previous.get("change") != change:
+            if private:
+                preserve_local_workspace(stage, bootstrap=False)
             domains = (
                 changed_authority(stage, agent, *expected[:2])
                 if private
@@ -544,7 +471,9 @@ def main():
             "missing stopped preflight",
         )
         if private:
-            (stage / "google-oauth-state.json").write_bytes(credential.read_bytes())
+            publish(stage / "google-oauth-state.json", credential.read_bytes())
+            service = pwd.getpwnam("jarvis")
+            os.chown(stage / "google-oauth-state.json", service.pw_uid, service.pw_gid)
             apply_private(stage, agent, expected, change, False)
         elif reader:
             subprocess.run(

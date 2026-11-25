@@ -40,7 +40,14 @@ from jarvis.actions import (
 from jarvis.attachment_sources import AttachmentSources
 from jarvis.attachment_tools import ATTACHMENT_EXTERNAL_ATTEMPTS, AttachmentDeleteResult
 from jarvis.connectors import OriginalTooLarge
-from jarvis.db import action, attachment, message
+from jarvis.db import (
+    action,
+    attachment,
+    message,
+    native_attempt,
+    native_invocation,
+    read_position,
+)
 from jarvis.messages import append_waking_input
 from jarvis.ownership import Database, lock_conversation
 from jarvis.read_tools import (
@@ -50,6 +57,9 @@ from jarvis.read_tools import (
     ReadResponse,
     display_descriptor,
 )
+from jarvis.workspace_checks import workspace_read_receipts
+from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, WorkspaceError
+from jarvis.workspace_reads import observed_workspace_file
 
 HEAD_BACKOFF_SECONDS = (0.0, 2.0, 8.0)
 HEAD_DEADLINE_SECONDS = 10.0
@@ -348,7 +358,9 @@ class AttachmentStore:
             )
         if owned is not None:
             return await self._capture(owned["id"], action_id)
-        source_deadline = time.monotonic() + ATTACHMENT_OPERATION_SECONDS
+        source_deadline = (
+            time.monotonic() + ATTACHMENT_OPERATION_SECONDS + HUMAN_WAIT_SECONDS
+        )
         try:
             resolved = await self._sources.resolve(source)
         except ConnectorFailure as exc:
@@ -411,7 +423,47 @@ class AttachmentStore:
             action_id,
             attempts=resolved.attempts,
             source_deadline=source_deadline,
+            source_bytes=original.content,
         )
+
+    async def workspace_source_observed(
+        self,
+        source: Mapping[str, object],
+        *,
+        account: str,
+        grant_id: UUID,
+    ) -> bool:
+        """Require the exact descriptor returned by a completed owner-scope read."""
+        message_id, part_id = str(source["message_id"]), str(source["part_id"])
+        async with self._database.connect() as connection:
+            rows = await connection.execute(
+                workspace_read_receipts(str(grant_id))
+                .join(
+                    native_attempt,
+                    native_invocation.c.attempt_id == native_attempt.c.id,
+                )
+                .where(
+                    native_attempt.c.conversation_id == self._conversation_id,
+                    native_invocation.c.tool_id.in_(
+                        ("gmail.get_message", "gmail.get_draft")
+                    ),
+                    read_position.c.result["value"]["mail"]["account"].as_string()
+                    == account,
+                    read_position.c.result["value"]["mail"]["message_id"].as_string()
+                    == message_id,
+                )
+            )
+            return any(
+                observed_workspace_file(
+                    row.tool_id,
+                    row.arguments,
+                    row.value,
+                    account=account,
+                    message_id=message_id,
+                    part_id=part_id,
+                )
+                for row in rows
+            )
 
     async def clean_spool(self) -> None:
         """Remove disposable staging while web ingress and capture are stopped."""
@@ -459,6 +511,7 @@ class AttachmentStore:
         *,
         attempts: int = 0,
         source_deadline: float | None = None,
+        source_bytes: bytes | None = None,
     ) -> ReadResponse[ToolResult]:
         row = await self._row(identifier)
         if row is None:
@@ -497,9 +550,12 @@ class AttachmentStore:
                     raise TimeoutError("source preparation deadline exceeded")
                 async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
                     if not web:
-                        attempts += await self._sources.download(
-                            cast(dict[str, object], row["source"]), staging
-                        )
+                        if source_bytes is None:
+                            attempts += await self._sources.download(
+                                cast(dict[str, object], row["source"]), staging
+                            )
+                        else:
+                            await joined_thread(staging.write_bytes, source_bytes)
                     size, digest, md5 = await joined_thread(
                         _byte_facts, staging, deadline
                     )
@@ -547,6 +603,22 @@ class AttachmentStore:
                 )
                 return ReadResponse(result, attempts)
             await self._mutation_admitted()
+            if row["source"]["kind"] == "gmail":
+                from jarvis.workspace_host import (
+                    NativeWorkspaceRead,
+                    current_workspace_read,
+                )
+
+                try:
+                    permit = current_workspace_read()
+                    if not isinstance(permit, NativeWorkspaceRead):
+                        raise WorkspaceError("workspace_read_not_authorized")
+                    await permit.require_current(None)
+                except WorkspaceError:
+                    result = await self._capture_failed(
+                        identifier, action_id, "Unavailable"
+                    )
+                    return ReadResponse(result, attempts)
             if action_id is None and self._captures_stopped:
                 return ReadResponse(_failure("Pending", identifier), attempts)
             if action_id is not None:

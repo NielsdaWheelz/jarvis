@@ -6,6 +6,10 @@ date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
 
+## proposed google workspace connector cut
+
+[design 0107](docs/decisions/0107-google-workspace.md) specifies the fixture-first connector pr, including incoming mail, fresh search and reads, draft management and calendar event creation, reading, updating and deletion. gmail marks incoming mail with a dedicated label. jarvis checks its count every five minutes on standard and reserves the last 1,000 daily gmail units for owner requests. [live qualification](docs/issues/gmail-mcp-arrivals.md) covers backlog, missed mail and quota handling. the owner wants ordinary recording of google reads and answers and a separate [permission review](docs/issues/google-workspace-retention.md) before real use. existing installed contracts govern until an authorized cut.
+
 ## private web home
 
 [adr 0087](docs/decisions/0087-private-web-home.md) specifies the successor to
@@ -1116,6 +1120,14 @@ execute later; resumed work requires fresh consent. no file-backed pause exists.
 
 ## 5. Authority and approvals
 
+the [0107 workspace candidate](docs/decisions/0107-google-workspace.md) uses
+current owner input for draft creation and for preparing a revised copy. every
+calendar write and verified draft discard requires ordinary conversational
+approval. google may separately ask the owner through the existing chat.
+scheduled checks authorize scoped reads only. these rules supersede the gmail
+and calendar permissions below in the candidate. the installed predecessor
+retains its own authority until the stopped cut.
+
 ### 5.1 Automatic operations
 
 Every model-proposed `Write` passes the owner-grounding gate below before Jarvis
@@ -1359,9 +1371,15 @@ silence remains valid for ordinary owner turns and the narrowly defined internal
 worker-wait batch. requested reminders and other asynchronous action results
 retain visible delivery.
 
-### 5.5 Gmail send
+### 5.5 Gmail drafts and sending
 
-the [outgoing mail contract](docs/decisions/0101-outgoing-mail-attachments.md) governs new messages, replies and attachments. the host binds conversational consent to a verified revision, submits its approved envelope and bytes together, and requires positive evidence of sending during recovery. it preserves the original creation-derived `X-Jarvis-Effect-ID`. the contract specifies the gmail editing race, input and response bounds, and the hard cut for existing drafts and receipts.
+the 0107 candidate saves unsent drafts through google mcp. it exposes no send
+tool. gmail is where the owner sends. an edit creates and verifies a new draft
+before a separate proposal to discard the exact old revision.
+
+the [outgoing mail contract](docs/decisions/0101-outgoing-mail-attachments.md)
+governs the installed predecessor and the original identities of its archived
+receipts. settle its entered effects before the connector cut.
 
 ## 6. Memory
 
@@ -1601,11 +1619,11 @@ pipeline, never a nested agent.
 
 | Tools | Granted role | Authority |
 |---|---|---|
-| `gmail.search`, `gmail.list_thread_messages`, `gmail.list_attachments`, `gmail.read_message` | main | read; automatic |
-| `gmail.create_draft`, `gmail.update_draft` | Main | Write; automatic |
-| `gmail.send_draft` | Main | Write; approval required |
-| `calendar.list_calendars`, `calendar.read_calendar`, `calendar.list_events`, `calendar.get_event` | main | read; automatic |
-| `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | Main | Automatic only for a no-attendee event on a verified owner-only calendar; otherwise approval required |
+| `gmail.search`, `gmail.read_thread`, `gmail.get_message`, `gmail.list_drafts`, `gmail.get_draft` | main | read; automatic within the active request and grant |
+| `gmail.create_draft`, `gmail.prepare_replacement` | main | write; automatic with current owner authority |
+| `gmail.discard_draft` | main | write; approval required for the exact verified revision |
+| `calendar.list_calendars`, `calendar.list_events`, `calendar.get_event` | main | read; automatic within the active request and grant |
+| `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | main | write; approval required with explicit notification choice |
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |
@@ -2627,6 +2645,11 @@ nodes/views/vectors/indexes are disposable. a later general backup contract need
 its own accepted adr and restore proof.
 
 ## 10. Existing integrations
+
+the [0107 candidate](docs/decisions/0107-google-workspace.md) uses a dedicated
+agent-marked oauth client for gmail and calendar. the host validates the
+enrollment and owns the credentials. maps retains its separate reader.
+the production project stays held pending the recorded permission decision.
 
 V1 reuses the working Discord, Gmail, Google Calendar, and Google Maps
 integrations.

@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import Annotated, Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from llm_tools import (
     Available,
-    DeclaredToolFailure,
     ExecutionContext,
     HandlerSuccess,
     PolicyEpoch,
@@ -23,7 +21,6 @@ from llm_tools import (
     ToolId,
     ToolLimits,
     ToolSpec,
-    canonical_json_bytes,
 )
 from pydantic import (
     AwareDatetime,
@@ -44,31 +41,32 @@ from jarvis.mail_files import (
     OriginalNeedsOpen,
     Sha256,
 )
-from jarvis.read_tools import (
-    CALENDAR_API_BASE_URL,
-    GoogleReadProvider,
+from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS
+from jarvis.workspace_write_models import (
+    CalendarWriteReceipt,
+    CreateDraft,
+    CreateEvent,
+    DeleteEvent,
+    DiscardDraft,
+    DiscardReceipt,
+    DraftWriteReceipt,
+    PrepareReplacement,
+    UpdateEvent,
 )
-from jarvis.read_tools import (
-    calendar_family as calendar_read_family,
-)
-from jarvis.read_tools import (
-    gmail_family as gmail_read_family,
-)
+from jarvis.write_connectors import WorkspaceWriteFailure, execute_workspace_write
 
-WRITE_ACTION_MAX_ATTEMPTS = 2
+if TYPE_CHECKING:
+    from jarvis.workspace_writes import WorkspaceWrites
 
 
+# Original types and declarations used by the historical draft and proposal views.
 @dataclass(frozen=True, slots=True)
 class GmailWritePolicy:
     max_attempts: int = 12
     operation_seconds: float = 180.0
-    exchange_seconds: float = 60.0
     mime_bytes: int = 36_700_160
-    multipart_bytes: int = 36 * 1024 * 1024
     raw_bytes: int = 48 * 1024 * 1024
     metadata_bytes: int = 2 * 1024 * 1024
-    recovery_bytes: int = 320 * 1024 * 1024
-    recovery_delays: tuple[float, ...] = (0.0, 2.0, 8.0)
 
 
 GMAIL_WRITE_POLICY = GmailWritePolicy()
@@ -263,20 +261,6 @@ class GmailComposeContract(_StrictModel):
     ]
 
 
-class GmailSendContract(_StrictModel):
-    kind: Literal["send"] = "send"
-    creation_id: UUID
-    revision: GmailRevision
-    snapshot: GmailSnapshot
-
-
-class GmailComposeBasis(_StrictModel):
-    account: GmailId
-    old_revision: GmailRevision | None
-    desired: GmailSnapshot
-    thread_id: GmailId | None
-
-
 class GmailCurrentDraft(_StrictModel):
     state: Literal["draft"] = "draft"
     draft_ref: UUID
@@ -303,22 +287,6 @@ class GmailSendDraftSuccess(_StrictModel):
         return _bounded_utf8(value, 1_024, "Gmail ID")
 
     _utc_sent_at = field_validator("sent_at")(_utc)
-
-
-class GmailAlreadySent(_StrictModel):
-    state: Literal["already_sent"] = "already_sent"
-    draft_ref: None
-    sent: GmailSendDraftSuccess
-    files: Annotated[tuple[MailFile, ...], Field(max_length=MAIL_MAX_FILES)]
-    observed_at: AwareDatetime
-
-    _utc_observed_at = field_validator("observed_at")(_utc)
-
-
-type GmailDraftSuccess = Annotated[
-    GmailCurrentDraft | GmailAlreadySent,
-    Field(discriminator="state"),
-]
 
 
 class TimedEventTime(_StrictModel):
@@ -451,18 +419,6 @@ class InvalidRecipient(_StrictModel):
     type: Literal["InvalidRecipient"] = "InvalidRecipient"
 
 
-class ThreadNotFound(_StrictModel):
-    type: Literal["ThreadNotFound"] = "ThreadNotFound"
-
-
-class ThreadMismatch(_StrictModel):
-    type: Literal["ThreadMismatch"] = "ThreadMismatch"
-
-
-class Conflict(_StrictModel):
-    type: Literal["Conflict"] = "Conflict"
-
-
 class DraftNotFound(_StrictModel):
     type: Literal["DraftNotFound"] = "DraftNotFound"
 
@@ -515,27 +471,6 @@ class ProviderUnavailable(_StrictModel):
     type: Literal["ProviderUnavailable"] = "ProviderUnavailable"
 
 
-type GmailFileError = FileUnavailable | MailLimit | OriginalNeedsOpen | FilePolicy
-type GmailCreateDraftError = (
-    GmailFileError
-    | InvalidMail
-    | InvalidRecipient
-    | ThreadNotFound
-    | ThreadMismatch
-    | Conflict
-    | RateLimited
-    | ProviderUnavailable
-)
-type GmailUpdateDraftError = (
-    GmailFileError
-    | InvalidMail
-    | DraftNotFound
-    | DraftChanged
-    | ThreadNotFound
-    | ThreadMismatch
-    | RateLimited
-    | ProviderUnavailable
-)
 type GmailSendDraftError = (
     FilePolicy
     | MailLimit
@@ -572,98 +507,6 @@ type CalendarDeleteEventError = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class WriteResponse[ValueT]:
-    value: ValueT
-    attempts: int
-
-    def __post_init__(self) -> None:
-        if type(self.attempts) is not int or self.attempts < 0:
-            raise ValueError("write attempt count must be a non-negative integer")
-
-
-class WriteConnectorFailure(RuntimeError):
-    def __init__(
-        self, code: str, *, attempts: int, details: dict[str, object] | None = None
-    ) -> None:
-        if not code or type(attempts) is not int or attempts < 0:
-            raise ValueError("write connector failure evidence is invalid")
-        self.code = code
-        self.attempts = attempts
-        self.details = details
-        super().__init__("write connector failed")
-
-
-@dataclass(frozen=True, slots=True)
-class ReconciliationResult[ValueT]:
-    outcome: Literal["succeeded", "absent", "uncertain"]
-    evidence: str
-    value: ValueT | None = None
-
-    def __post_init__(self) -> None:
-        if (self.outcome == "succeeded") != (self.value is not None):
-            raise ValueError("reconciliation value does not match its outcome")
-
-
-@dataclass(frozen=True, slots=True)
-class WriteAttemptBudget:
-    recovered_attempts: int
-    max_attempts: int
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.recovered_attempts) is not int
-            or self.recovered_attempts < 0
-            or type(self.max_attempts) is not int
-            or self.max_attempts <= 0
-        ):
-            raise ValueError("write attempt budget is invalid")
-
-
-class GoogleWriteProvider(Protocol):
-    async def gmail_create_draft(
-        self,
-        value: GmailCreateDraftInput,
-        effect_id: UUID,
-        attempt_budget: WriteAttemptBudget,
-    ) -> WriteResponse[GmailDraftSuccess]: ...
-
-    async def gmail_update_draft(
-        self,
-        value: GmailUpdateDraftInput,
-        effect_id: UUID,
-        attempt_budget: WriteAttemptBudget,
-    ) -> WriteResponse[GmailDraftSuccess]: ...
-
-    async def gmail_send_draft(
-        self,
-        value: GmailSendDraftInput,
-        effect_id: UUID,
-        attempt_budget: WriteAttemptBudget,
-    ) -> WriteResponse[GmailSendDraftSuccess]: ...
-
-    async def calendar_create_event(
-        self,
-        value: CalendarCreateEventInput,
-        effect_id: UUID,
-        attempt_budget: WriteAttemptBudget,
-    ) -> WriteResponse[CalendarCreateEventSuccess]: ...
-
-    async def calendar_update_event(
-        self,
-        value: CalendarUpdateEventInput,
-        effect_id: UUID,
-        attempt_budget: WriteAttemptBudget,
-    ) -> WriteResponse[CalendarUpdateEventSuccess]: ...
-
-    async def calendar_delete_event(
-        self,
-        value: CalendarDeleteEventInput,
-        effect_id: UUID,
-        attempt_budget: WriteAttemptBudget,
-    ) -> WriteResponse[CalendarDeleteEventSuccess]: ...
-
-
 _GMAIL_FILE_GUIDANCE = (
     "If OriginalNeedsOpen is returned, open those originals with attachment.open "
     "and retry. For a machine file, use a worker and scp into a 0700 request "
@@ -675,38 +518,6 @@ _GMAIL_FILE_GUIDANCE = (
 )
 
 
-GMAIL_CREATE_DRAFT_SPEC = ToolSpec[
-    GmailCreateDraftInput, GmailDraftSuccess, GmailCreateDraftError
-](
-    id=ToolId("gmail.create_draft"),
-    summary="Create an unsent Gmail draft.",
-    documentation=PromptDocument(
-        "Save an unsent draft using verified source refs. Supply files: [] for text "
-        "alone. Use reply_to only from live Gmail evidence. " + _GMAIL_FILE_GUIDANCE
-    ),
-    input_type=GmailCreateDraftInput,
-    success_type=cast(type[GmailDraftSuccess], GmailDraftSuccess),
-    error_type=cast(type[GmailCreateDraftError], GmailCreateDraftError),
-    effect=ToolEffect.Write,
-    limits=GMAIL_WRITE_LIMITS,
-)
-GMAIL_UPDATE_DRAFT_SPEC = ToolSpec[
-    GmailUpdateDraftInput, GmailDraftSuccess, GmailUpdateDraftError
-](
-    id=ToolId("gmail.update_draft"),
-    summary="Replace one unchanged unsent Gmail draft.",
-    documentation=PromptDocument(
-        "Replace a verified unsent draft_ref in the same thread and with the same "
-        "reply parent. Set files to null to keep them all, [] to remove them all, "
-        "or list the final order with new refs and kind existing for one-based slots. "
-        + _GMAIL_FILE_GUIDANCE
-    ),
-    input_type=GmailUpdateDraftInput,
-    success_type=cast(type[GmailDraftSuccess], GmailDraftSuccess),
-    error_type=cast(type[GmailUpdateDraftError], GmailUpdateDraftError),
-    effect=ToolEffect.Write,
-    limits=GMAIL_WRITE_LIMITS,
-)
 GMAIL_SEND_DRAFT_SPEC = ToolSpec[
     GmailSendDraftInput, GmailSendDraftSuccess, GmailSendDraftError
 ](
@@ -726,7 +537,7 @@ GMAIL_SEND_DRAFT_SPEC = ToolSpec[
     effect=ToolEffect.Write,
     limits=GMAIL_WRITE_LIMITS,
 )
-CALENDAR_CREATE_EVENT_SPEC = ToolSpec[
+HISTORICAL_CALENDAR_CREATE_EVENT_SPEC = ToolSpec[
     CalendarCreateEventInput, CalendarCreateEventSuccess, CalendarCreateEventError
 ](
     id=ToolId("calendar.create_event"),
@@ -742,7 +553,7 @@ CALENDAR_CREATE_EVENT_SPEC = ToolSpec[
     effect=ToolEffect.Write,
     limits=ToolLimits(262_144, 131_072, 3, 20.0),
 )
-CALENDAR_UPDATE_EVENT_SPEC = ToolSpec[
+HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC = ToolSpec[
     CalendarUpdateEventInput, CalendarUpdateEventSuccess, CalendarUpdateEventError
 ](
     id=ToolId("calendar.update_event"),
@@ -759,7 +570,7 @@ CALENDAR_UPDATE_EVENT_SPEC = ToolSpec[
     effect=ToolEffect.Write,
     limits=ToolLimits(524_288, 131_072, 3, 20.0),
 )
-CALENDAR_DELETE_EVENT_SPEC = ToolSpec[
+HISTORICAL_CALENDAR_DELETE_EVENT_SPEC = ToolSpec[
     CalendarDeleteEventInput, CalendarDeleteEventSuccess, CalendarDeleteEventError
 ](
     id=ToolId("calendar.delete_event"),
@@ -775,258 +586,150 @@ CALENDAR_DELETE_EVENT_SPEC = ToolSpec[
     limits=ToolLimits(262_144, 65_536, 2, 20.0),
 )
 
-AUTOMATIC_WRITE_TOOL_IDS = frozenset(
-    (
-        GMAIL_CREATE_DRAFT_SPEC.id,
-        GMAIL_UPDATE_DRAFT_SPEC.id,
-        CALENDAR_CREATE_EVENT_SPEC.id,
-        CALENDAR_UPDATE_EVENT_SPEC.id,
-        CALENDAR_DELETE_EVENT_SPEC.id,
-    )
+
+type WorkspaceFailure = (
+    WorkspaceWriteFailure | FileUnavailable | MailLimit | OriginalNeedsOpen
 )
-WRITE_TOOL_IDS = AUTOMATIC_WRITE_TOOL_IDS | {GMAIL_SEND_DRAFT_SPEC.id}
 
 
-def _declared_error(code: str, details: dict[str, object] | None) -> object:
-    errors: dict[str, type[BaseModel]] = {
-        "file_policy": FilePolicy,
-        "file_unavailable": FileUnavailable,
-        "invalid_mail": InvalidMail,
-        "mail_limit": MailLimit,
-        "original_needs_open": OriginalNeedsOpen,
-        "calendar_not_found": CalendarNotFound,
-        "conflict": Conflict,
-        "draft_changed": DraftChanged,
-        "draft_not_found": DraftNotFound,
-        "event_changed": EventChanged,
-        "event_id_conflict": EventIdConflict,
-        "event_not_found": EventNotFound,
-        "invalid_event": InvalidEvent,
-        "invalid_recipient": InvalidRecipient,
-        "provider_unavailable": ProviderUnavailable,
-        "rate_limited": RateLimited,
-        "thread_mismatch": ThreadMismatch,
-        "thread_not_found": ThreadNotFound,
-        "unsupported_event_type": UnsupportedEventType,
-    }
-    error_type = errors.get(code)
-    if error_type is None:
-        raise RuntimeError("connector returned an undeclared failure code")
-    return error_type.model_validate(details or {})
+def _workspace_spec(
+    name: str,
+    summary: str,
+    documentation: str,
+    input_type: type[BaseModel],
+    success_type: type[BaseModel],
+    limits: ToolLimits,
+) -> ToolSpec[Any, Any, Any]:
+    return ToolSpec(
+        id=ToolId(name),
+        summary=summary,
+        documentation=PromptDocument(documentation),
+        input_type=input_type,
+        success_type=success_type,
+        error_type=cast(type[WorkspaceFailure], WorkspaceFailure),
+        effect=ToolEffect.Write,
+        limits=limits,
+    )
 
 
-async def _run[InputT, SuccessT](
-    operation: Callable[
-        [InputT, UUID, WriteAttemptBudget], Awaitable[WriteResponse[SuccessT]]
-    ],
-    value: InputT,
-    context: ExecutionContext,
-) -> HandlerSuccess[SuccessT]:
-    if context.effect_id is None or context.position != context.effect_id:
-        raise RuntimeError("write position and effect identity must be the action ID")
-    try:
-        effect_id = UUID(str(context.effect_id))
-    except ValueError as exc:
-        raise RuntimeError("write effect identity must be a canonical UUID") from exc
-    if str(effect_id) != str(context.effect_id):
-        raise RuntimeError("write effect identity must be a canonical UUID")
-    try:
-        declared_attempts = context.plan.grant(context.grant.id).limits.max_attempts
-        remaining_attempts = context.grant.limits.max_attempts
-        recovered_attempts = declared_attempts - remaining_attempts
-        response = await operation(
-            value,
-            effect_id,
-            WriteAttemptBudget(recovered_attempts, remaining_attempts),
-        )
-    except WriteConnectorFailure as exc:
-        raise DeclaredToolFailure(
-            _declared_error(exc.code, exc.details), actual_attempts=exc.attempts
-        ) from exc
-    envelope = {
-        "type": "Success",
-        "value": cast("Any", response.value).model_dump(mode="json"),
-    }
-    if len(canonical_json_bytes(envelope)) > context.grant.limits.max_output_bytes:
-        raise RuntimeError("write provider result exceeds the granted output bound")
-    return HandlerSuccess(response.value, actual_attempts=response.attempts)
+# One executor entry includes the separately bounded provider exchanges and consent.
+_GMAIL_LIMITS = ToolLimits(262_144, 65_536, 1, 180.0 + HUMAN_WAIT_SECONDS)
+_CALENDAR_LIMITS = ToolLimits(262_144, 65_536, 1, 20.0 + HUMAN_WAIT_SECONDS)
+
+GMAIL_CREATE_DRAFT_SPEC = _workspace_spec(
+    "gmail.create_draft",
+    "Save one unsent Gmail draft.",
+    "Use the exact live owner request, recipients, reply parent and ordered files. "
+    "Report Gmail's acknowledged draft id and its separate verification. "
+    + _GMAIL_FILE_GUIDANCE,
+    CreateDraft,
+    DraftWriteReceipt,
+    _GMAIL_LIMITS,
+)
+GMAIL_PREPARE_REPLACEMENT_SPEC = _workspace_spec(
+    "gmail.prepare_replacement",
+    "Save the revised copy of a specific draft.",
+    "A request to replace an identified draft covers preparing the copy. "
+    "Preserve omitted fields and files. Report both revisions and verification. "
+    "Only a verified receipt may support a separate linked discard.",
+    PrepareReplacement,
+    DraftWriteReceipt,
+    _GMAIL_LIMITS,
+)
+GMAIL_DISCARD_DRAFT_SPEC = _workspace_spec(
+    "gmail.discard_draft",
+    "Propose moving one verified draft revision to trash.",
+    "For a replacement, supply the verified replacement action id. A standalone "
+    "discard needs an independent owner request to remove that draft. Name the "
+    "target and obtain a conversational approval for this exact action. "
+    "After an unknown outcome, check the drafts before starting another.",
+    DiscardDraft,
+    DiscardReceipt,
+    _GMAIL_LIMITS,
+)
+CALENDAR_CREATE_EVENT_SPEC = _workspace_spec(
+    "calendar.create_event",
+    "Propose creating one Calendar event.",
+    "Name the calendar, time, guests and explicit notification choice. All calendar "
+    "writes require conversational approval. Report acknowledgment and verification.",
+    CreateEvent,
+    CalendarWriteReceipt,
+    _CALENDAR_LIMITS,
+)
+CALENDAR_UPDATE_EVENT_SPEC = _workspace_spec(
+    "calendar.update_event",
+    "Propose changes to a specific Calendar event.",
+    "Name the event, occurrence or series, changed fields, guests to add or remove, "
+    "and notification choice. Removal requires an explicit address. Obtain owner "
+    "approval for that scope. Stop on observed drift. Until qualified, the adapter "
+    "refuses requests to clear the summary, description or location or to convert "
+    "an all-day event to a timed event.",
+    UpdateEvent,
+    CalendarWriteReceipt,
+    _CALENDAR_LIMITS,
+)
+CALENDAR_DELETE_EVENT_SPEC = _workspace_spec(
+    "calendar.delete_event",
+    "Propose deleting a specific Calendar event.",
+    "Name the calendar, event, occurrence or series, affected guests and notification "
+    "choice. Obtain conversational approval. A lost acknowledgement is uncertain.",
+    DeleteEvent,
+    CalendarWriteReceipt,
+    _CALENDAR_LIMITS,
+)
+_GMAIL_SPECS = (
+    GMAIL_CREATE_DRAFT_SPEC,
+    GMAIL_PREPARE_REPLACEMENT_SPEC,
+    GMAIL_DISCARD_DRAFT_SPEC,
+)
+_CALENDAR_SPECS = (
+    CALENDAR_CREATE_EVENT_SPEC,
+    CALENDAR_UPDATE_EVENT_SPEC,
+    CALENDAR_DELETE_EVENT_SPEC,
+)
+AUTOMATIC_WRITE_TOOL_IDS = frozenset(
+    (GMAIL_CREATE_DRAFT_SPEC.id, GMAIL_PREPARE_REPLACEMENT_SPEC.id)
+)
+WRITE_TOOL_IDS = frozenset(spec.id for spec in (*_GMAIL_SPECS, *_CALENDAR_SPECS))
+WORKSPACE_IMPLEMENTATION = "jarvis-workspace-write-v1"
 
 
-def _binding[InputT, SuccessT, ErrorT](
-    spec: ToolSpec[InputT, SuccessT, ErrorT],
-    operation: Callable[
-        [InputT, UUID, WriteAttemptBudget], Awaitable[WriteResponse[SuccessT]]
-    ],
-    policy_inputs: dict[str, object],
-    *,
-    implementation_revision: str | None = None,
-    authority: str = "automatic",
-    policy_epoch: str = "jarvis-write-v2",
-) -> ToolBinding[InputT, SuccessT, ErrorT]:
+def _workspace_binding(
+    spec: ToolSpec[Any, Any, Any],
+    writes: WorkspaceWrites,
+) -> ToolBinding[Any, Any, Any]:
     async def execute(
-        value: InputT, context: ExecutionContext
-    ) -> HandlerSuccess[SuccessT]:
-        return await _run(operation, value, context)
+        value: BaseModel, context: ExecutionContext
+    ) -> HandlerSuccess[Any]:
+        return await execute_workspace_write(writes, context)
 
     return ToolBinding(
         spec=spec,
         execute=Available(execute),
-        replay_policy=ReplayPolicy.ReDispatchable,
-        implementation_revision=(
-            implementation_revision or f"jarvis-{str(spec.id).replace('.', '-')}-v1"
-        ),
-        policy_epoch=PolicyEpoch(policy_epoch),
+        replay_policy=ReplayPolicy.BilledOnce,
+        implementation_revision=WORKSPACE_IMPLEMENTATION,
+        policy_epoch=PolicyEpoch("jarvis-workspace-owner-v1"),
         policy_inputs={
-            "action_max_attempts": WRITE_ACTION_MAX_ATTEMPTS,
-            "authority": authority,
-            **policy_inputs,
+            "action_max_attempts": 1,
+            "owner_origin": "live-native-input",
+            "authority": "automatic"
+            if spec.id in AUTOMATIC_WRITE_TOOL_IDS
+            else "approval-required",
         },
     )
 
 
-def gmail_write_family(provider: GoogleWriteProvider) -> ToolFamily:
-    policy_inputs: dict[str, object] = {
-        **asdict(GMAIL_WRITE_POLICY),
-        "effect_header": "X-Jarvis-Effect-ID",
-        "effect_identity": "sha256(jarvis-gmail-v1:creation-id)",
-        "frozen_revision": "verified-gmail-identity-and-snapshot",
-    }
+def gmail_write_family(writes: WorkspaceWrites) -> ToolFamily:
     return ToolFamily(
-        namespace="gmail",
-        declarations=(
-            GMAIL_CREATE_DRAFT_SPEC,
-            GMAIL_UPDATE_DRAFT_SPEC,
-            GMAIL_SEND_DRAFT_SPEC,
-        ),
-        bindings=(
-            _binding(
-                GMAIL_CREATE_DRAFT_SPEC,
-                provider.gmail_create_draft,
-                policy_inputs,
-                implementation_revision="jarvis-gmail-create_draft-v2",
-                policy_epoch="jarvis-gmail-write-v3",
-            ),
-            _binding(
-                GMAIL_UPDATE_DRAFT_SPEC,
-                provider.gmail_update_draft,
-                policy_inputs,
-                implementation_revision="jarvis-gmail-update_draft-v2",
-                policy_epoch="jarvis-gmail-write-v3",
-            ),
-            _binding(
-                GMAIL_SEND_DRAFT_SPEC,
-                provider.gmail_send_draft,
-                policy_inputs,
-                implementation_revision="jarvis-gmail-send_draft-v3",
-                policy_epoch="jarvis-gmail-write-v3",
-                authority="approval-required",
-            ),
-        ),
+        "gmail",
+        _GMAIL_SPECS,
+        tuple(_workspace_binding(s, writes) for s in _GMAIL_SPECS),
     )
 
 
-def calendar_write_family(provider: GoogleWriteProvider) -> ToolFamily:
-    precision = {"timed_precision": "whole-second-floor"}
+def calendar_write_family(writes: WorkspaceWrites) -> ToolFamily:
     return ToolFamily(
-        namespace="calendar",
-        declarations=(
-            CALENDAR_CREATE_EVENT_SPEC,
-            CALENDAR_UPDATE_EVENT_SPEC,
-            CALENDAR_DELETE_EVENT_SPEC,
-        ),
-        bindings=(
-            _binding(
-                CALENDAR_CREATE_EVENT_SPEC,
-                provider.calendar_create_event,
-                {
-                    **precision,
-                    "create_id": "first-32-hex-sha256(jarvis-calendar-v1:action-id)",
-                    "endpoint": (
-                        f"{CALENDAR_API_BASE_URL}/calendars/{{calendar_id}}/events"
-                    ),
-                },
-                implementation_revision="jarvis-calendar-create_event-v4",
-            ),
-            _binding(
-                CALENDAR_UPDATE_EVENT_SPEC,
-                provider.calendar_update_event,
-                {
-                    **precision,
-                    "conditional": "If-Match expected.etag",
-                    "http_method": "PATCH",
-                },
-                implementation_revision="jarvis-calendar-update_event-v4",
-            ),
-            _binding(
-                CALENDAR_DELETE_EVENT_SPEC,
-                provider.calendar_delete_event,
-                {"conditional": "If-Match expected.etag", "http_method": "DELETE"},
-                implementation_revision="jarvis-calendar-delete_event-v2",
-            ),
-        ),
+        "calendar",
+        _CALENDAR_SPECS,
+        tuple(_workspace_binding(s, writes) for s in _CALENDAR_SPECS),
     )
-
-
-def gmail_main_family(
-    read_provider: GoogleReadProvider, write_provider: GoogleWriteProvider
-) -> ToolFamily:
-    reads = gmail_read_family(read_provider)
-    writes = gmail_write_family(write_provider)
-    return ToolFamily(
-        namespace="gmail",
-        declarations=reads.declarations + writes.declarations,
-        bindings=reads.bindings + writes.bindings,
-    )
-
-
-def calendar_main_family(
-    read_provider: GoogleReadProvider, write_provider: GoogleWriteProvider
-) -> ToolFamily:
-    reads = calendar_read_family(read_provider)
-    writes = calendar_write_family(write_provider)
-    return ToolFamily(
-        namespace="calendar",
-        declarations=reads.declarations + writes.declarations,
-        bindings=reads.bindings + writes.bindings,
-    )
-
-
-__all__ = [
-    "AUTOMATIC_WRITE_TOOL_IDS",
-    "CALENDAR_CREATE_EVENT_SPEC",
-    "CALENDAR_DELETE_EVENT_SPEC",
-    "CALENDAR_UPDATE_EVENT_SPEC",
-    "GMAIL_CREATE_DRAFT_SPEC",
-    "GMAIL_SEND_DRAFT_SPEC",
-    "GMAIL_UPDATE_DRAFT_SPEC",
-    "WRITE_ACTION_MAX_ATTEMPTS",
-    "WRITE_TOOL_IDS",
-    "AllDayEventTime",
-    "CalendarCreateEventInput",
-    "CalendarCreateEventSuccess",
-    "CalendarDeleteEventInput",
-    "CalendarDeleteEventSuccess",
-    "CalendarEventSnapshot",
-    "CalendarUpdateEventInput",
-    "CalendarUpdateEventSuccess",
-    "CalendarWritableEvent",
-    "EventTime",
-    "GmailContent",
-    "GmailCreateDraftInput",
-    "GmailDraftSuccess",
-    "GmailReplyTo",
-    "GmailSendDraftInput",
-    "GmailSendDraftSuccess",
-    "GmailUpdateDraftInput",
-    "GoogleWriteProvider",
-    "Mailbox",
-    "Reminder",
-    "TimedEventTime",
-    "WriteAttemptBudget",
-    "WriteConnectorFailure",
-    "WriteResponse",
-    "calendar_main_family",
-    "calendar_write_family",
-    "gmail_main_family",
-    "gmail_write_family",
-]

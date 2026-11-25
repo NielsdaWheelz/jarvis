@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4, uuid5
+from zoneinfo import ZoneInfo
 
 from llm_agent_kernel import (
     Checkpoint,
@@ -69,8 +71,10 @@ from sqlalchemy.sql.selectable import CTE
 from jarvis.actions import (
     ActionPersistenceDefect,
     attachment_uncertainty_receipt,
+    current_workspace_owner_delivery,
     recorded_action_result,
     require_locked_action,
+    standing_workspace_input,
 )
 from jarvis.admission import JarvisOwner
 from jarvis.approval_tools import (
@@ -98,11 +102,10 @@ from jarvis.messages import (
     causal_component_ids,
 )
 from jarvis.native_failure_notice import record_parking_notice
+from jarvis.native_protocol import JarvisNativeMessage, JarvisTerminal
 from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 from jarvis.terminal import (
     Answered,
-    JarvisNativeMessage,
-    JarvisTerminal,
     Partial,
     Presentation,
     Progress,
@@ -111,6 +114,10 @@ from jarvis.terminal import (
 )
 from jarvis.tool_results import completed_tool_result, host_rejected
 from jarvis.work_tools import WORK_CREATE_SPEC
+from jarvis.workspace_checks import WorkspaceOccurrence, WorkspaceResult
+from jarvis.workspace_enrollment import WorkspaceEnrollment
+from jarvis.workspace_host import WorkspaceHost, check_observations, is_workspace_wake
+from jarvis.write_tools import WRITE_TOOL_IDS
 
 LOGGER = logging.getLogger(__name__)
 
@@ -189,6 +196,7 @@ class ProductSettlement:
     status: Literal["committed", "failed", "stale"] | None = None
     completed: tuple[UUID, ...] = ()
     eligibility_changed: bool = False
+    workspace_match: WorkspaceOccurrence | None = None
 
 
 class NativeContentDefect(NativeDefect):
@@ -694,6 +702,13 @@ class PostgresNativeJournal:
                 "error": {"type": "InvalidCursor"},
             }:
                 value.update(type="local_result", result=result.result, host_ref=None)
+            elif (
+                row["tool_id"] in WRITE_TOOL_IDS
+                and result.host_ref is None
+                and result.result["type"] == "Failure"
+            ):
+                # Preparation can refuse before an action exists.
+                value.update(type="local_result", result=result.result, host_ref=None)
             elif result.host_ref is not None:
                 reference = str(result.host_ref)
                 if reference.startswith("native-invocation:"):
@@ -728,6 +743,33 @@ class PostgresNativeJournal:
                             value.update(
                                 type="local_result", result=recorded, host_ref=reference
                             )
+                    if (
+                        row["tool_id"] in WRITE_TOOL_IDS
+                        and result.result["type"] == "Failure"
+                        and result.result["error"].get("code") == "uncertain"
+                        and row["action_id"] == identifier
+                    ):
+                        # A later acknowledgement can advance the action.
+                        if recorded != result.result:
+                            earlier = await connection.scalar(
+                                select(message.c.id).where(
+                                    message.c.source == "action",
+                                    message.c.source_conversation_id
+                                    == self.owner.scope_id,
+                                    message.c.source_message_id
+                                    == f"{identifier}:uncertain",
+                                    message.c.trace["action_id"].as_string()
+                                    == reference,
+                                )
+                            )
+                            if earlier is None:
+                                raise NativeDefect(
+                                    "workspace uncertainty lacks original evidence"
+                                )
+                        recorded = result.result
+                        value.update(
+                            type="local_result", result=recorded, host_ref=reference
+                        )
                     if recorded != result.result:
                         raise NativeDefect(
                             "replayed action differs from its original recorder result"
@@ -769,7 +811,11 @@ class PostgresNativeJournal:
         await self.memory.publish()
 
     async def respond_approval(
-        self, invocation_id: str, arguments: ApprovalRespondInput
+        self,
+        invocation_id: str,
+        arguments: ApprovalRespondInput,
+        *,
+        workspace_grant: Callable[[], WorkspaceEnrollment | None] | None = None,
     ) -> DispatchCompleted:
         """The decision and its original reply have one commit boundary."""
         await self.owner.require_current(
@@ -896,6 +942,46 @@ class PostgresNativeJournal:
                 return host_rejected("approval_owner_required")
             if target is None:
                 return host_rejected("approval_target_missing")
+            if (
+                any(
+                    item["id"] in input_ids and standing_workspace_input(item)
+                    for item in inputs
+                )
+                or target["tool_name"] in WRITE_TOOL_IDS
+            ):
+                if (
+                    not await current_workspace_owner_delivery(
+                        connection,
+                        invocation["attempt_id"],
+                        input_ids,
+                        owner_message["id"],
+                    )
+                    or owner_message["control_kind"] is not None
+                    or standing_workspace_input(owner_message)
+                    or owner_message["request_state"] not in {"pending", "waiting"}
+                    or owner_message["processing_parked_at"] is not None
+                ):
+                    return host_rejected("approval_owner_required")
+            if target["tool_name"] in WRITE_TOOL_IDS:
+                from jarvis.write_dispatch import require_current_action_binding
+
+                stored = await require_locked_action(connection, target_id)
+                try:
+                    require_current_action_binding(stored, self.plan)
+                except RuntimeError:
+                    return host_rejected("approval_ineligible")
+                frozen = stored.current_execution_contract.workspace
+                if arguments.decision == "approve":
+                    current = workspace_grant() if workspace_grant is not None else None
+                    if (
+                        current is None
+                        or frozen is None
+                        or (current.grant_id, current.account)
+                        != (frozen.grant_id, frozen.account)
+                    ):
+                        return host_rejected("workspace_grant_unavailable")
+            elif target["tool_name"] in {"gmail.send_draft", "gmail.update_draft"}:
+                return host_rejected("approval_ineligible")
             origin = next(
                 (item for item in inputs if item["id"] == target["origin_message_id"]),
                 None,
@@ -1540,6 +1626,119 @@ async def _todo_result_home(
     }
 
 
+async def yield_workspace_input(
+    owner: JarvisOwner, request: NativeRequest, owner_input: UUID
+) -> bool:
+    """Close the scoped input and leave the owner's new request pending."""
+    if len(request.input_ids) != 1:
+        raise NativeDefect("a scoped native session requires a single opening input")
+    origin_id = UUID(request.input_ids[0])
+    async with owner.database.begin() as connection:
+        attempt = await _locked_attempt(
+            connection, owner, request.attempt_id, live=False
+        )
+        if (
+            attempt["fenced_at"]
+            or attempt["settled"]
+            or attempt["terminal_at"]
+            or attempt["owner_epoch"] != str(owner.token)
+        ):
+            return False
+        pending = await connection.scalar(
+            select(message.c.id).where(
+                message.c.id == owner_input,
+                message.c.source_conversation_id == owner.scope_id,
+                message.c.role == "owner",
+                message.c.control_kind.is_(None),
+                message.c.request_state == "pending",
+                message.c.processing_parked_at.is_(None),
+            )
+        )
+        origin = (
+            (
+                await connection.execute(
+                    select(message)
+                    .where(
+                        message.c.id == origin_id,
+                        message.c.source_conversation_id == owner.scope_id,
+                        message.c.request_state.in_(("pending", "waiting")),
+                        message.c.processing_parked_at.is_(None),
+                    )
+                    .with_for_update()
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if pending is None or origin is None or owner_input == origin_id:
+            return False
+        home = cast(dict[str, Any], origin["home"] or {})
+        refresh = home.get("workspace_refresh")
+        if refresh is not None:
+            todo = refresh["todo_id"]
+        elif is_workspace_wake(origin["source"], origin["text"]):
+            todo = json.loads(origin["text"])["record"]["id"]
+        else:
+            raise NativeDefect("only a workspace input can yield its scoped session")
+        timestamp = datetime.now(UTC)
+        identifier = uuid5(UUID(request.attempt_id), "product-conclusion")
+        content = "check inconclusive. a new owner request interrupted the check."
+        link: dict[str, object] = {
+            "todo_result": {
+                "todo_id": todo,
+                "request_id": str(origin_id),
+                "label": content,
+                "draft_ref": None,
+            }
+        }
+        if refresh is None:
+            link["workspace_result"] = {
+                "occurrence_id": str(origin_id),
+                "outcome": "inconclusive",
+                "evidence": [],
+            }
+        await connection.execute(
+            insert(message).values(
+                id=identifier,
+                role="assistant",
+                source="native_final",
+                text=content,
+                home=link,
+                source_conversation_id=owner.scope_id,
+                memory_admitted=memory_is_admitted(connection),
+                processed_at=timestamp,
+                trace={
+                    "native_attempt_id": request.attempt_id,
+                    "workspace_interrupted_by": str(owner_input),
+                },
+            )
+        )
+        await connection.execute(
+            update(message)
+            .where(message.c.id == origin_id)
+            .values(
+                request_state="completed",
+                processed_at=timestamp,
+                wait_reason=None,
+                native_retry_after=None,
+                trace={
+                    **origin["trace"],
+                    "native_attempt_id": request.attempt_id,
+                    "settlement": {
+                        "run_id": request.attempt_id,
+                        "through_checkpoint": str(origin_id),
+                        "conclusion_message_id": str(identifier),
+                        "conclusion_kind": "conversation",
+                        "outcome": "partial",
+                    },
+                },
+            )
+        )
+        if refresh is not None:
+            await enqueue_notice(connection, identifier)
+    return True
+
+
 async def commit_product(
     database: Database,
     owner: JarvisOwner,
@@ -1548,6 +1747,7 @@ async def commit_product(
     rendered: RenderedTerminal,
     *,
     recovering: bool = False,
+    workspace: WorkspaceHost | None = None,
 ) -> ProductSettlement:
     await owner.require_current(owner.permit("jarvis-product:" + turn.attempt_id))
     conclusion_id = uuid5(UUID(turn.attempt_id), "product-conclusion")
@@ -1591,7 +1791,82 @@ async def commit_product(
             None if isinstance(final.response, Silent) else final.response.present,
             stopping,
         )
-        if isinstance(final.response, Answered | Partial):
+        timestamp = datetime.now(UTC)
+        occurrence = None
+        if len(inputs) == 1:
+            origin = next(iter(inputs.values()))
+            if origin["role"] == "host" and origin["source"] == "work_wake":
+                occurrence = WorkspaceOccurrence.from_wake(
+                    origin["id"],
+                    origin["wake_text"],
+                    workspace.owner_zone if workspace else ZoneInfo("UTC"),
+                    attempt["armed_at"],
+                )
+        workspace_match = None
+        checked = None
+        if occurrence is not None:
+            current = workspace is not None and await workspace.occurrence_current(
+                connection, occurrence, attempt["control_sequence"]
+            )
+            reads = (
+                await check_observations(connection, attempt["id"], occurrence)
+                if current
+                else []
+            )
+            proposed = final.workspace_result
+            disposition = statuses.get(occurrence.occurrence_id)
+            outcome = occurrence.settle(proposed, reads)
+            if (
+                not current
+                or disposition is None
+                or disposition.disposition != "complete"
+                or rendered.outcome not in {"answered", "partial"}
+            ):
+                outcome = "inconclusive"
+            accepted = {str(read.invocation_id) for read in reads}
+            checked = WorkspaceResult(
+                occurrence_id=str(occurrence.occurrence_id),
+                outcome=outcome,
+                evidence=[ref for ref in proposed.evidence if ref in accepted]
+                if proposed
+                else [],
+            ).model_dump(mode="json")
+            if (
+                not current
+                or proposed is None
+                or proposed.outcome != outcome
+                or rendered.content is None
+                or proposed.occurrence_id != str(occurrence.occurrence_id)
+            ):
+                if occurrence.check.expired(timestamp, occurrence.owner_zone):
+                    reason = "the standing check expired."
+                elif not current:
+                    reason = "the original check is no longer authorized."
+                else:
+                    reason = (
+                        "the recorded reads did not establish the result. "
+                        "open this todo in chat to check again."
+                    )
+                local_time = timestamp.astimezone(occurrence.owner_zone)
+                rendered = RenderedTerminal(
+                    "partial",
+                    "conversation",
+                    f"check inconclusive at {local_time:%Y-%m-%d %H:%M %Z}. {reason}",
+                )
+            if not recovering and outcome == "match":
+                workspace_match = occurrence
+            home = {
+                "workspace_result": checked,
+                "todo_result": {
+                    "todo_id": str(occurrence.work_id),
+                    "request_id": str(occurrence.occurrence_id),
+                    "label": (rendered.content or "check inconclusive").splitlines()[0][
+                        :120
+                    ],
+                    "draft_ref": None,
+                },
+            }
+        elif isinstance(final.response, Answered | Partial):
             link = await _todo_result_home(
                 connection,
                 owner.scope_id,
@@ -1602,7 +1877,6 @@ async def commit_product(
             )
             if link is not None:
                 home = {**(home or {}), "todo_result": link}
-        timestamp = datetime.now(UTC)
         if stopping:
             await cancel_unentered_actions(connection, stopping, timestamp)
         owned: set[UUID] = set()
@@ -1769,14 +2043,15 @@ async def commit_product(
                     trace={"native_attempt_id": turn.attempt_id},
                 )
             )
-            await enqueue_notice(
-                connection,
-                conclusion_id,
-                kind="question"
-                if rendered.outcome == "needs_input"
-                or (final.has_question and (final.waits_for_owner or approval_refs))
-                else "reply",
-            )
+            if occurrence is None:
+                await enqueue_notice(
+                    connection,
+                    conclusion_id,
+                    kind="question"
+                    if rendered.outcome == "needs_input"
+                    or (final.has_question and (final.waits_for_owner or approval_refs))
+                    else "reply",
+                )
         await connection.execute(
             update(native_attempt)
             .where(native_attempt.c.id == attempt["id"])
@@ -1784,6 +2059,7 @@ async def commit_product(
                 recovery_pending=False,
                 product_outcome={
                     "status": "committed",
+                    **({"workspace_result": checked} if checked is not None else {}),
                     "response_id": str(conclusion_id)
                     if rendered.content is not None
                     else None,
@@ -1793,7 +2069,9 @@ async def commit_product(
                 },
             )
         )
-    return ProductSettlement("committed", tuple(completed))
+    return ProductSettlement(
+        "committed", tuple(completed), workspace_match=workspace_match
+    )
 
 
 async def _product_inputs(
@@ -1822,6 +2100,10 @@ async def _product_inputs(
                     message.c.id,
                     message.c.source_conversation_id,
                     message.c.role,
+                    message.c.source,
+                    case((message.c.source == "work_wake", message.c.text)).label(
+                        "wake_text"
+                    ),
                     message.c.request_state,
                     message.c.processing_parked_at,
                     message.c.native_retry_after,
@@ -1844,6 +2126,7 @@ async def _product_inputs(
                     native_attempt.c.id,
                     native_attempt.c.conversation_id,
                     native_attempt.c.attempt_seq,
+                    native_attempt.c.armed_at,
                     native_attempt.c.terminal_at,
                     native_attempt.c.fenced_at,
                     native_attempt.c.recovery_pending,

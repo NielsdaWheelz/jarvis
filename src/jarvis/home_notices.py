@@ -1,5 +1,6 @@
 """Persist a private notification with the fact that earned it."""
 
+from collections.abc import Awaitable, Callable
 from uuid import UUID, uuid5
 
 from sqlalchemy import insert, select, update
@@ -79,3 +80,28 @@ async def deliver_pending(
         else:
             if len(notices) < limit:
                 return None
+
+
+async def deliver_workspace_match(
+    sender: FcmSender,
+    phone: PhoneSlot,
+    occurrence_id: UUID,
+    todo_id: UUID,
+    *,
+    still_current: Callable[[], Awaitable[bool]],
+) -> PushFailure | None:
+    """Only the first live commit calls this once. A failed delivery expires."""
+    try:
+        state = await phone.read()
+        if state.fid is None:
+            return None
+        result = await sender.send_workspace_match(
+            state.fid, occurrence_id, todo_id, still_current=still_current
+        )
+        if isinstance(result, PushFailure):
+            if result.kind == "unregistered":
+                await phone.unregister(state.generation)
+            return result
+    except OSError:
+        return PushFailure("slot")
+    return None

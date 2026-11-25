@@ -21,11 +21,12 @@ from jarvis.attachment_tools import ATTACHMENT_DELETE_SPEC
 from jarvis.db import action, attachment, message, work
 from jarvis.gmail_drafts import VerifiedDraft, verified_draft
 from jarvis.home_pages import HomePages
+from jarvis.workspace_write_models import DraftWriteReceipt, FrozenCompose
 from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_DELETE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
-    GMAIL_SEND_DRAFT_SPEC,
+    GMAIL_DISCARD_DRAFT_SPEC,
     GmailSnapshot,
 )
 
@@ -101,7 +102,8 @@ async def todo_results(
                        m.home #>> '{todo_result,label}' AS label
                 FROM message m
                 WHERE m.source_conversation_id = :scope
-                  AND m.role = 'assistant' AND m.source = 'native_final'
+                  AND m.role = 'assistant'
+                  AND m.source IN ('native_final','native_failure')
                   AND m.home #>> '{todo_result,todo_id}' = w.id::text
                   AND (CAST(:at AS timestamptz) IS NULL
                        OR (m.created_at,m.id) < (:at,:previous))
@@ -125,14 +127,20 @@ async def todo_results(
 
 async def draft_for_request(
     connection: AsyncConnection, request_id: UUID, draft_ref: UUID
-) -> VerifiedDraft | None:
+) -> VerifiedDraft | tuple[DraftWriteReceipt, FrozenCompose] | None:
     """Only a successful compose at this already-verified origin can be evidence."""
     candidate = await connection.scalar(
         select(action.c.id).where(
             action.c.id == draft_ref,
             action.c.origin_message_id == request_id,
             action.c.status == "succeeded",
-            action.c.tool_name.in_(("gmail.create_draft", "gmail.update_draft")),
+            action.c.tool_name.in_(
+                (
+                    "gmail.create_draft",
+                    "gmail.update_draft",
+                    "gmail.prepare_replacement",
+                )
+            ),
         )
     )
     if candidate is None:
@@ -140,6 +148,27 @@ async def draft_for_request(
     stored = await recorded_action(connection, candidate)
     if stored is None:
         raise ActionPersistenceDefect("saved draft action disappeared")
+    if stored.execution_contract.implementation_revision == (
+        f"jarvis-{stored.tool_name.replace('.', '-')}-workspace-v1"
+    ):
+        frozen = stored.current_execution_contract.workspace
+        if frozen is None or not isinstance(frozen.effect, FrozenCompose):
+            raise ActionPersistenceDefect("saved workspace draft lacks its contract")
+        try:
+            receipt = DraftWriteReceipt.model_validate(
+                (stored.result or {}).get("value")
+            )
+        except ValueError as exc:
+            raise ActionPersistenceDefect(
+                "saved workspace draft lacks its receipt"
+            ) from exc
+        if (
+            receipt.action_id != draft_ref
+            or receipt.account != frozen.account
+            or receipt.grant_id != frozen.grant_id
+        ):
+            raise ActionPersistenceDefect("saved workspace draft authority differs")
+        return (receipt, frozen.effect) if receipt.verification == "verified" else None
     return verified_draft(stored)
 
 
@@ -152,7 +181,8 @@ async def visible_message(
 ) -> Record | None:
     result = await connection.execute(
         text(
-            "SELECT visible.*, CASE WHEN visible.source = 'native_final' "
+            "SELECT visible.*, CASE "
+            "WHEN visible.source IN ('native_final','native_failure') "
             "THEN m.home #> '{todo_result}' END AS todo_result "
             f"FROM ({_MESSAGES} AND m.id = :id) visible "
             "JOIN message m ON m.id=visible.id"
@@ -171,7 +201,7 @@ async def visible_message(
     saved_draft_error = None
     if linked is not None:
         saved_draft_error = linked.get("draft_error")
-        if linked["draft_ref"] is not None:
+        if linked.get("draft_ref") is not None:
             try:
                 verified = await draft_for_request(
                     connection, UUID(linked["request_id"]), UUID(linked["draft_ref"])
@@ -188,11 +218,23 @@ async def visible_message(
                 fields = {"subject", "to", "cc", "bcc", "files"}
                 if include_mail_body:
                     fields.add("body_text")
-                saved_draft = {
-                    "draft_ref": verified.receipt.draft_ref,
-                    "observed_at": verified.receipt.observed_at,
-                    **verified.snapshot.model_dump(mode="json", include=fields),
-                }
+                if isinstance(verified, VerifiedDraft):
+                    saved_draft = {
+                        "draft_ref": verified.receipt.draft_ref,
+                        "observed_at": verified.receipt.observed_at,
+                        **verified.snapshot.model_dump(mode="json", include=fields),
+                    }
+                else:
+                    receipt, frozen = verified
+                    saved_draft = {
+                        "draft_ref": linked["draft_ref"],
+                        "observed_at": receipt.observed_at,
+                        "gmail_url": receipt.new_link,
+                        "files": [
+                            file.model_dump(mode="json") for file in receipt.files
+                        ],
+                        **frozen.content.model_dump(mode="json", include=fields),
+                    }
     return {
         **detail,
         "proposals": proposals[identifier],
@@ -238,13 +280,16 @@ WITH page AS (
             AND ask.home->'proposal_ids' ? i.action_id::text)
 )
 SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,f.filename,
-  codec.supported,
-  CASE WHEN codec.supported AND a.tool_name!='gmail.send_draft'
+  codec.binding,
+  CASE WHEN codec.binding IS NOT NULL AND a.tool_name!='gmail.send_draft'
     THEN a.arguments->'arguments' END AS args,
-  CASE WHEN codec.supported AND a.tool_name='gmail.send_draft'
+  CASE WHEN codec.binding = 'workspace'
+    THEN a.execution_contract #> '{workspace,effect}' END AS workspace_effect,
+  CASE WHEN codec.binding = 'historical' AND a.tool_name='gmail.send_draft'
     THEN (a.execution_contract #> '{mail,snapshot}') - 'body_text'
     END AS mail_preview,
-  CASE WHEN :include_mail_body AND codec.supported AND a.tool_name='gmail.send_draft'
+  CASE WHEN :include_mail_body AND codec.binding = 'historical'
+    AND a.tool_name='gmail.send_draft'
     THEN a.execution_contract #>> '{mail,snapshot,body_text}'
     END AS mail_body,
   COALESCE(a.result->>'reason_code',a.result #>> '{error,type}') AS reason,
@@ -255,12 +300,13 @@ SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,f.filename,
   first.value->>'owner_message_id' AS owner_message_id
 FROM pairs p JOIN action a ON a.id=p.action_id
 CROSS JOIN LATERAL (
-    SELECT (a.execution_contract->>'tool_contract_revision')
-         = (CAST(:contracts AS jsonb)->>a.tool_name) AS supported
+    SELECT (CAST(:contracts AS jsonb)->a.tool_name)
+        ->>(a.execution_contract->>'tool_contract_revision') AS binding
 ) codec
 JOIN message origin ON origin.id=a.origin_message_id
   AND origin.source_conversation_id=:scope
-LEFT JOIN attachment f ON codec.supported AND a.tool_name='attachment.delete'
+LEFT JOIN attachment f ON codec.binding = 'attachment'
+  AND a.tool_name='attachment.delete'
   AND f.id::text=a.arguments #>> '{arguments,id}'
 LEFT JOIN LATERAL (
     SELECT i.reply_receipt #> '{result,value}' AS value FROM native_invocation i
@@ -299,18 +345,34 @@ def _calendar_fields(event: Record) -> dict[str, str]:
 
 @cache
 def _proposal_contracts() -> str:
-    return json.dumps(
-        {
-            str(spec.id): action_request_spec(spec).tool_contract_revision
-            for spec in (
-                GMAIL_SEND_DRAFT_SPEC,
-                CALENDAR_CREATE_EVENT_SPEC,
-                CALENDAR_UPDATE_EVENT_SPEC,
-                CALENDAR_DELETE_EVENT_SPEC,
-                ATTACHMENT_DELETE_SPEC,
-            )
-        }
+    historical = {
+        "gmail.send_draft": (
+            "4ebffb8d6ed82661932d49685968712ae828764402ccac680986268762aeabbc"
+        ),
+        "calendar.create_event": (
+            "2857d94f3bf3cfbb502d409c98d8b9ee0afcb9441a3ecb94c027eaa288c2c768"
+        ),
+        "calendar.update_event": (
+            "8e3b990f0d5f258920a3d9a44ebf420a6cdfd80f273f398b63d5a41f0a0e0bdb"
+        ),
+        "calendar.delete_event": (
+            "3c0230b9dc2b9e94080c24d6df117fa439322cbd0266c1746ecf6806e0dbfafe"
+        ),
+    }
+    versions = {name: {rev: "historical"} for name, rev in historical.items()}
+    specs = (
+        CALENDAR_CREATE_EVENT_SPEC,
+        CALENDAR_UPDATE_EVENT_SPEC,
+        CALENDAR_DELETE_EVENT_SPEC,
+        GMAIL_DISCARD_DRAFT_SPEC,
+        ATTACHMENT_DELETE_SPEC,
     )
+    for spec in specs:
+        revision = action_request_spec(spec).tool_contract_revision
+        versions.setdefault(str(spec.id), {})[revision] = (
+            "attachment" if spec is ATTACHMENT_DELETE_SPEC else "workspace"
+        )
+    return json.dumps(versions)
 
 
 def _proposal(row: RowMapping) -> Record:
@@ -320,7 +382,7 @@ def _proposal(row: RowMapping) -> Record:
         result.update(
             decision=row["decision"], owner_message_id=row["owner_message_id"]
         )
-    if not row["supported"]:
+    if row["binding"] is None:
         if row["status"] not in {
             "succeeded",
             "failed",
@@ -332,6 +394,11 @@ def _proposal(row: RowMapping) -> Record:
         return {**result, "title": tool, "detail": f"action id · {row['action_id']}"}
     if tool == "gmail.send_draft":
         return {**result, **_mail_proposal(row)}
+    if row["binding"] == "workspace":
+        title, lines = _workspace_proposal(tool, cast(Record, row["workspace_effect"]))
+        if row["reason"]:
+            lines.append(f"reason · {row['reason']}")
+        return {**result, "title": title, "detail": "\n".join(lines)}
     args = cast(Record, row["args"])
     detail: list[str] = []
     if tool in {
@@ -373,6 +440,66 @@ def _proposal(row: RowMapping) -> Record:
     if row["event_id"] and tool == "calendar.create_event":
         detail.append(f"event id · {row['event_id']}")
     return {**result, "title": title, "detail": "\n".join(detail)}
+
+
+def _workspace_proposal(tool: str, effect: Record) -> tuple[str, list[str]]:
+    if tool == "gmail.discard_draft":
+        old = effect["old"]
+        detail = [f"draft id · {old['draft_id']}", f"message id · {old['message_id']}"]
+        if replacement := effect["replacement"]:
+            detail.append(f"verified replacement draft · {replacement['draft_id']}")
+        return f"discard draft · {old['subject'] or 'untitled'}", detail
+
+    prior_observation = cast(Record, effect["prior"] or {})
+    before = cast(Record, prior_observation.get("fields", {}))
+    after = cast(Record, effect["expected"])
+    event = before | after
+    verb = tool.partition(".")[2].partition("_")[0]
+    title = f"{verb} event · {event.get('summary') or 'untitled'}"
+    detail = [f"calendar · {effect['calendar_id']}", f"scope · {effect['scope']}"]
+    if effect["event_id"] is not None:
+        detail.append(f"event id · {effect['event_id']}")
+
+    def describe(key: str, value: Any) -> str:
+        if value is None:
+            return "none"
+        if key == "attendees":
+            return ", ".join(item["address"] for item in value) or "none"
+        if key in {"start", "end"}:
+            return str(
+                value.get("date") or f"{value['date_time']} ({value['time_zone']})"
+            )
+        if key == "reminders":
+            return ", ".join(f"{r['method']} {r['minutes']} min" for r in value)
+        if key == "recurrence":
+            return ", ".join(value) or "none"
+        return str(value)
+
+    for key in (
+        "summary",
+        "start",
+        "end",
+        "attendees",
+        "location",
+        "description",
+        "recurrence",
+        "reminders",
+        "use_default_reminders",
+    ):
+        prior, next_value = before.get(key), event.get(key)
+        if prior == next_value and key not in {"start", "end", "attendees"}:
+            continue
+        if prior is None and next_value is None:
+            continue
+
+        value = describe(key, next_value)
+        if before and prior != next_value:
+            value = f"{describe(key, prior)} → {value}"
+        detail.append(f"{key.replace('_', ' ')} · {value}")
+    detail.append(
+        "notify attendees" if effect["notify"] else "without attendee notifications"
+    )
+    return title, detail
 
 
 def _mail_proposal(row: RowMapping) -> Record:

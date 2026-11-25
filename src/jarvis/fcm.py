@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -62,6 +63,7 @@ class FcmSender:
         self._project = project
         self._account = account
         self._credentials: Credentials | None = None
+        self._token_lock = asyncio.Lock()
 
     def _access_token(self) -> str:
         if self._credentials is None:
@@ -84,14 +86,55 @@ class FcmSender:
         message_id: UUID,
         kind: NoticeKind,
     ) -> str | PushFailure:
+        result = await self._send(
+            fid,
+            {"notice_id": str(notice_id), "message_id": str(message_id), "kind": kind},
+            priority="HIGH" if kind == "question" else "NORMAL",
+            ttl="2419200s",
+        )
+        assert result is not None
+        return result
+
+    async def send_workspace_match(
+        self,
+        fid: str,
+        occurrence_id: UUID,
+        todo_id: UUID,
+        *,
+        still_current: Callable[[], Awaitable[bool]],
+    ) -> str | PushFailure | None:
+        return await self._send(
+            fid,
+            {
+                "kind": "workspace_check",
+                "notice_id": str(occurrence_id),
+                "todo_id": str(todo_id),
+            },
+            priority="HIGH",
+            ttl="0s",
+            still_current=still_current,
+        )
+
+    async def _send(
+        self,
+        fid: str,
+        data: dict[str, str],
+        *,
+        priority: str,
+        ttl: str,
+        still_current: Callable[[], Awaitable[bool]] | None = None,
+    ) -> str | PushFailure | None:
         if self._project is None:
             return PushFailure("configuration")
         try:
-            token = await asyncio.to_thread(self._access_token)
+            async with self._token_lock:
+                token = await asyncio.to_thread(self._access_token)
         except (OSError, TypeError, ValueError, GoogleAuthError):
             self._credentials = None
             return PushFailure("configuration")
 
+        if still_current is not None and not await still_current():
+            return None
         try:
             response = await self._http.post(
                 f"https://fcm.googleapis.com/v1/projects/{self._project}/messages:send",
@@ -99,14 +142,10 @@ class FcmSender:
                 json={
                     "message": {
                         "fid": fid,
-                        "data": {
-                            "notice_id": str(notice_id),
-                            "message_id": str(message_id),
-                            "kind": kind,
-                        },
+                        "data": data,
                         "android": {
-                            "priority": "HIGH" if kind == "question" else "NORMAL",
-                            "ttl": "2419200s",
+                            "priority": priority,
+                            "ttl": ttl,
                             "restricted_package_name": "dev.niels.jarvis",
                         },
                     }

@@ -142,6 +142,9 @@ internal fun JarvisHome(route: Route, onNavigate: (Route) -> Unit, onBack: (() -
                     chat -> "chat"
                     else -> "current"
                 }
+                if (pane == "chat" || (pane == "current" && route is Route.Message)) {
+                    WorkspaceApprovalPanel(api, authRevision)
+                }
                 panes.SaveableStateProvider(pane) {
                     when {
                         showDrafts -> DraftList(drafts, { draftId = it }, { newDraft(null) })

@@ -174,7 +174,7 @@ for ((i=2; i<8; i+=2)); do
   sudo -n -u "$account_user" -g codex-clients test -w "$incoming"
   sudo -n -u "$account_user" -g codex-clients test -x "$incoming"
   # Git object data is immutable. Its directories need write access for new objects.
-  denied="$(sudo -n -u "$account_user" -g codex-clients find "$notes" \
+  denied="$(cd / && sudo -n -u "$account_user" -g codex-clients find "$notes" \
     -path "$incoming" -prune -o \
     \( -type d \( ! -readable -o ! -writable -o ! -executable \) -o \
        -type f \( ! -readable -o \( ! -path "$notes/.git/objects/*" -a ! -writable \) \) \) \
@@ -199,7 +199,7 @@ for ((i=2; i<8; i+=2)); do
   sudo -n -H -u "$account_user" -g codex-clients \
     timeout 60s git -C "$notes" ls-remote --exit-code origin refs/heads/main >/dev/null
 done
-denied="$(sudo -n -u jarvis -g codex-clients find "$notes" \
+denied="$(cd / && sudo -n -u jarvis -g codex-clients find "$notes" \
   -path "$incoming" -prune -o \
   \( -type d \( ! -readable -o -writable -o ! -executable \) -o \
      -type f \( ! -readable -o -writable \) \) \

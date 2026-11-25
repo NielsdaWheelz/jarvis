@@ -15,7 +15,7 @@ elif [[ "${1:-}" == --bootstrap-on-host && $# == 3 && $EUID == 0 ]]; then
   [[ "$commit" =~ ^[0-9a-f]{40}$ && "$remote" =~ ^/tmp/jarvis-contained-host\.[a-zA-Z0-9]+$ ]]
 else
   commit="${1:-}"
-  source_mapping="${JARVIS_SOURCE_CODEX_HOST_CONFIG:?supply the provisioned non-secret personal host mapping}"
+  source_mapping="${JARVIS_SOURCE_CODEX_HOST_CONFIG:?supply the provisioned non-secret contained account mapping}"
   if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]] || (($# != 1)); then
     printf 'usage for virgin bootstrap: deploy/install-contained-host FULL_GIT_COMMIT\n' >&2
     exit 64
@@ -28,130 +28,78 @@ else
     sudo -n flock /opt/jarvis/.deploy.lock \
     "/opt/jarvis/releases/$commit/deploy/install-contained-host" --bootstrap-on-host "$commit" "$remote"
 fi
-cleanup() { rm -rf -- "$remote"; }
+probe_file=
+cleanup() {
+  if [[ -n "$probe_file" ]]; then rm -f -- "$probe_file"; fi
+  rm -rf -- "$remote"
+}
 trap cleanup EXIT HUP INT TERM
 release="/opt/jarvis/releases/$commit"
+source "$release/deploy/release-functions"
 sudo -n test -f "$release/RELEASE.json"
 [[ -f "$remote/codex-host.json" && ! -L "$remote/codex-host.json" ]]
 
 if [[ "$change" == bootstrap ]]; then
-  source "$release/deploy/release-functions"
   require_no_cutover_hold
   [[ ! -e /opt/jarvis/current && ! -L /opt/jarvis/current ]]
 else
-  cmp -s "$remote/codex-host.json" /etc/jarvis/codex-host.json || {
-    printf 'release adoption requires the installed native mapping\n' >&2
+  bound_mapping="/var/lib/jarvis-cutover/held/mapping-$change.json"
+  if [[ ! -f "$bound_mapping" ]]; then bound_mapping=/etc/jarvis/codex-host.json; fi
+  cmp -s "$remote/codex-host.json" "$bound_mapping" || {
+    printf 'native mapping differs from the held release input\n' >&2
     exit 1
   }
-  "$release/deploy/cutover-hold" close-native "$change"
 fi
 candidate="$(sudo -n mktemp /etc/jarvis/.codex-host.XXXXXX)"
 trap 'sudo -n rm -f -- "$candidate"; cleanup' EXIT HUP INT TERM
 sudo -n install -m 0644 -o root -g root "$remote/codex-host.json" "$candidate"
-mapfile -t layout < <(sudo -n "$release/.venv/bin/python" - \
-  "$candidate" "$release" "$remote/jarvis-codex-contained.service" <<'PY'
-import grp
-import json
-import pwd
-import re
-import stat
+sudo -n env "JARVIS_CODEX_HOST_CONFIG_PATH=$candidate" \
+  "$release/.venv/bin/python" "$release/deploy/codex-host" render "$remote"
+mapfile -t layout < <("$release/.venv/bin/python" - "$candidate" <<'PYCODE'
 import sys
 from pathlib import Path
 
 from jarvis.codex_config import CodexHostConfig
-
-config = CodexHostConfig.load(Path(sys.argv[1]))
-if (
-    config.jarvis_user != "jarvis"
-    or config.client_group != "codex-clients"
-    or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", config.development_user)
-    or config.endpoints["personal"] != Path("/run/jarvis-contained/app-server.sock")
-    or config.cognition_cwd_parent != "/run/jarvis-codex-cognition"
-    or config.notes_repository != "/var/lib/jarvis-notes"
-):
-    raise SystemExit("contained host mapping has an incompatible deployment layout")
-host_uid = pwd.getpwnam(config.development_user).pw_uid
-if host_uid == 0 or host_uid == pwd.getpwnam(config.jarvis_user).pw_uid:
-    raise SystemExit("contained host and application require distinct non-root identities")
-account = Path(config.profiles["personal"].account_home)
-metadata = account.stat()
-if (
-    not stat.S_ISDIR(metadata.st_mode)
-    or metadata.st_uid != host_uid
-    or stat.S_IMODE(metadata.st_mode) != 0o700
-    or not (account / "auth.json").is_file()
-):
-    raise SystemExit("original personal account must be private and host-owned")
-release = Path(sys.argv[2])
-unit = (release / "deploy/jarvis-codex-contained.service").read_text()
-for key, value in {
-    "@HOST_USER@": config.development_user,
-    "@RELEASE@": str(release),
-    "@ACCOUNT_HOME@": json.dumps(str(account).replace("%", "%%"), ensure_ascii=False),
-    "@ACCOUNT_INSTRUCTIONS@": " ".join(
-        json.dumps(f"-{account / name}".replace("%", "%%"), ensure_ascii=False)
-        for name in ("AGENTS.override.md", "AGENTS.md")
-    ),
-}.items():
-    unit = unit.replace(key, value)
-Path(sys.argv[3]).write_text(unit)
-application = (release / "deploy/jarvis.service").read_text().replace(
-    "/opt/jarvis/current", str(release)
+mapping = CodexHostConfig.load(Path(sys.argv[1]))
+print(mapping.accounts[0].host_user)
+print(mapping.binary)
+for account in mapping.accounts:
+    print(account.host_user)
+    print(account.account_home)
+PYCODE
 )
-Path(sys.argv[3]).with_name("jarvis.service").write_text(application)
-# Bootstrap uses this same host namespace, identity and restrictions. Only the
-# command, its startup deadline and candidate mapping source differ.
-bootstrap = unit.replace("Type=exec\n", "Type=oneshot\n").replace(
-    "Restart=on-failure\n", "Restart=no\n"
-).replace("TimeoutStartSec=20\n", "TimeoutStartSec=180\n")
-bootstrap = bootstrap.replace(
-    f"{release}/deploy/codex-host start\n",
-    f"{release}/deploy/codex-host bootstrap-notes\n",
-).replace(
-    "BindReadOnlyPaths=/etc/jarvis/codex-host.json:",
-    f"BindReadOnlyPaths={sys.argv[1]}:",
-)
-bootstrap = "\n".join(
-    line for line in bootstrap.splitlines()
-    if not line.startswith(("ExecStartPost=", "ExecStopPost="))
-) + "\n"
-Path(sys.argv[3]).with_name("jarvis-notes-bootstrap.service").write_text(bootstrap)
-notes = Path(config.notes_repository)
-if notes.exists() or notes.is_symlink():
-    metadata = notes.lstat()
-    if (
-        not stat.S_ISDIR(metadata.st_mode)
-        or metadata.st_uid != host_uid
-        or metadata.st_gid != grp.getgrnam(config.client_group).gr_gid
-        or stat.S_IMODE(metadata.st_mode) not in (0o750, 0o2750)
-    ):
-        raise SystemExit("existing notes directory needs ownership/mode repair")
-print(config.development_user)
-print(account)
-print(config.binary)
-PY
-)
-[[ "${#layout[@]}" == 3 ]]
+[[ "${#layout[@]}" == 8 ]]
 host_user="${layout[0]}"
-account_home="${layout[1]}"
-sudo -n -u "$host_user" test -r "$account_home/auth.json"
-if sudo -n -u jarvis test -r "$account_home/auth.json"; then
-  printf 'application can read the native host account; installation refused\n' >&2
-  exit 1
+for ((i=2; i<8; i+=2)); do
+  account_user="${layout[i]}"
+  account_home="${layout[i+1]}"
+  sudo -n -u "$account_user" test -r "$account_home/auth.json"
+  sudo -n -u jarvis test ! -r "$account_home/auth.json"
+  for ((j=2; j<8; j+=2)); do
+    if ((i != j)); then
+      sudo -n -u "${layout[j]}" test ! -x "$account_home"
+    fi
+  done
+done
+units=()
+for unit in "${CODEX_HOST_UNITS[@]}"; do units+=("$remote/$unit"); done
+sed "s|/opt/jarvis/current|$release|g" "$release/deploy/jarvis.service" >"$remote/jarvis.service"
+sudo -n systemd-analyze verify "${units[@]}" "$remote/jarvis.service"
+if [[ "$change" != bootstrap ]]; then
+  "$release/deploy/cutover-hold" close-native "$change"
 fi
-sudo -n systemd-analyze verify "$remote/jarvis-codex-contained.service" "$remote/jarvis.service"
 if [[ "$change" == bootstrap ]]; then
   # This installer owns only the dedicated production distribution, never an account's CLI.
   stock_version=0.171.0
   stock_dir="/opt/jarvis-codex/$stock_version"
-  if [[ "$(uname -m)" != x86_64 || "${layout[2]}" != "$stock_dir/bin/codex" ||
-        "$(realpath -m -- "${layout[2]}")" != "${layout[2]}" ]]; then
+  if [[ "$(uname -m)" != x86_64 || "${layout[1]}" != "$stock_dir/bin/codex" ||
+        "$(realpath -m -- "${layout[1]}")" != "${layout[1]}" ]]; then
     echo "map the dedicated x86-64 host binary $stock_dir/bin/codex before installing" >&2
     exit 1
   fi
   sudo -n systemd-analyze verify "$remote/jarvis-notes-bootstrap.service"
   if sudo -n systemctl cat jarvis-codex-contained.service >/dev/null 2>&1; then
-    sudo -n systemctl stop jarvis-codex-contained.service
+    sudo -n systemctl stop "${CODEX_HOST_UNITS[@]}"
   fi
   # Keep the vendor layout so stock locates its sandbox, tools and companion.
   executables=(bin/codex bin/codex-code-mode-host codex-resources/bwrap codex-path/rg)
@@ -178,8 +126,6 @@ SUMS
     install -m 0644 -o root -g root "$vendor/codex-package.json" "$stock_dir/"
     verify_stock "$stock_dir"
   fi
-  sudo -n install -d -m 0710 -o "$host_user" -g codex-clients /run/jarvis-contained
-  sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /run/jarvis-contained/exec
   sudo -n install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
   sudo -n install -d -m 0750 -o jarvis -g codex-clients \
     /var/cache/jarvis /var/cache/jarvis/attachments
@@ -200,9 +146,14 @@ SUMS
   sudo -n systemctl start jarvis-notes-bootstrap.service
   sudo -n systemctl stop jarvis-notes-bootstrap.service
   sudo -n rm -f -- "$bootstrap_unit"
-  sudo -n install -d -m 0750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-pages
-  sudo -n install -d -m 0750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-mail
-  sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-mail/incoming
+  for area in jarvis-pages jarvis-mail; do
+    if [[ ! -d /var/lib/jarvis-notes/.git/$area ]]; then
+      sudo -n install -d -m 0750 -o "$host_user" -g codex-clients "/var/lib/jarvis-notes/.git/$area"
+    fi
+  done
+  if [[ ! -d /var/lib/jarvis-notes/.git/jarvis-mail/incoming ]]; then
+    sudo -n install -d -m 0700 -o "$host_user" -g codex-clients /var/lib/jarvis-notes/.git/jarvis-mail/incoming
+  fi
   sudo -n install -d -m 0700 -o jarvis -g jarvis /var/lib/jarvis/mail-stage
   sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes
   sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes
@@ -213,33 +164,118 @@ SUMS
     'e /var/lib/jarvis-notes/.git/jarvis-mail - - - 24h' \
     'X /var/lib/jarvis-notes/.git/jarvis-mail/incoming - - - -' | \
     sudo -n tee /etc/tmpfiles.d/jarvis-codex-contained.conf >/dev/null
-  sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json
-else
-  sudo -n -u "$host_user" -g codex-clients test -x /var/lib/jarvis-notes/.git
-  sudo -n -u jarvis -g codex-clients test -r /var/lib/jarvis-notes/.git
-  sudo -n -u jarvis -g codex-clients test -x /var/lib/jarvis-notes/.git
 fi
-sudo -n install -m 0644 -o root -g root \
-  "$remote/jarvis-codex-contained.service" /etc/systemd/system/jarvis-codex-contained.service
+notes=/var/lib/jarvis-notes
+primary_author=
+primary_committer=
+for ((i=2; i<8; i+=2)); do
+  account_user="${layout[i]}"
+  sudo -n -u "$account_user" -g codex-clients test -w "$notes"
+  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git"
+  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/objects"
+  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/refs"
+  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/jarvis-pages"
+  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/jarvis-mail"
+  sudo -n -u "$account_user" -g codex-clients test -w "$notes/.git/jarvis-mail/incoming"
+  sudo -n -u "$account_user" -g codex-clients test -x "$notes/.git/jarvis-mail/incoming"
+  sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" rev-parse --show-toplevel >/dev/null
+  author="$(sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" var GIT_AUTHOR_IDENT)"
+  committer="$(sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" var GIT_COMMITTER_IDENT)"
+  # git var appends a timestamp and time zone to the actual identity.
+  author="${author% *}"; author="${author% *}"
+  committer="${committer% *}"; committer="${committer% *}"
+  if ((i == 2)); then
+    primary_author="$author"
+    primary_committer="$committer"
+  elif [[ "$author" != "$primary_author" || "$committer" != "$primary_committer" ]]; then
+    printf 'native Git author or committer differs from the primary\n' >&2
+    exit 1
+  fi
+  sudo -n -H -u "$account_user" -g codex-clients \
+    timeout 60s git -C "$notes" ls-remote --exit-code origin refs/heads/main >/dev/null
+done
+for path in "$notes" "$notes/.git"; do
+  sudo -n -u jarvis -g codex-clients test -r "$path"
+  sudo -n -u jarvis -g codex-clients test -x "$path"
+done
+sudo -n -u jarvis -g codex-clients test ! -w "$notes"
+sudo -n -u jarvis -g codex-clients test ! -w "$notes/.git"
+sudo -n -u jarvis -g codex-clients test ! -x "$notes/.git/jarvis-mail/incoming"
+
+# Existing access ACLs do not establish the permissions of the next write.
+# Use the native service umask and check the actual inherited writer/reader grant.
+sudo -n env "JARVIS_CODEX_HOST_CONFIG_PATH=$candidate" \
+  "$release/.venv/bin/python" "$release/deploy/codex-host" verify-notes-acl
+for directory in "$notes" "$notes/.git" "$notes/.git/objects" "$notes/.git/refs" \
+  "$notes/.git/jarvis-pages" "$notes/.git/jarvis-mail"; do
+  for ((i=2; i<8; i+=2)); do
+    probe_file="$directory/.jarvis-native-acl-$(cat /proc/sys/kernel/random/uuid)"
+    sudo -n -u "${layout[i]}" -g codex-clients bash -c 'umask 077; set -C; : > "$1"' acl-probe "$probe_file"
+    for ((j=2; j<8; j+=2)); do
+      if ! sudo -n -u "${layout[j]}" -g codex-clients test -r "$probe_file" ||
+          ! sudo -n -u "${layout[j]}" -g codex-clients test -w "$probe_file"; then
+        printf 'a new notes file lacks the inherited native writer ACL\n' >&2
+        exit 1
+      fi
+    done
+    if ! sudo -n -u jarvis -g codex-clients test -r "$probe_file" ||
+        sudo -n -u jarvis -g codex-clients test -w "$probe_file"; then
+      printf 'a new notes file lacks the inherited application reader ACL\n' >&2
+      exit 1
+    fi
+    rm -f -- "$probe_file"
+    probe_file=
+  done
+done
+
+# Only the existing named hold (or virgin bootstrap) may publish a mapping and
+# its complete set of units. A retry republishes the same staged bytes.
+if [[ "$change" != bootstrap ]]; then
+  "$release/.venv/bin/python" - <<'PYCODE'
+import os
+import stat
+import tempfile
+from pathlib import Path
+
+path = Path("/etc/jarvis/jarvis.env")
+metadata = path.lstat()
+if (
+    not stat.S_ISREG(metadata.st_mode)
+    or metadata.st_uid != 0
+    or metadata.st_gid != 0
+    or stat.S_IMODE(metadata.st_mode) != 0o600
+):
+    raise SystemExit("native environment requires its root-owned private file")
+previous = path.read_bytes()
+current = b"".join(
+    line for line in previous.splitlines(keepends=True)
+    if line.partition(b"=")[0] != b"JARVIS_CODEX_PROFILE_KEY"
+)
+if current != previous:
+    with tempfile.TemporaryDirectory(prefix=".native-cut-", dir=path.parent) as tmp:
+        replacement = Path(tmp) / path.name
+        with replacement.open("xb") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(current)
+            stream.flush()
+            os.fsync(stream.fileno())
+        replacement.replace(path)
+PYCODE
+fi
+sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json
+for unit in "${CODEX_HOST_UNITS[@]}"; do
+  sudo -n install -m 0644 -o root -g root "$remote/$unit" "/etc/systemd/system/$unit"
+done
+sync -f /etc/jarvis /etc/systemd/system
 sudo -n systemctl daemon-reload
 if [[ "$change" == bootstrap ]]; then
-  sudo -n systemctl enable --now jarvis-codex-contained.service
+  sudo -n systemctl enable jarvis-codex-contained.service
 else
-  sync -f /etc/jarvis/codex-host.json /etc/systemd/system/jarvis-codex-contained.service
   "$release/deploy/cutover-hold" open-native "$change"
-  sudo -n systemctl start jarvis-codex-contained.service
 fi
-sudo -n systemctl is-active --quiet jarvis-codex-contained.service
-sudo -n systemd-run --quiet --wait --pipe --collect \
-  --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
-  --property=SupplementaryGroups=codex-clients \
-  --property=ProtectHome=true --property=ProtectSystem=strict \
-  --property=PrivateTmp=true --property=PrivateDevices=true \
-  --property=NoNewPrivileges=true \
-  --property=BindsTo=jarvis-codex-contained.service \
-  --property=After=jarvis-codex-contained.service \
-  --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock \
-  "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
-  --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
-  "$release/.venv/bin/python" "$release/deploy/codex-host" verify </dev/null
-printf 'contained personal host installed for %s; jarvis remains stopped\n' "$commit"
+sudo -n systemctl start "${CODEX_HOST_UNITS[@]}"
+for ((i=0; i<3; i++)); do
+  systemctl is-active --quiet "${CODEX_HOST_UNITS[i]}"
+  verify_native_account "$release" "${CODEX_PROFILES[i]}"
+done
+printf 'contained accounts qualified for %s; jarvis remains stopped\n' "$commit"

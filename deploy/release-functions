@@ -1,5 +1,36 @@
 # shellcheck shell=bash
 # caller holds /opt/jarvis/.deploy.lock as root.
+# shellcheck disable=SC2034
+CODEX_PROFILES=(personal work work2)
+CODEX_HOST_UNITS=(
+  jarvis-codex-contained.service
+  jarvis-codex-contained-work.service
+  jarvis-codex-contained-work2.service
+)
+# shellcheck disable=SC2034
+CODEX_SOCKET_ROOTS=(/run/jarvis-contained /run/jarvis-contained-work /run/jarvis-contained-work2)
+CODEX_SOCKET_PROPERTIES=(
+  --property=BindsTo=jarvis-codex-contained.service
+  "--property=After=${CODEX_HOST_UNITS[*]}"
+  --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock
+  --property=BindReadOnlyPaths=-/run/jarvis-contained-work/exec/app-server.sock:/run/jarvis-contained-work/app-server.sock
+  --property=BindReadOnlyPaths=-/run/jarvis-contained-work2/exec/app-server.sock:/run/jarvis-contained-work2/app-server.sock
+)
+
+verify_native_account() {
+  local release="$1" profile="$2"
+  systemd-run --quiet --wait --pipe --collect \
+    --property=Type=oneshot --property=User=jarvis --property=Group=jarvis \
+    --property=SupplementaryGroups=codex-clients \
+    --property=ProtectHome=true --property=ProtectSystem=strict \
+    --property=PrivateTmp=true --property=PrivateDevices=true \
+    --property=NoNewPrivileges=true \
+    "${CODEX_SOCKET_PROPERTIES[@]}" \
+    "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
+    --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
+    "$release/.venv/bin/python" "$release/deploy/codex-host" verify "$profile" </dev/null
+}
+
 require_no_cutover_hold() {
   local hold="${1:-/var/lib/jarvis-cutover/held}" change
   if [[ -e "$hold" || -L "$hold" || -e /etc/systemd/system/jarvis-cutover.hold ]]; then
@@ -39,9 +70,7 @@ deployment_runtime_check() {
     --property=ProtectHome=true --property=ProtectSystem=strict
     --property=PrivateTmp=true --property=PrivateDevices=true
     --property=NoNewPrivileges=true
-    --property=BindsTo=jarvis-codex-contained.service
-    --property=After=jarvis-codex-contained.service
-    --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock
+    "${CODEX_SOCKET_PROPERTIES[@]}"
     "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
     "--property=ReadWritePaths=/var/lib/jarvis /run/jarvis-codex-cognition /var/cache/jarvis/attachments"
     "--property=WorkingDirectory=$release"
@@ -95,7 +124,7 @@ PYCODE
 
 prune_releases() {
   local candidate="${1:-}" selected='' release main_pid
-  local host_state host_pid host_control_pid host_executable host_release
+  local host_unit host_path host_state host_pid host_control_pid host_executable host_release
   require_no_cutover_hold || return 1
   if [[ -n "$candidate" && ! "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
     printf 'invalid staged release commit\n' >&2
@@ -132,13 +161,17 @@ prune_releases() {
     fi
   fi
 
-  host_state="$(systemctl show --property=ActiveState --value jarvis-codex-contained.service)" || return 1
-  host_pid="$(systemctl show --property=MainPID --value jarvis-codex-contained.service)" || return 1
-  host_control_pid="$(systemctl show --property=ControlPID --value jarvis-codex-contained.service)" || return 1
-  if [[ "$host_state" != inactive || "$host_pid" != 0 || "$host_control_pid" != 0 ]]; then
+  for host_unit in "${CODEX_HOST_UNITS[@]}"; do
+    host_state="$(systemctl show --property=ActiveState --value "$host_unit")" || return 1
+    host_pid="$(systemctl show --property=MainPID --value "$host_unit")" || return 1
+    host_control_pid="$(systemctl show --property=ControlPID --value "$host_unit")" || return 1
+    if [[ "$host_state" == inactive && "$host_pid" == 0 && "$host_control_pid" == 0 ]]; then
+      continue
+    fi
+    host_path="${host_unit//-/_2d}"
+    host_path="${host_path//./_2e}"
     host_executable="$(busctl --system --json=short get-property \
-      org.freedesktop.systemd1 \
-      /org/freedesktop/systemd1/unit/jarvis_2dcodex_2dcontained_2eservice \
+      org.freedesktop.systemd1 "/org/freedesktop/systemd1/unit/$host_path" \
       org.freedesktop.systemd1.Service ExecStart | python3 -c '
 import json, sys
 value = json.load(sys.stdin)
@@ -155,7 +188,7 @@ print(value["data"][0][0])
       printf 'contained host still selects an unretained release; refusing cleanup\n' >&2
       return 1
     fi
-  fi
+  done
 
   for release in /opt/jarvis/releases/*; do
     [[ -d "$release" && "${release##*/}" =~ ^[0-9a-f]{40}$ ]] || continue

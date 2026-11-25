@@ -1,6 +1,6 @@
 [Unit]
 Description=Jarvis private web assistant
-After=network-online.target postgresql.service jarvis-codex-contained.service
+After=network-online.target postgresql.service jarvis-codex-contained.service jarvis-codex-contained-work.service jarvis-codex-contained-work2.service
 BindsTo=jarvis-codex-contained.service
 Wants=network-online.target
 RequiresMountsFor=/run/jarvis-skid-state
@@ -34,6 +34,8 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock
+BindReadOnlyPaths=-/run/jarvis-contained-work/exec/app-server.sock:/run/jarvis-contained-work/app-server.sock
+BindReadOnlyPaths=-/run/jarvis-contained-work2/exec/app-server.sock:/run/jarvis-contained-work2/app-server.sock
 ProtectClock=true
 ProtectControlGroups=true
 ProtectKernelLogs=true

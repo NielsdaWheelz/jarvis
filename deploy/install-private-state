@@ -86,7 +86,6 @@ if len(names) != len(set(names)) or set(names) - allowed or required - set(names
 
 static = """\
 JARVIS_OWNER_TIMEZONE=America/Los_Angeles
-JARVIS_CODEX_PROFILE_KEY=personal
 JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json
 JARVIS_AGENT_CLI_PATH=/usr/local/libexec/skidbladnir
 JARVIS_AGENT_STATE_DIRECTORY=/run/jarvis-skid-state

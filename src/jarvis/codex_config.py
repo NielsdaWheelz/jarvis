@@ -1,4 +1,4 @@
-"""The non-secret Codex host mapping and persistent workspace preflight."""
+"""The root-owned Codex account mapping and persistent workspace preflight."""
 
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ import stat
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from jarvis.config import decode_config_json
 
 CODEX_MAX_MESSAGE_BYTES = 65536
-type CodexProfile = Literal["personal"]
+type CodexProfile = Literal["personal", "work", "work2"]
+CODEX_PROFILES = ("personal", "work", "work2")
 
 
 def canonical_absolute_path(value: str) -> str:
@@ -32,26 +33,81 @@ class _Closed(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
 
-class _Profile(_Closed):
+class CodexAccount(_Closed):
+    key: CodexProfile
     account_home: str
     endpoint: str
+    host_user: str
+    expected_user_id: str
+    expected_account_id: str
+    expected_plan_type: str
+
+    @property
+    def socket(self) -> Path:
+        return Path(self.endpoint[7:])
+
+    @property
+    def unit(self) -> str:
+        suffix = "" if self.key == "personal" else f"-{self.key}"
+        return f"jarvis-codex-contained{suffix}.service"
 
 
 class CodexHostConfig(_Closed):
     """Read-only non-secret host mapping; never credential or worker state."""
 
-    schema_version: Literal[5]
+    schema_version: Literal[6]
     development_user: str
     jarvis_user: str
     client_group: str
     binary: str
     cognition_cwd_parent: str
     notes_repository: str
-    profiles: dict[CodexProfile, _Profile]
+    accounts: tuple[CodexAccount, CodexAccount, CodexAccount]
 
     @property
     def endpoints(self) -> dict[str, Path]:
-        return {key: Path(row.endpoint[7:]) for key, row in self.profiles.items()}
+        return {row.key: row.socket for row in self.accounts}
+
+    @model_validator(mode="after")
+    def _validate_accounts(self) -> CodexHostConfig:
+        if tuple(account.key for account in self.accounts) != CODEX_PROFILES:
+            raise ValueError("expected Codex account order personal, work, work2")
+        shared_paths = (Path(self.notes_repository), Path(self.cognition_cwd_parent))
+        for path in (self.binary, self.notes_repository, self.cognition_cwd_parent):
+            canonical_absolute_path(path)
+        for index, account in enumerate(self.accounts):
+            if not account.endpoint.startswith("unix:///"):
+                raise ValueError("Codex host endpoint must be a Unix socket")
+            canonical_absolute_path(account.endpoint[7:])
+            home = Path(canonical_absolute_path(account.account_home))
+            preceding = self.accounts[:index]
+            preceding_homes = tuple(Path(row.account_home) for row in preceding)
+            for other in (*shared_paths, *preceding_homes):
+                if home.is_relative_to(other) or other.is_relative_to(home):
+                    raise ValueError("Codex home overlaps another home or workspace")
+            identity = (
+                account.expected_user_id,
+                account.expected_account_id,
+                account.expected_plan_type,
+            )
+            if any(
+                not value or not value.isprintable() or any(c.isspace() for c in value)
+                for value in identity
+            ):
+                raise ValueError("invalid opaque Codex enrollment identity")
+        host_users = {account.host_user for account in self.accounts}
+        subjects = {
+            (account.expected_user_id, account.expected_account_id)
+            for account in self.accounts
+        }
+        if (
+            len(set(self.endpoints.values())) != len(self.accounts)
+            or len(host_users) != len(self.accounts)
+            or self.jarvis_user in host_users
+            or len(subjects) != len(self.accounts)
+        ):
+            raise ValueError("Codex endpoints, hosts and subjects must be distinct")
+        return self
 
     def verify_notes_repository(self) -> None:
         repository = Path(self.notes_repository)
@@ -80,28 +136,4 @@ class CodexHostConfig(_Closed):
             encoded = source.read(CODEX_MAX_MESSAGE_BYTES + 1)
         if len(encoded) > CODEX_MAX_MESSAGE_BYTES:
             raise ValueError("Codex host mapping is oversized")
-        result = cls.model_validate(decode_config_json(encoded))
-        if set(result.profiles) != {"personal"}:
-            raise ValueError(
-                "Codex host mapping must declare its contained personal profile"
-            )
-        paths = [
-            result.binary,
-            result.cognition_cwd_parent,
-            result.notes_repository,
-        ]
-        for row in result.profiles.values():
-            if not row.endpoint.startswith("unix:///"):
-                raise ValueError("Codex host endpoint must be a Unix socket")
-            paths.extend((row.account_home, row.endpoint[7:]))
-        if any(not _absolute(value) for value in paths):
-            raise ValueError("Codex host mapping has a noncanonical path")
-        return result
-
-
-def _absolute(value: str) -> bool:
-    try:
-        canonical_absolute_path(value)
-    except ValueError:
-        return False
-    return True
+        return cls.model_validate(decode_config_json(encoded))

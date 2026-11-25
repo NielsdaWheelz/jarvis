@@ -59,6 +59,7 @@ from jarvis.db import (
     create_engine,
     home_notice,
     message,
+    native_attempt,
     normalize_database_url,
 )
 from jarvis.definitions import (
@@ -79,6 +80,7 @@ from jarvis.gmail_cut import (
 from jarvis.home_http import create_home_app
 from jarvis.home_pages import DEFAULT_EXPORT, NOTES_ROOT
 from jarvis.kernel import (
+    CodexStandby,
     build_agent_runtime,
     build_kernel_runtime,
     main_provider_configuration,
@@ -214,20 +216,18 @@ async def _isolated_provider(
     settings: MemoryJobSettings,
     host: CodexHostConfig,
     role: Literal["compactor", "dreamer"],
-) -> AsyncIterator[tuple[ProviderConfiguration, CodexProvider]]:
+) -> AsyncIterator[tuple[ProviderConfiguration, CodexProvider, CodexStandby]]:
     runtime = build_agent_runtime(
         provider_state_root=settings.runtime_state_directory,
         codex_endpoints=host.endpoints,
     )
     kernel = None
     try:
-        providers = await resolve_role_providers(
-            runtime, settings.codex_profile_key, role
-        )
+        providers = await resolve_role_providers(runtime, host.accounts[0].key, role)
         kernel = build_kernel_runtime(
             runtime=runtime, shared_cwd_parent=Path(host.cognition_cwd_parent)
         )
-        yield providers[role], kernel.provider
+        yield providers[role], kernel.provider, CodexStandby(runtime, host)
     finally:
         if kernel is None:
             await runtime.close()
@@ -453,12 +453,16 @@ async def _compose_main(
     google_api_http: httpx.AsyncClient,
     maps_http: httpx.AsyncClient,
     brave_http: httpx.AsyncClient,
+    qualify_accounts: bool = False,
 ) -> tuple[ToolComposition, RoleDefinitions, AgentController]:
     """Compose the release's tools and role plans from the live codex catalog."""
 
     providers = await resolve_role_providers(
-        agent_runtime, settings.codex_profile_key, "main", "compactor", "dreamer"
+        agent_runtime, host.accounts[0].key, "main", "compactor", "dreamer"
     )
+    if qualify_accounts:
+        for account in host.accounts[1:]:
+            await resolve_role_providers(agent_runtime, account.key, *providers)
     agents = AgentController(
         cli_path=settings.agent_cli_path,
         state_directory=settings.agent_state_directory,
@@ -528,6 +532,7 @@ async def _serve(
                 # A scope without canonical control would read as unpaused.
                 if await store.current_control(owner.scope_id) is None:
                     raise StartupDefect("serve requires initialized canonical control")
+                await _require_standby_data(database, owner.scope_id)
                 await recover_native_products(owner)
                 paused = PausedState(store, owner.scope_id)
                 dispatch_lane = asyncio.Lock()
@@ -590,6 +595,7 @@ async def _serve(
                         runtime=agent_runtime,
                         shared_cwd_parent=Path(host.cognition_cwd_parent),
                     )
+                    standby = CodexStandby(agent_runtime, host)
 
                     compactor = MemoryWorker(
                         definitions=definitions.compactor,
@@ -597,6 +603,7 @@ async def _serve(
                         owner=owner,
                         provider=kernel_runtime.provider,
                         memory=memory,
+                        standby=standby,
                     )
                     dreamer = DreamerWorker(
                         definition=definitions.dreamer,
@@ -604,6 +611,7 @@ async def _serve(
                         owner=owner,
                         provider=kernel_runtime.provider,
                         memory=memory,
+                        standby=standby,
                         owner_timezone=settings.owner_timezone,
                         nightly_time=settings.memory_nightly_time,
                     )
@@ -612,6 +620,7 @@ async def _serve(
                         store=store,
                         owner=owner,
                         kernel_runtime=kernel_runtime,
+                        standby=standby,
                         definitions=definitions,
                         actions=actions,
                         dispatcher_factory=lambda checkpoint, journal: (
@@ -1077,6 +1086,7 @@ async def check_activation(
                         google_api_http=http,
                         maps_http=http,
                         brave_http=http,
+                        qualify_accounts=True,
                     )
                 except (
                     AgentRuntimeError,
@@ -1192,6 +1202,7 @@ async def _activation_prerequisites(
     try:
         require_native_files(settings.runtime_state_directory)
         await require_native_data(database, conversation_id=settings.owner_scope)
+        await _require_standby_data(database, settings.owner_scope)
     except NativeActivationDefect as error:
         return (
             ActivationFinding(
@@ -1246,6 +1257,46 @@ async def _activation_prerequisites(
                 ),
             )
     return ()
+
+
+async def _require_standby_data(database: Database, scope: str) -> None:
+    async with database.connect() as connection:
+        old_attempt = await connection.scalar(
+            select(native_attempt.c.id)
+            .where(
+                native_attempt.c.conversation_id == scope,
+                native_attempt.c.request["schema_version"]
+                .as_string()
+                .is_distinct_from("jarvis-native-request.v3"),
+                native_attempt.c.terminal_at.is_(None),
+                native_attempt.c.product_outcome.is_(None),
+                or_(
+                    native_attempt.c.recovery_pending,
+                    native_attempt.c.fenced_at.is_(None),
+                ),
+            )
+            .limit(1)
+        )
+        if old_attempt is not None:
+            raise NativeActivationDefect(
+                "retired native opening requires original-release disposition",
+                old_attempt,
+            )
+        old_retry = await connection.scalar(
+            select(message.c.id)
+            .where(
+                message.c.source_conversation_id == scope,
+                message.c.native_retry_after.is_not(None),
+                message.c.processing_parked_at.is_(None),
+                message.c.request_state.in_(("pending", "waiting")),
+                message.c.trace["native_retry"]["attempt_id"].as_string().is_(None),
+            )
+            .limit(1)
+        )
+        if old_retry is not None:
+            raise NativeActivationDefect(
+                "retired native retry requires original-release disposition", old_retry
+            )
 
 
 def _changed_action_authority(
@@ -1444,7 +1495,11 @@ async def dream_once(
                 engine, memory_admitted=config.jarvis_admitted
             ) as database,
             _memory_service(settings, config, database) as memory,
-            _isolated_provider(settings, host, "dreamer") as (provider, kernel),
+            _isolated_provider(settings, host, "dreamer") as (
+                provider,
+                kernel,
+                standby,
+            ),
         ):
             definition, plan = build_dreamer(
                 catalog=compose_memory_catalog(memory),
@@ -1457,6 +1512,7 @@ async def dream_once(
                 owner=JarvisOwner(database, settings.owner_scope),
                 provider=kernel,
                 memory=memory,
+                standby=standby,
                 owner_timezone=settings.owner_timezone,
                 nightly_time=settings.memory_nightly_time,
             )
@@ -1525,6 +1581,7 @@ async def rebuild_memory(
             _isolated_provider(memory_settings, host, "compactor") as (
                 provider,
                 kernel,
+                standby,
             ),
         ):
             definitions, plan = build_compactor(
@@ -1538,6 +1595,7 @@ async def rebuild_memory(
                 owner=JarvisOwner(database, settings.owner_scope),
                 provider=kernel,
                 memory=memory,
+                standby=standby,
             )
             async with database.begin() as connection:
                 await memory.library.rebuild(

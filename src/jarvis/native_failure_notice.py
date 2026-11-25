@@ -35,6 +35,11 @@ _HOST_SOURCES = {
     "work_wake": "scheduled check",
 }
 _OPENINGS = {
+    "codex_limit_uncertain_effects": (
+        "codex hit a usage or run limit before i finished."
+    ),
+    "codex_quota_uncertain_effects": "codex ran out of usage before i finished.",
+    "codex_quota_before_activity": "codex ran out of usage while retrying.",
     "context_window_exceeded": "the model ran out of room while retrying.",
     "lost_contact": "i lost contact with the model and couldn't finish.",
     "the final response did not meet its content contract": (

@@ -15,7 +15,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from jarvis.action_requests import CanonicalUuid
-from jarvis.home_refs import DriveFileRef, FilePageRef, FileRef, PageNumber, ViewRef
+from jarvis.home_refs import FilePageRef, FileRef, NativeDriveFileRef, ViewRef
 
 type TerminalOutcome = Literal[
     "answered",
@@ -46,21 +46,16 @@ def _terminal_text(value: str) -> str:
     return value
 
 
-class _DeliveredDriveFile(DriveFileRef):
-    # Native structured output requires every key. Whole-file links carry null.
-    page: PageNumber | None = Field()
-
-
 class Presentation(_StrictModel):
     request_id: CanonicalUuid
-    ref: ViewRef | FilePageRef | FileRef | _DeliveredDriveFile
+    ref: ViewRef | FilePageRef | FileRef | NativeDriveFileRef
 
 
 class TodoResult(_StrictModel):
     todo_id: CanonicalUuid
     request_id: CanonicalUuid
     draft_ref: CanonicalUuid | None
-    file_ref: _DeliveredDriveFile | None
+    file_ref: NativeDriveFileRef | None
 
 
 class _Visible[KindT: str](_StrictModel):

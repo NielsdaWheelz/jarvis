@@ -72,15 +72,19 @@ const conversationRoute = new RegExp("^/(m|t)/(" + uuid + ")$");
 const mailRoute = new RegExp("^/mail/(" + uuid + ")/(revision|draft)/(" + uuid + ")$");
 const artifactRoute = /^\/artifacts\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/([0-9a-f]{40}|[0-9a-f]{64}))?$/;
 function address(path) {
+  if (!path) return null;
   const url = new URL(path, location.origin);
   if (url.origin !== location.origin || url.href.includes("#")) return null;
   if (!url.search && !url.href.endsWith("?")) {
     const pathname = url.pathname;
     if (pathname === "/") return { kind: "home" };
     if (pathname === "/todos") return { kind: "todos" };
-    if (pathname === "/artifacts") return { kind: "artifacts" };
-    const view = artifactRoute.exec(pathname);
-    if (view && view[1].length <= 64) return { kind: "view", slug: view[1], rev: view[2] };
+    const literal = path.startsWith(location.origin) ? path.slice(location.origin.length) : path;
+    if (literal === pathname) {
+      if (pathname === "/artifacts") return { kind: "artifacts" };
+      const view = artifactRoute.exec(pathname);
+      if (view && view[1].length <= 64) return { kind: "view", slug: view[1], rev: view[2] };
+    }
     const chat = conversationRoute.exec(pathname);
     if (chat) return { kind: chat[1] === "m" ? "message" : "todo", id: chat[2] };
     const mail = mailRoute.exec(pathname);
@@ -904,7 +908,7 @@ document.addEventListener("click", (e) => {
     e.button !== 0
   )
     return;
-  if (!address(a.href)) return;
+  if (!address(a.getAttribute("href"))) return;
   e.preventDefault();
   if (a.id === "artifact-return" && history.state.artifactBack) history.back();
   else navigate(a.pathname + a.search, { origin: a, replace: a.hasAttribute("data-file-page") });
@@ -1414,8 +1418,9 @@ async function readTodoPart(row, part, force) {
 }
 
 async function detailRead(ver) {
-  const [, kind, id] = location.pathname.split("/");
-  if (kind === "m") {
+  const route = address(location.href);
+  if (route?.kind === "message") {
+    const { id } = route;
     const m = await read("/api/messages/" + id);
     if (ver !== routeVersion) return;
     if (!m) {

@@ -84,7 +84,7 @@ def _check_target(root: Path, empty: bool) -> dict[str, object]:
     members = 0
     for slug, work in catalog.works.items():
         for edition in work.editions:
-            read_export(root / f"{slug}.{edition.rev}.html")
+            read_export(root / f"{slug}.{edition.rev}.html").decode("utf-8")
             members += 1
     return {"status": "verified", "works": len(catalog.works), "members": members}
 

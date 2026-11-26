@@ -170,9 +170,6 @@ class HomePages:
     def snapshot(self) -> CatalogSnapshot:
         return CatalogSnapshot(read_catalog(self._root))
 
-    def home(self) -> dict[str, str] | None:
-        return self.snapshot().home()
-
     def view(self, slug: str, rev: str | None = None) -> dict[str, str] | None:
         return self.snapshot().view(slug, rev)
 

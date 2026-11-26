@@ -53,7 +53,6 @@ const todoRows = new Map();
 let latest = null,
   earliest = null,
   oldest = null,
-  initialized = false,
   selectedMessage = null;
 const inFlight = new Map();
 const failures = new Map();
@@ -801,7 +800,7 @@ async function messagePage(cursor, ver) {
 }
 
 async function messages(ver) {
-  const initial = !initialized;
+  const initial = latest === null;
   const allPages = initial || reread;
   reread = false;
   const pages = [], scanned = [];
@@ -835,7 +834,13 @@ async function messages(ver) {
     throw error;
   }
 
-  if (initial) pages.splice(Math.min(3, Math.max(1, firstNewPage + 1)));
+  if (initial) {
+    if (!latestId) {
+      visitOpening = false;
+      return;
+    }
+    pages.splice(Math.min(3, Math.max(1, firstNewPage + 1)));
+  }
 
   const rows = pages.toReversed().flatMap((page) => page.items);
   const returning = !isDetail(location.pathname) && chatReturn;
@@ -857,14 +862,13 @@ async function messages(ver) {
       scanned.push(origin);
     } else chatReturn = null;
   }
-  if (initial || !oldest && pages[0].items.length) {
+  if (initial) {
     earliest = pages.at(-1).next_before;
     oldest = pages.at(-1).items[0]?.id;
-    initialized = true;
   }
-  const added = initial ? [] : rows.filter((m) =>
+  const added = initial && visitOpening ? [] : rows.filter((m) =>
     tracked(m) && !$("msg-" + m.id) &&
-    (!latest || instant(m.at) + m.id > $("msg-" + latest)?.dataset.order)).map((m) => m.id);
+    (initial || instant(m.at) + m.id > $("msg-" + latest)?.dataset.order)).map((m) => m.id);
   const before = chat.scrollTop;
   const follow = pinned && !selectedMessage && !isDetail(location.pathname) && !chatReturn;
   const anchor = chatAnchor();
@@ -873,15 +877,16 @@ async function messages(ver) {
   merge(rows);
   restoreChatAnchor(anchor);
   latest = latestId ?? latest;
-  if (visitOpening) {
-    const firstNew = transcript.querySelectorAll("article");
-    const boundary = [...firstNew].find((node) => attention.fresh(node.dataset.messageId));
-    const capped = initial && firstNewPage >= 3;
-    const anchor = chatAnchor();
-    attention.openBoundary(boundary);
-    restoreChatAnchor(anchor);
-    if (placeVisit && !returning && !isDetail(location.pathname))
-      pendingOpening = { node:$("chat-boundary"), capped };
+  if (initial || visitOpening) {
+    const boundary = [...transcript.querySelectorAll("article")].find((node) =>
+      attention.fresh(node.dataset.messageId));
+    if (visitOpening) {
+      const anchor = chatAnchor();
+      attention.openBoundary(boundary);
+      restoreChatAnchor(anchor);
+    }
+    if ((initial || placeVisit) && !returning && !isDetail(location.pathname))
+      pendingOpening = { node:$("chat-boundary") || boundary, capped:initial && firstNewPage >= 3 };
     visitOpening = false;
   }
   const sentArrived = sentPlacement?.request && $("msg-" + sentPlacement.request);

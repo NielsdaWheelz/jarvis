@@ -6,6 +6,7 @@ import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
 import { address } from "./home-address.js";
 import { linkedText, parseMessage, renderMarkdown, showTableControls, updateCitations } from "./chat-reader.js";
 import { bindInspection } from "./inspection.js";
+import { bindPresence } from "./presence.js";
 
 const $ = (id) => document.getElementById(id);
 function creationPath(messageId, created) {
@@ -31,6 +32,23 @@ function label(ref) {
   return kind + (ref.page ? " · page " + ref.page : "");
 }
 const mobile = matchMedia("(max-width:720px)");
+const presence = bindPresence({
+  request,
+  async openOwed(href, control) {
+    if (href) {
+      if (address(href)?.kind === "message") navigate(href);
+      return;
+    }
+    openSidebar(control);
+    await poll("workspace approval", workspaceApproval);
+    if (!$("workspace-approval").hidden) $("workspace-approval").querySelector("button")?.focus();
+  },
+  keepBottom(change) {
+    const pinned = chatPinned() && !selectedMessage;
+    change();
+    if (pinned) $("chat").scrollTop = $("chat").scrollHeight;
+  },
+});
 const draftKey = "jarvis.home.draft";
 let reloadReading = null;
 let chatReturn = null;
@@ -53,6 +71,8 @@ let latest = null,
   earliest = null,
   initialized = false,
   selectedMessage = null;
+let acceptedMessage = null, lastArrivingTerminal = null;
+let previousTerminals = new Set();
 const inFlight = new Map();
 const failures = new Map();
 let loginRequired = false;
@@ -95,7 +115,8 @@ function setPanel() {
   const open = Boolean(history.state?.panel);
   document.body.dataset.panel = open ? "open" : "closed";
   $("sidebar-open").setAttribute("aria-expanded", String(open));
-  $("sidebar-close").hidden = !open || (!mobile.matches && !isDetail(location.pathname));
+  $("chat-bar").hidden = !open || (!mobile.matches && !isDetail(location.pathname));
+  presence.place(open && mobile.matches);
 }
 mobile.addEventListener("change", setPanel);
 function openSidebar(origin) {
@@ -370,9 +391,11 @@ async function request(path, { allowServerError = false, ...options } = {}) {
   if (response.type === "opaqueredirect" || [401, 403].includes(response.status)) {
     if (!loginRequired) {
       loginRequired = true;
+      presence.unauthenticated();
       routeVersion++;
       document.body.classList.add("auth-required");
       armed = null;
+      selectedMessage = null;
       presentations.clear();
       inspection.close();
       files.close();
@@ -391,8 +414,8 @@ async function request(path, { allowServerError = false, ...options } = {}) {
   if (!allowServerError && response.status >= 500) throw new Error("jarvis is offline.");
   return response;
 }
-async function read(path) {
-  const response = await request(path);
+async function read(path, options) {
+  const response = await request(path, options);
   if (response.status === 404) return null;
   if (!response.ok) throw new Error("could not load this item.");
   return response.json();
@@ -427,7 +450,10 @@ function accepted(id, submission) {
   save();
   resetPicker();
   showFiles();
-  $("receipt").textContent = "received";
+  $("receipt").textContent = "";
+  presence.accepted();
+  if ($("msg-" + id)) $("chat").scrollTop = $("chat").scrollHeight;
+  else acceptedMessage = id;
   present();
 }
 async function recover() {
@@ -461,6 +487,7 @@ $("composer").onsubmit = async (e) => {
   const retry = draft.uncertain;
   if (!retry) draft.id = crypto.randomUUID();
   const id = draft.id;
+  let sending;
   try {
     if (retry && (await recover())) return;
     if (new TextEncoder().encode(draft.text).length > 16 * 1024) {
@@ -497,7 +524,8 @@ $("composer").onsubmit = async (e) => {
     draft.uncertain = true;
     save();
     updateComposer();
-    $("receipt").textContent = "sending…";
+    $("receipt").textContent = "";
+    sending = setTimeout(() => { $("receipt").textContent = "sending…"; }, 400);
     const response = await request("/api/messages/" + id, options);
     if (response.ok) accepted((await response.json()).id, id);
     else if (response.status === 409) {
@@ -521,6 +549,7 @@ $("composer").onsubmit = async (e) => {
     $("receipt").textContent = "checking whether your message arrived…";
     failure(error, "receipt");
   } finally {
+    clearTimeout(sending);
     pendingSend = false;
     updateComposer();
     refresh();
@@ -639,10 +668,14 @@ function selectedMessageOffset() {
   const node = $("msg-" + selectedMessage);
   return node.getBoundingClientRect().top - $("chat").getBoundingClientRect().top;
 }
-function merge(items) {
+function chatPinned() {
+  const chat = $("chat");
+  return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48;
+}
+function merge(items, paired, arriving, prior) {
   const chat = $("chat"),
     list = $("messages");
-  const pinned = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48;
+  const pinned = chatPinned();
   const top = chat.getBoundingClientRect().top;
   const anchor =
     !pinned && Array.from(list.children).find((node) => node.getBoundingClientRect().bottom > top);
@@ -692,13 +725,22 @@ function merge(items) {
     }
     list.insertBefore(node, list.children[lo] || null);
   }
-  if (anchor && previousTop !== null) {
+  if (paired) {
+    const terminal = arriving || prior;
+    presence.chatChecked(paired, terminal ? $("msg-" + terminal) : null);
+  }
+  if (acceptedMessage && $("msg-" + acceptedMessage)) {
+    acceptedMessage = null;
+    chat.scrollTop = chat.scrollHeight;
+  } else if (anchor && previousTop !== null) {
     const replacement = document.getElementById(anchor.id);
     if (replacement) chat.scrollTop += replacement.getBoundingClientRect().top - previousTop;
   } else if (pinned && !selectedMessage) chat.scrollTop = chat.scrollHeight;
 }
-async function messages(ver) {
-  let data = await read("/api/messages");
+async function messages(ver, paired) {
+  const historyPage = path => read(path, { signal: AbortSignal.timeout(6000) });
+  let data = await historyPage("/api/messages");
+  const hasHistory = initialized;
   const chunks = [data.items];
   while (
     latest &&
@@ -706,7 +748,7 @@ async function messages(ver) {
     !data.items.some((m) => m.id === latest) &&
     data.next_before
   ) {
-    data = await read("/api/messages?before=" + encodeURIComponent(data.next_before));
+    data = await historyPage("/api/messages?before=" + encodeURIComponent(data.next_before));
     chunks.push(data.items);
   }
   if (ver !== routeVersion) return;
@@ -722,6 +764,10 @@ async function messages(ver) {
     initialized = true;
   }
   const rows = chunks.reverse().flat();
+  const terminals = rows.filter(row => row.source === "native_final" || row.source === "native_failure");
+  const arriving = hasHistory && terminals.findLast(row => !previousTerminals.has(row.id));
+  const observed = new Set(terminals.map(row => row.id));
+  const prior = observed.has(lastArrivingTerminal) ? lastArrivingTerminal : null;
   const returning = !isDetail(location.pathname) && chatReturn;
   if (
     returning && !returning.table && !$("msg-" + returning.messageId) &&
@@ -732,7 +778,11 @@ async function messages(ver) {
     if (origin) rows.unshift(origin);
     else chatReturn = null;
   }
-  merge(rows);
+  merge(rows, paired, arriving?.id, prior);
+  previousTerminals = observed;
+  if (paired) lastArrivingTerminal = paired.you ? arriving?.id || null : null;
+  else if (arriving) lastArrivingTerminal = arriving.id;
+  if (arriving) refreshChat(ver, true);
   if (rows.length) latest = rows.at(-1).id;
   $("older").hidden = !earliest;
   if (openingOffset !== null) {
@@ -932,6 +982,7 @@ function startRoute(previousEntry) {
   chatReturn = saved && saved.fromEntry === previousEntry
     ? { ...saved, focus: document.activeElement } : null;
   $("draft-choice").hidden = true;
+  $("message-unavailable").hidden = true;
   selectedMessage = null;
   document.querySelector(".selected")?.classList.remove("selected");
   if ((detail || todo) && document.activeElement === $("message")) $("message").blur();
@@ -1398,10 +1449,8 @@ async function detailRead(ver) {
     const { id } = route;
     const m = await read("/api/messages/" + id);
     if (ver !== routeVersion) return;
-    if (!m) {
-      $("receipt").textContent = "this message is no longer available.";
-      return;
-    }
+    $("message-unavailable").hidden = Boolean(m);
+    if (!m) return;
     merge([m]);
     if (selectedMessage === id) return;
     selectedMessage = id;
@@ -1452,13 +1501,41 @@ async function poll(part, load) {
     if (inFlight.get(part) === ver) inFlight.delete(part);
   }
 }
+let pendingChat = null, readingChat = false, chatPoll = 0;
+async function refreshChat(ver, fresh) {
+  const pollNumber = ++chatPoll;
+  const paired = await presence.read(fresh);
+  if (pollNumber !== chatPoll || document.hidden || undoingTraversal || loginRequired || ver !== routeVersion)
+    return;
+  pendingChat = { ver, paired };
+  if (readingChat) return;
+  readingChat = true;
+  try {
+    while (pendingChat) {
+      const next = pendingChat;
+      pendingChat = null;
+      if (document.hidden || undoingTraversal || loginRequired || next.ver !== routeVersion) continue;
+      await poll("chat", async current => {
+        try {
+          await messages(current, next.paired);
+        } catch (error) {
+          if (current === routeVersion) presence.chatFailed(next.paired);
+          throw error;
+        }
+      });
+    }
+  } finally {
+    readingChat = false;
+  }
+}
+
 function refresh() {
   if (document.hidden || undoingTraversal || loginRequired) return;
   poll("canvas", canvasRead);
   if (history.state?.canvasSelection === "/todos" && !(mobile.matches && history.state.panel))
     refreshTodoRows(true);
   poll("detail", detailRead);
-  poll("chat", messages);
+  refreshChat(routeVersion);
   if (!$("chat").hidden && (!mobile.matches || history.state?.panel)) {
     poll("workspace approval", workspaceApproval);
   }
@@ -1523,9 +1600,19 @@ window.addEventListener("pagehide", () => {
   rememberReading();
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { armed = null; inspection.close(); }
-  else refresh();
+  if (document.hidden) {
+    armed = null;
+    pendingChat = null;
+    presence.suspend();
+    inspection.close();
+  } else {
+    presence.resume();
+    refresh();
+  }
 });
-window.addEventListener("pageshow", refresh);
+window.addEventListener("pageshow", event => {
+  if (event.persisted) presence.resume();
+  refresh();
+});
 window.addEventListener("online", refresh);
 setInterval(refresh, 3000);

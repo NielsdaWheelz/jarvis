@@ -1,4 +1,4 @@
-# adr 0113 · automatic foreground recovery
+# adr 0114 · automatic foreground recovery
 
 **accepted for implementation · 2026-11-25 pacific.** the selected predecessor
 is `0584972`, schema `0024`. production activation and disposition of historical

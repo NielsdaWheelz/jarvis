@@ -10,7 +10,7 @@ worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
 runtime change, release, deployment or resumption.
 
-[automatic foreground recovery 0113](decisions/0113-automatic-foreground-recovery.md)
+[automatic foreground recovery 0114](decisions/0114-automatic-foreground-recovery.md)
 qualifies journal and admission first, then restricted continuation and the
 combined journey. installed recovery precedes separately authorized historical
 disposition.

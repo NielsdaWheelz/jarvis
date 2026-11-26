@@ -113,7 +113,7 @@ requests retain their original contracts.
 
 ## accepted native recovery and memory availability target
 
-[adr 0113](docs/decisions/0113-automatic-foreground-recovery.md) governs automatic
+[adr 0114](docs/decisions/0114-automatic-foreground-recovery.md) governs automatic
 foreground recovery. capacity waits stay pending. the journal settles original
 effects from evidence and admits independent read-only recovery when an
 ordinary retry lacks authority. only actual unresolved effects, exhausted
@@ -1091,7 +1091,7 @@ waking input gets the one delayed fresh opening specified in adr 0086. another
 loss before its own valid disposition parks it for operator repair. model
 computation may repeat. original actions, paid-read barriers and receipts
 survive every opening. `origin_message_id` is a stable root pointer, not
-sufficient recovery authority. adr 0113 defines eligible automatic
+sufficient recovery authority. adr 0114 defines eligible automatic
 continuations before quarantine and the exact, separately authorized historical
 catch-up. ordinary scans exclude parked inputs.
 
@@ -1933,7 +1933,7 @@ memory transactions are host bookkeeping and do not pass through `llm-tools`.
 
 ### 7.4 Native main and isolated steps
 
-adr 0113 binds restricted recovery to its exact original attempt and input
+adr 0114 binds restricted recovery to its exact original attempt and input
 delivery before native entry. its frozen plan permits only scoped reads and
 product settlement. the effective native policy disables shell, files, browser,
 children and workers. a failure or restart retains the restriction. completed
@@ -2442,7 +2442,7 @@ validation; current request/source/consent fences govern publication separately.
   `native_attempt.recovery_pending`.
 - `processing_parked_at` is nullable `timestamptz` and canonical
   operator-quarantine control. ordinary input scans exclude parked rows until
-  explicit operator repair or an authorized adr 0113 historical disposition
+  explicit operator repair or an authorized adr 0114 historical disposition
   clears them. bounded retry provenance in `trace.native_retry` binds eligible
   continuation to the original journal and current delivery. a diagnostic
   reason alone never grants admission authority.

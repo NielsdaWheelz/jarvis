@@ -1118,7 +1118,7 @@ service stops are independent. select the owning service before stopping it.
 | --- | --- | --- |
 | `memory status` | neither | read-only status |
 | `list-parked` | neither | read-only owner-scope inventory, jarvis with runtime login |
-| `queue-recovery-catchup INVENTORY` | assistant | jarvis with runtime login. queues a named read-only mail report under [adr 0113](decisions/0113-automatic-foreground-recovery.md) |
+| `queue-recovery-catchup INVENTORY` | assistant | jarvis with runtime login. queues a named read-only mail report under [adr 0114](decisions/0114-automatic-foreground-recovery.md) |
 | `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
 | `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
 | schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT --generation 2]` | both, assistant key then memory key | full rebuild uses the migrator and `embedding.env`. node-only rebuild uses the runtime login and compactor, with no embedding credential |
@@ -1199,7 +1199,7 @@ leave the november 24 calendar case under its recorded hold.
 ### automatic foreground recovery
 
 settle predecessor seals, active openings and outstanding retries under their
-original release before an adr 0113 activation. activation rejects retired
+original release before an adr 0114 activation. activation rejects retired
 executable native requests, including sealed requests with unsettled product.
 settled originals remain available through their recorded receipts.
 

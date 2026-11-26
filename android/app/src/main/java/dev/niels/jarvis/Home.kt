@@ -299,6 +299,13 @@ private fun Conversation(
         val path = "/api/messages?before=${Uri.encode(edge)}"
         remember(edge) { ReadState<JSONObject>() }.apply { load(path, reload) { api.read(path) } }
     }
+    val scroll = rememberLazyListState()
+    var pinned by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(scroll) {
+        snapshotFlow { scroll.isScrollInProgress }.drop(1).collect { moving ->
+            pinned = !moving && !scroll.canScrollForward
+        }
+    }
     read.status(signIn, retry = refresh.takeIf { edge == null })
     if (!read.received) return
 
@@ -317,13 +324,6 @@ private fun Conversation(
         MessageEntry(message, navigate, discuss, deliveries[message] ?: message.deliveries(), editions)
         TextButton(onClick = { navigate(Route.Message(message.getString("id"))) }) { Text("open exact message") }
         HorizontalDivider()
-    }
-    val scroll = rememberLazyListState()
-    var pinned by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(scroll) {
-        snapshotFlow { scroll.isScrollInProgress }.drop(1).collect { moving ->
-            pinned = !moving && !scroll.canScrollForward
-        }
     }
     val previous = page?.string("next_before")
     val count = 2 + (if (edge != null) 1 else 0) + (if (previous != null) 1 else 0) +

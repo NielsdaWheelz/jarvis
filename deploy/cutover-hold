@@ -28,8 +28,8 @@ MEMORY = "jarvis-memory.service"
 NATIVE = "jarvis-codex-contained.service"
 NATIVE_HOSTS = (
     NATIVE,
-    "jarvis-codex-contained-work.service",
-    "jarvis-codex-contained-work2.service",
+    "jarvis-codex-contained-neon.service",
+    "jarvis-neon-adapter.service",
 )
 BACKUP = "jarvis-backup.service"
 UNITS = (ASSISTANT, MEMORY, NATIVE, BACKUP)
@@ -434,8 +434,8 @@ def check_held(change):
             require((path / unit).is_file(), f"custody marker missing for {unit}")
             require_stopped(unit, clean=clean)
             if unit == NATIVE:
-                for standby in NATIVE_HOSTS[1:]:
-                    require_stopped(standby, clean=clean)
+                for host in NATIVE_HOSTS[1:]:
+                    require_stopped(host, clean=False)
     return receipt
 
 
@@ -1018,7 +1018,8 @@ def main():
         )
         guard_units([NATIVE])
         publish(path / NATIVE, b"")
-        stop_units(NATIVE_HOSTS, clean=receipt["binding"]["repair_of"] is None)
+        stop_units((NATIVE,), clean=receipt["binding"]["repair_of"] is None)
+        stop_units(NATIVE_HOSTS[1:], clean=False)
     elif command == "start":
         start(args.id)
     elif command == "startup-failed":

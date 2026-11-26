@@ -99,7 +99,15 @@ sudo -n -u jarvis -g codex-clients test ! -w /var/lib/jarvis-notes/.git
 
 pids=()
 users=()
-for ((i=0; i<3; i++)); do
+host_count=${#CODEX_HOST_UNITS[@]}
+if ! systemctl is-active --quiet jarvis-codex-contained-neon.service; then
+  [[ "$(systemctl is-enabled jarvis-codex-contained-neon.service || true)" == disabled ]]
+  ! systemctl is-active --quiet jarvis-neon-adapter.service
+  ! nsenter --target "$app_pid" --mount test -S /run/jarvis-contained-neon/app-server.sock
+  printf 'paid host disabled; verifying personal binding\n'
+  host_count=1
+fi
+for ((i=0; i<host_count; i++)); do
   unit="${CODEX_HOST_UNITS[i]}"
   root="${CODEX_SOCKET_ROOTS[i]}"
   systemctl is-active --quiet "$unit"
@@ -134,8 +142,8 @@ for ((i=0; i<3; i++)); do
   fi
   verify_native_account "$release" "${CODEX_PROFILES[i]}"
 done
-for ((i=0; i<3; i++)); do
-  for ((j=0; j<3; j++)); do
+for ((i=0; i<host_count; i++)); do
+  for ((j=0; j<host_count; j++)); do
     if ((i != j)); then
       if ! nsenter --target "${pids[i]}" --mount runuser -u "${users[i]}" -g codex-clients -- \
           test ! -x "${CODEX_SOCKET_ROOTS[j]}/exec"; then
@@ -147,6 +155,30 @@ for ((i=0; i<3; i++)); do
     fi
   done
 done
+
+if ((host_count == 2)); then
+  adapter=jarvis-neon-adapter.service
+  systemctl is-active --quiet "$adapter"
+  [[ "$(systemctl show -p User --value "$adapter")" == jarvis-neon-adapter ]]
+  [[ "$(systemctl show -p DynamicUser --value "$adapter")" == yes ]]
+  adapter_pid="$(systemctl show -p MainPID --value "$adapter")"
+  adapter_uid="$(ps -o uid= -p "$adapter_pid" | tr -d ' ')"
+  [[ "$adapter_uid" =~ ^[1-9][0-9]*$ && "$adapter_uid" != "$(id -u jarvis)" ]]
+  control=/run/jarvis-neon-adapter/control.sock
+  control_gid="$(getent group jarvis-neon-control | cut -d: -f3)"
+  [[ "$(systemctl show -p Group --value "$adapter")" == jarvis-neon-control ]]
+  [[ "$(stat -c %g "$control")" == "$control_gid" ]]
+  [[ " $(sed -n 's/^Groups:[[:space:]]*//p' "/proc/$app_pid/status") " == *" $control_gid "* ]]
+  nsenter --target "$app_pid" --mount runuser -u jarvis -g jarvis-neon-control -- test -w "$control"
+  for ((i=0; i<${#users[@]}; i++)); do
+    [[ "$adapter_uid" != "$(id -u "${users[i]}")" ]]
+    nsenter --target "${pids[i]}" --mount runuser -u "${users[i]}" -g codex-clients -- \
+      test ! -w "$control"
+    sudo -n -u "${users[i]}" test ! -r /run/credentials/jarvis-neon-adapter.service/gemini-api-key
+  done
+  nsenter --target "${pids[1]}" --mount cmp -s \
+    /etc/jarvis/codex-neon-requirements.toml /etc/codex/requirements.toml
+fi
 
 printf 'jarvis connector-secret, process-inspection and native-host boundary passed.\n'
 REMOTE

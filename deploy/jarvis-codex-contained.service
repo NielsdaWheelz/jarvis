@@ -11,6 +11,7 @@ Type=exec
 User=@HOST_USER@
 Group=codex-clients
 WorkingDirectory=/
+@CREDENTIAL@
 Environment=JARVIS_CODEX_HOST_CONFIG_PATH=@SOCKET_ROOT@/codex-host.json
 ExecStart=@RELEASE@/.venv/bin/python @RELEASE@/deploy/codex-host start @ACCOUNT@
 ExecStartPost=@RELEASE@/.venv/bin/python @RELEASE@/deploy/codex-host publish @ACCOUNT@

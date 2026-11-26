@@ -22,10 +22,22 @@ from provider_runtime.agent_runtime import (
     qualify_codex_containment_host,
 )
 
-from jarvis.codex_config import CodexAccount, CodexHostConfig
+from jarvis.codex_config import (
+    NEON_ADAPTER_USER,
+    NEON_CONTROL_SOCKET,
+    CodexAccount,
+    CodexHostConfig,
+    NeonHost,
+)
+
+type StockHost = CodexAccount | NeonHost
 
 
-def _host_identity(config: CodexHostConfig, account: CodexAccount) -> None:
+def host_home(host: StockHost) -> str:
+    return host.account_home if isinstance(host, CodexAccount) else host.host_home
+
+
+def _host_identity(config: CodexHostConfig, account: StockHost) -> None:
     if (
         os.geteuid() != pwd.getpwnam(account.host_user).pw_uid
         or os.getegid() != grp.getgrnam(config.client_group).gr_gid
@@ -33,9 +45,9 @@ def _host_identity(config: CodexHostConfig, account: CodexAccount) -> None:
         raise RuntimeError("contained host must use its configured host identity/group")
 
 
-def host_environment(account: CodexAccount) -> dict[str, str]:
+def host_environment(account: StockHost) -> dict[str, str]:
     return {
-        "CODEX_HOME": account.account_home,
+        "CODEX_HOME": host_home(account),
         "HOME": pwd.getpwuid(os.geteuid()).pw_dir,
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "LANG": "C.UTF-8",
@@ -153,11 +165,11 @@ def bootstrap_notes(config: CodexHostConfig, account: CodexAccount) -> None:
     config.verify_notes_repository()
 
 
-def private_alias(account: CodexAccount) -> Path:
+def private_alias(account: StockHost) -> Path:
     return account.socket.parent / "exec" / "app-server.sock"
 
 
-def remove_alias(config: CodexHostConfig, account: CodexAccount) -> None:
+def remove_alias(config: CodexHostConfig, account: StockHost) -> None:
     _host_identity(config, account)
     public = account.socket
     for path in (private_alias(account), public):
@@ -185,7 +197,7 @@ def remove_alias(config: CodexHostConfig, account: CodexAccount) -> None:
         path.unlink()
 
 
-def start(config: CodexHostConfig, account: CodexAccount) -> None:
+def start(config: CodexHostConfig, account: StockHost) -> None:
     _host_identity(config, account)
     public = account.socket
     directory = public.parent
@@ -212,8 +224,49 @@ def start(config: CodexHostConfig, account: CodexAccount) -> None:
     execution.chmod(0o700)
     remove_alias(config, account)
     os.close(os.open(public, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0))
-    catalog = materialize_codex_containment_catalog(directory)
     environment = host_environment(account)
+    overrides: list[str] = []
+    if isinstance(account, NeonHost):
+        from provider_runtime.agent_runtime.neon_config import (
+            NEON_STOCK_BEARER_ENV,
+            materialize_neon_catalog,
+            neon_stock_overrides,
+        )
+
+        catalog = materialize_neon_catalog(directory)
+        for setting in neon_stock_overrides(account.adapter_origin):
+            overrides.extend(("-c", setting))
+        key_path = Path(os.environ["CREDENTIALS_DIRECTORY"]) / "neon-stock-bearer"
+        # Exercise the exact installed Linux sandbox before giving stock its bearer.
+        subprocess.run(
+            [
+                config.binary,
+                "sandbox",
+                "-c",
+                'sandbox_mode="workspace-write"',
+                "-c",
+                "sandbox_workspace_write.network_access=true",
+                "--",
+                sys.executable,
+                "-c",
+                (
+                    "import os,sys; "
+                    "fresh = os.path.samefile('/proc/1/ns/pid', '/proc/self/ns/pid'); "
+                    "raise SystemExit(not fresh or os.access(sys.argv[1], os.R_OK))"
+                ),
+                str(key_path),
+            ],
+            cwd=config.notes_repository,
+            env=environment,
+            check=True,
+            timeout=10,
+        )
+        token = key_path.read_text(encoding="ascii").strip()
+        if not re.fullmatch(r"[a-f0-9]{64}", token):
+            raise RuntimeError("invalid stock adapter credential")
+        environment[NEON_STOCK_BEARER_ENV] = f"Bearer {token}"
+    else:
+        catalog = materialize_codex_containment_catalog(directory)
     version = subprocess.run(
         [config.binary, "--version"],
         env=environment,
@@ -244,6 +297,7 @@ def start(config: CodexHostConfig, account: CodexAccount) -> None:
             f"model_catalog_json={json.dumps(str(catalog))}",
             "-c",
             'service_tier="default"',
+            *overrides,
             "app-server",
             "--listen",
             f"unix://{alias}",
@@ -253,7 +307,7 @@ def start(config: CodexHostConfig, account: CodexAccount) -> None:
     )
 
 
-async def publish(config: CodexHostConfig, account: CodexAccount) -> None:
+async def publish(config: CodexHostConfig, account: StockHost) -> None:
     _host_identity(config, account)
     public = account.socket
     alias = private_alias(account)
@@ -290,9 +344,15 @@ async def publish(config: CodexHostConfig, account: CodexAccount) -> None:
             or placeholder.st_size != 0
         ):
             raise RuntimeError("native socket must stay in its private stock directory")
-        await qualify_codex_containment_host(
-            CodexUnixEndpoint(target), required_service_tier="default"
-        )
+        endpoint = CodexUnixEndpoint(target)
+        if isinstance(account, NeonHost):
+            from provider_runtime.agent_runtime.neon_config import qualify_neon_host
+
+            await qualify_neon_host(endpoint, origin=account.adapter_origin)
+        else:
+            await qualify_codex_containment_host(
+                endpoint, required_service_tier="default"
+            )
         current = target.stat()
         if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
             raise RuntimeError("native socket changed during qualification")
@@ -301,7 +361,7 @@ async def publish(config: CodexHostConfig, account: CodexAccount) -> None:
         alias.symlink_to(Path(child.name) / target.name)
 
 
-async def verify(config: CodexHostConfig, account: CodexAccount) -> None:
+async def verify(config: CodexHostConfig, account: StockHost) -> None:
     config.verify_notes_repository()
     alias = account.socket
     directory = alias.parent
@@ -322,11 +382,17 @@ async def verify(config: CodexHostConfig, account: CodexAccount) -> None:
         raise RuntimeError(
             "contained host socket is not published to the configured group"
         )
-    if os.access(Path(account.account_home) / "auth.json", os.R_OK):
+    if os.access(Path(host_home(account)) / "auth.json", os.R_OK):
         raise RuntimeError(
             "application needs socket access without account credentials"
         )
     endpoint = CodexUnixEndpoint(alias)
+    if isinstance(account, NeonHost):
+        from provider_runtime.agent_runtime.neon_config import qualify_neon_host
+
+        await qualify_neon_host(endpoint, origin=account.adapter_origin)
+        print("google_neon: contained host, standard tier; billing unchecked")
+        return
     await qualify_codex_containment_host(endpoint, required_service_tier="default")
     from provider_runtime.agent_runtime import CodexControl, CodexSubject
 
@@ -356,8 +422,8 @@ async def verify(config: CodexHostConfig, account: CodexAccount) -> None:
     print(f"{account.key}: qualified contained host, standard tier, {allowance.state}")
 
 
-def verify_release(account: CodexAccount) -> None:
-    unit_path = account.unit.replace("-", "_2d").replace(".", "_2e")
+def verify_release(route: str) -> None:
+    unit_path = stock_unit(route).replace("-", "_2d").replace(".", "_2e")
     release = Path(__file__).resolve().parent.parent
     response = subprocess.run(
         [
@@ -380,7 +446,7 @@ def verify_release(account: CodexAccount) -> None:
         raise RuntimeError("systemd returned an unsupported ExecStart property")
     data = value["data"]
     executable = str(release / ".venv/bin/python")
-    argv = [executable, str(release / "deploy/codex-host"), "start", account.key]
+    argv = [executable, str(release / "deploy/codex-host"), "start", route]
     if len(data) != 1 or data[0][:2] != [executable, argv]:
         raise RuntimeError("contained host unit does not select this immutable release")
 
@@ -393,7 +459,10 @@ def verify_notes_acl(config: CodexHostConfig) -> None:
         "mask::rwx",
         "other::---",
         f"user:{pwd.getpwnam(config.jarvis_user).pw_uid}:r-x",
-        *(f"user:{pwd.getpwnam(row.host_user).pw_uid}:rwx" for row in config.accounts),
+        *(
+            f"user:{pwd.getpwnam(host.host_user).pw_uid}:rwx"
+            for host in (config.personal, config.google_neon)
+        ),
     }
     for path, directories, _ in notes.walk():
         if path == notes / ".git/jarvis-mail" and "incoming" in directories:
@@ -423,44 +492,50 @@ def verify_notes_acl(config: CodexHostConfig) -> None:
 
 def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
     release = Path(__file__).resolve().parent.parent
-    primary = config.accounts[0]
+    primary = config.personal
     expected_sockets = (
         Path("/run/jarvis-contained/app-server.sock"),
-        Path("/run/jarvis-contained-work/app-server.sock"),
-        Path("/run/jarvis-contained-work2/app-server.sock"),
+        Path("/run/jarvis-contained-neon/app-server.sock"),
     )
     if (
         config.jarvis_user != "jarvis"
         or config.client_group != "codex-clients"
         or primary.host_user != config.development_user
-        or tuple(account.socket for account in config.accounts) != expected_sockets
+        or (primary.socket, config.google_neon.socket) != expected_sockets
         or config.cognition_cwd_parent != "/run/jarvis-codex-cognition"
         or config.notes_repository != "/var/lib/jarvis-notes"
     ):
         raise RuntimeError("contained hosts require the fixed deployment layout")
     uids = {pwd.getpwnam(config.jarvis_user).pw_uid, 0}
-    for account in config.accounts:
+    hosts = (("personal", primary), ("google_neon", config.google_neon))
+    for key, account in hosts:
         if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", account.host_user):
-            raise RuntimeError(f"{account.key}: invalid host user")
+            raise RuntimeError(f"{key}: invalid host user")
         uid = pwd.getpwnam(account.host_user).pw_uid
         if uid in uids:
             raise RuntimeError("services require distinct non-root UIDs")
         uids.add(uid)
-        home = Path(account.account_home)
+        home = Path(host_home(account))
         metadata = home.lstat()
-        auth = (home / "auth.json").lstat()
         if (
             home.resolve(strict=True) != home
             or not stat.S_ISDIR(metadata.st_mode)
             or metadata.st_uid != uid
             or stat.S_IMODE(metadata.st_mode) != 0o700
-            or not stat.S_ISREG(auth.st_mode)
-            or auth.st_uid != uid
-            or stat.S_IMODE(auth.st_mode) != 0o600
         ):
-            raise RuntimeError(
-                f"{account.key}: enrollment must be private and host-owned"
-            )
+            raise RuntimeError(f"{key}: host home must be private and host-owned")
+        auth_path = home / "auth.json"
+        if isinstance(account, NeonHost):
+            if auth_path.exists() or auth_path.is_symlink():
+                raise RuntimeError("paid host cannot contain subscription login state")
+        else:
+            auth = auth_path.lstat()
+            if (
+                not stat.S_ISREG(auth.st_mode)
+                or auth.st_uid != uid
+                or stat.S_IMODE(auth.st_mode) != 0o600
+            ):
+                raise RuntimeError("personal Codex enrollment must be private")
     notes = Path(config.notes_repository)
     if notes.exists() or notes.is_symlink():
         metadata = notes.lstat()
@@ -477,41 +552,61 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
     def quote(value: str | Path) -> str:
         return json.dumps(str(value).replace("%", "%%"), ensure_ascii=False)
 
-    for account in config.accounts:
+    for key, account in hosts:
         directory = account.socket.parent
-        inaccessible = [
-            quote(f"-{account.account_home}/{name}")
-            for name in ("AGENTS.override.md", "AGENTS.md")
-        ]
-        for other in config.accounts:
-            if other != account:
-                inaccessible.append(quote(other.account_home))
-        coupling = (
-            "Wants=" + " ".join(row.unit for row in config.accounts[1:])
-            if account == primary
-            else (
-                f"PartOf={primary.unit}\n"
-                f"ConditionPathExists=!/var/lib/jarvis-cutover/held/{primary.unit}"
-            )
+        home = host_home(account)
+        other_home = (
+            config.google_neon.host_home if account is primary else primary.account_home
         )
+        inaccessible = [
+            quote(f"-{home}/{name}") for name in ("AGENTS.override.md", "AGENTS.md")
+        ]
+        inaccessible.extend(
+            (quote(f"-{other_home}"), quote(f"-{NEON_CONTROL_SOCKET.parent}"))
+        )
+        paid_dependency = (
+            "Requires=jarvis-neon-adapter.service\nAfter=jarvis-neon-adapter.service\n"
+            "ConditionPathExists=!/var/lib/jarvis-cutover/held/"
+            "jarvis-codex-contained.service"
+            if isinstance(account, NeonHost)
+            else ""
+        )
+        credential = ""
+        if isinstance(account, NeonHost):
+            credential = (
+                "LoadCredential=neon-stock-bearer:/etc/jarvis/credentials/neon-stock-bearer\n"
+                "BindReadOnlyPaths=/etc/jarvis/codex-neon-requirements.toml:"
+                "/etc/codex/requirements.toml"
+            )
+            deny = (
+                f"/run/credentials/{stock_unit(key)}",
+                str(directory),
+                str(NEON_CONTROL_SOCKET.parent),
+                f"/tmp/codex-daemon-{pwd.getpwnam(account.host_user).pw_uid}",
+            )
+            (output / "codex-neon-requirements.toml").write_text(
+                'allowed_sandbox_modes = ["read-only", "workspace-write"]\n'
+                "[permissions.filesystem]\n"
+                f"deny_read = {json.dumps(deny)}\n"
+            )
         unit = template
         for marker, value in {
-            "@ACCOUNT@": account.key,
+            "@ACCOUNT@": key,
             "@HOST_USER@": account.host_user,
             "@RELEASE@": str(release),
-            "@ACCOUNT_HOME@": quote(account.account_home),
+            "@ACCOUNT_HOME@": quote(home),
             "@INACCESSIBLE@": " ".join(inaccessible),
-            "@COUPLING@": coupling,
+            "@COUPLING@": paid_dependency,
+            "@CREDENTIAL@": credential,
             "@SOCKET_ROOT@": str(directory),
             "@SOCKET_DIRECTORY@": directory.name,
         }.items():
             unit = unit.replace(marker, value)
-        (output / account.unit).write_text(unit)
+        (output / stock_unit(key)).write_text(unit)
         if account == primary:
             bootstrap = unit
             for source, replacement in (
                 ("Type=exec\n", "Type=oneshot\n"),
-                (coupling + "\n", ""),
                 ("Restart=on-failure\n", "Restart=no\n"),
                 ("TimeoutStartSec=20\n", "TimeoutStartSec=180\n"),
                 (
@@ -536,6 +631,35 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
             )
             (output / "jarvis-notes-bootstrap.service").write_text(bootstrap)
 
+    from provider_runtime.agent_runtime.neon_config import NEON_CATALOG_REVISION
+
+    from jarvis.definitions import load_session_manifest
+
+    manifest = load_session_manifest().google_neon
+    if manifest.catalog_revision != NEON_CATALOG_REVISION:
+        raise RuntimeError("paid catalog differs from the packaged manifest")
+    neon = config.google_neon
+    adapter = (release / "deploy/jarvis-neon-adapter.service").read_text()
+    for marker, value in {
+        "@RELEASE@": str(release),
+        "@ADAPTER_USER@": NEON_ADAPTER_USER,
+        "@CREDENTIAL_NAME@": neon.credential_name,
+        "@PROJECT@": neon.project_id,
+        "@ORIGIN@": neon.adapter_origin,
+        "@CONTROL@": str(NEON_CONTROL_SOCKET),
+        "@MODEL_VERSION@": manifest.model_version,
+    }.items():
+        adapter = adapter.replace(marker, value)
+    (output / "jarvis-neon-adapter.service").write_text(adapter)
+
+
+def stock_unit(key: str) -> str:
+    return (
+        "jarvis-codex-contained.service"
+        if key == "personal"
+        else "jarvis-codex-contained-neon.service"
+    )
+
 
 if __name__ == "__main__":
     if len(sys.argv) not in (2, 3):
@@ -557,7 +681,9 @@ if __name__ == "__main__":
     if command == "render":
         render_units(config, mapping, Path(argument))
         raise SystemExit(0)
-    account = next((row for row in config.accounts if row.key == argument), None)
+    account = {"personal": config.personal, "google_neon": config.google_neon}.get(
+        argument
+    )
     if account is None:
         raise SystemExit("unknown contained Codex account")
     match command:
@@ -566,11 +692,11 @@ if __name__ == "__main__":
         case "publish":
             asyncio.run(publish(config, account))
         case "verify":
-            verify_release(account)
+            verify_release(argument)
             asyncio.run(verify(config, account))
         case "cleanup":
             remove_alias(config, account)
-        case "bootstrap-notes" if account == config.accounts[0]:
+        case "bootstrap-notes" if isinstance(account, CodexAccount):
             bootstrap_notes(config, account)
         case _:
             raise SystemExit("unknown contained Codex host operation")

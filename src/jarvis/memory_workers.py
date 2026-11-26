@@ -60,7 +60,7 @@ from universal_memory.schema import memory_state
 from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.db import message
 from jarvis.definitions import COMPACTION_FIELDS
-from jarvis.kernel import CodexBlocked, CodexStandby, EmptyToolDispatcher
+from jarvis.kernel import DeferredRoute, EmptyToolDispatcher, RouteSelector
 from jarvis.memory_dispatch import MemoryToolDispatcher
 from jarvis.memory_service import MemoryService
 from jarvis.messages import latest_control
@@ -159,11 +159,11 @@ class MemoryWorker:
         owner: JarvisOwner,
         provider: ProviderSessionPort,
         memory: MemoryService,
-        standby: CodexStandby,
+        routes: RouteSelector,
     ) -> None:
         self.definitions, self.plan = definitions, plan
         self.owner, self.provider, self.memory = owner, provider, memory
-        self.standby = standby
+        self.routes = routes
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
         cancellation.cancel()
@@ -182,7 +182,10 @@ class MemoryWorker:
                 return
 
     async def compact_one(
-        self, cancellation: CancellationToken, *, cutoff: int | None = None
+        self,
+        cancellation: CancellationToken,
+        *,
+        cutoff: int | None = None,
     ) -> bool:
         control_sequence = latest_control(self.owner.scope_id).with_only_columns(
             message.c.control_sequence
@@ -196,6 +199,7 @@ class MemoryWorker:
             return False
         prepare_finished = perf_counter()
         free_leaves = sum(copy.count == 1 for copy in batch.copies)
+        copied = bool(batch.copies)
         inferred_leaves = sum(task.count == 1 for task in batch.tasks)
         counts = (
             f"free_leaves={free_leaves} free_parents={len(batch.copies) - free_leaves} "
@@ -232,9 +236,9 @@ class MemoryWorker:
             if not pending:
                 return True
             batch = batch.model_copy(update={"copies": ()})
-        selected = await self.standby.choose_codex("compactor")
-        if isinstance(selected, CodexBlocked):
-            return False
+        selected = await self.routes.choose_route("compactor")
+        if isinstance(selected, DeferredRoute):
+            return copied
         while pending:
             if cancellation.cancelled:
                 return False
@@ -328,10 +332,12 @@ class MemoryWorker:
                 )
                 if cancellation.cancelled or outcome.type is OneShotStopKind.cancelled:
                     return False
-                if (
-                    outcome.type is OneShotStopKind.quota_exhausted
-                    and await self.standby.included_exhausted(selected.profile)
-                ):
+                if outcome.type is OneShotStopKind.quota_exhausted:
+                    self.routes.opening_failed(selected.route)
+                    LOGGER.info(
+                        "compaction deferred: included_exhaustion_confirmed=%s",
+                        await self.routes.included_exhausted(selected.route),
+                    )
                     return False
                 if outcome.type is not OneShotStopKind.protocol_error:
                     break
@@ -468,13 +474,13 @@ class DreamerWorker:
         owner: JarvisOwner,
         provider: ProviderSessionPort,
         memory: MemoryService,
-        standby: CodexStandby,
+        routes: RouteSelector,
         owner_timezone: str,
         nightly_time: time,
     ) -> None:
         self.definition, self.plan = definition, plan
         self.owner, self.provider, self.memory = owner, provider, memory
-        self.standby = standby
+        self.routes = routes
         self.timezone, self.nightly_time = ZoneInfo(owner_timezone), nightly_time
 
     def request_interrupt(self, cancellation: CancellationToken) -> None:
@@ -529,11 +535,9 @@ class DreamerWorker:
         if cancellation.cancelled:
             return None
         seed = await self.memory.library.dream_input(cutoff)
-        selected = None
-        if seed.nodes:
-            selected = await self.standby.choose_codex("dreamer")
-            if isinstance(selected, CodexBlocked):
-                return None
+        selected = await self.routes.choose_route("dreamer")
+        if isinstance(selected, DeferredRoute):
+            return None
         await self.owner.require_current(permit)
         async with self.memory.database.begin() as connection:
             latest = await connection.scalar(control_query)
@@ -547,7 +551,7 @@ class DreamerWorker:
             return DreamerRunCompleted(run_id, (), seed.seed_start, seed.seed_end, 0)
         result, turns = DreamResult(notes=()), 0
         dispatcher = MemoryToolDispatcher(cutoff=cutoff)
-        if selected is not None:
+        if seed.nodes:
             sections = [
                 PromptSection(
                     PromptSectionKind("historical_memory_view"),
@@ -594,7 +598,8 @@ class DreamerWorker:
                     not cancellation.cancelled
                     and outcome.type is OneShotStopKind.quota_exhausted
                 ):
-                    await self.standby.observe(selected.profile)
+                    self.routes.opening_failed(selected.route)
+                    await self.routes.observe_personal()
                 LOGGER.warning(
                     "dream stopped %s",
                     canonical_json_bytes(

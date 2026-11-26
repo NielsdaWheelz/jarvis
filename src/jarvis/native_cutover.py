@@ -21,7 +21,8 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
-from jarvis.messages import causal_component_ids, latest_control
+from jarvis.messages import causal_component_ids, current_native_retry, latest_control
+from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA
 from jarvis.ownership import Database, lock_conversation
 
 
@@ -125,6 +126,42 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
         )
         if revision != APPLICATION_SCHEMA_REVISION:
             raise NativeActivationDefect("target requires its own application schema")
+        old_attempt = await connection.scalar(
+            select(native_attempt.c.id)
+            .where(
+                native_attempt.c.conversation_id == conversation_id,
+                native_attempt.c.request["schema_version"]
+                .as_string()
+                .is_distinct_from(NATIVE_REQUEST_SCHEMA),
+                native_attempt.c.terminal_at.is_(None),
+                native_attempt.c.product_outcome.is_(None),
+                or_(
+                    native_attempt.c.recovery_pending,
+                    native_attempt.c.fenced_at.is_(None),
+                ),
+            )
+            .limit(1)
+        )
+        if old_attempt is not None:
+            raise NativeActivationDefect(
+                "retired native opening requires original-release disposition",
+                old_attempt,
+            )
+        old_retry = await connection.scalar(
+            select(message.c.id)
+            .where(
+                message.c.source_conversation_id == conversation_id,
+                message.c.native_retry_after.is_not(None),
+                message.c.processing_parked_at.is_(None),
+                message.c.request_state.in_(("pending", "waiting")),
+                current_native_retry().is_not(True),
+            )
+            .limit(1)
+        )
+        if old_retry is not None:
+            raise NativeActivationDefect(
+                "retired native retry requires original-release disposition", old_retry
+            )
         legacy = await connection.scalar(
             select(action.c.id)
             .join(message, message.c.id == action.c.origin_message_id)

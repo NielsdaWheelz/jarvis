@@ -366,20 +366,19 @@ class JarvisService:
                 outcome.status,
                 (perf_counter() - foreground_started) * 1000,
             )
-            if outcome.status in {"blocked", "stopped"}:
+            if outcome.status == "stopped":
                 return
-            if outcome.status != "no_work":
+            if outcome.status not in {"no_work", "blocked"}:
                 continue
             if self._work.is_set():
                 return
+            dreamed = False
             if self._dream_due:
-                dream = await self._run_background_once(self._dreamer)
+                dreamed = await self._run_background_once(self._dreamer)
                 self._dream_due = False
-                if dream:
-                    continue
-            if await self._run_background_once(self._background):
-                continue
-            return
+            progressed = dreamed or await self._run_background_once(self._background)
+            if not progressed or outcome.status == "blocked":
+                return
 
     async def _recover_actions(self, *, allow_queued_execution: bool) -> int:
         if self._dispatch_lane.locked():

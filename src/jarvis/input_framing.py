@@ -129,6 +129,10 @@ def host_input(value: StoredMessage) -> HostInput:
             == "codex_quota_before_activity"
         ):
             cause = "codex ran out of usage before doing work on this input."
+        elif isinstance(retry, dict) and cast(dict[str, object], retry).get(
+            "reason"
+        ) in {"neon_prepaid_depleted", "neon_rate_limited"}:
+            cause = "the paid model rejected its first sample before doing work."
         sections.append(
             PromptSection(
                 PromptSectionKind("native_retry"),

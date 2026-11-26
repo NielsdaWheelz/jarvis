@@ -120,7 +120,7 @@ class IsolatedRoleSettings(SharedMemorySettings):
     def _check_retired_profile(source: Mapping[str, str]) -> None:
         if "JARVIS_CODEX_PROFILE_KEY" in source:
             raise ConfigurationError(
-                "remove JARVIS_CODEX_PROFILE_KEY; the host mapping orders the accounts"
+                "remove JARVIS_CODEX_PROFILE_KEY; the release owns route selection"
             )
 
     @classmethod

@@ -1,0 +1,30 @@
+[Unit]
+Description=Jarvis direct Neon inference adapter
+After=network-online.target
+Wants=network-online.target
+PartOf=jarvis-codex-contained-neon.service
+ConditionPathExists=!/var/lib/jarvis-cutover/held/jarvis-codex-contained.service
+
+[Service]
+Type=exec
+DynamicUser=true
+User=@ADAPTER_USER@
+Group=jarvis-neon-control
+RuntimeDirectory=jarvis-neon-adapter
+RuntimeDirectoryMode=0750
+LoadCredential=gemini-api-key:/etc/jarvis/credentials/@CREDENTIAL_NAME@
+LoadCredential=neon-stock-bearer:/etc/jarvis/credentials/neon-stock-bearer
+LoadCredential=neon-continuation-key:/etc/jarvis/credentials/neon-continuation-key
+ExecStart=@RELEASE@/.venv/bin/python -m provider_runtime.agent_runtime.neon_host --origin @ORIGIN@ --control-socket @CONTROL@ --project-id @PROJECT@ --model-version @MODEL_VERSION@
+Restart=on-failure
+RestartSec=5
+UMask=0007
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectProc=invisible
+NoNewPrivileges=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitCORE=0

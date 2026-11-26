@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 from pathlib import Path
 from typing import Literal
@@ -12,8 +13,10 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from jarvis.config import decode_config_json
 
 CODEX_MAX_MESSAGE_BYTES = 65536
-type CodexProfile = Literal["personal", "work", "work2"]
-CODEX_PROFILES = ("personal", "work", "work2")
+type NativeRoute = Literal["personal", "google_neon"]
+NATIVE_ROUTES = ("personal", "google_neon")
+NEON_CONTROL_SOCKET = Path("/run/jarvis-neon-adapter/control.sock")
+NEON_ADAPTER_USER = "jarvis-neon-adapter"
 
 
 def canonical_absolute_path(value: str) -> str:
@@ -34,7 +37,7 @@ class _Closed(BaseModel):
 
 
 class CodexAccount(_Closed):
-    key: CodexProfile
+    key: Literal["personal"]
     account_home: str
     endpoint: str
     host_user: str
@@ -50,67 +53,103 @@ class CodexAccount(_Closed):
     def allow_existing_credits(self) -> bool:
         return self.expected_plan_type in ("plus", "pro", "promax")
 
+
+class NeonHost(_Closed):
+    endpoint: str
+    host_user: str
+    host_home: str
+    adapter_origin: str
+    credential_name: str
+    project_id: str
+
     @property
-    def unit(self) -> str:
-        suffix = "" if self.key == "personal" else f"-{self.key}"
-        return f"jarvis-codex-contained{suffix}.service"
+    def socket(self) -> Path:
+        return Path(self.endpoint[7:])
 
 
 class CodexHostConfig(_Closed):
-    """Read-only non-secret host mapping; never credential or worker state."""
+    """Root-owned mapping of the two contained cognition hosts."""
 
-    schema_version: Literal[6]
+    schema_version: Literal[7]
     development_user: str
     jarvis_user: str
     client_group: str
     binary: str
     cognition_cwd_parent: str
     notes_repository: str
-    accounts: tuple[CodexAccount, CodexAccount, CodexAccount]
+    personal: CodexAccount
+    google_neon: NeonHost
 
     @property
     def endpoints(self) -> dict[str, Path]:
-        return {row.key: row.socket for row in self.accounts}
+        return {
+            "personal": self.personal.socket,
+            "google_neon": self.google_neon.socket,
+        }
 
     @model_validator(mode="after")
-    def _validate_accounts(self) -> CodexHostConfig:
-        if tuple(account.key for account in self.accounts) != CODEX_PROFILES:
-            raise ValueError("expected Codex account order personal, work, work2")
-        shared_paths = (Path(self.notes_repository), Path(self.cognition_cwd_parent))
-        for path in (self.binary, self.notes_repository, self.cognition_cwd_parent):
-            canonical_absolute_path(path)
-        for index, account in enumerate(self.accounts):
-            if not account.endpoint.startswith("unix:///"):
-                raise ValueError("Codex host endpoint must be a Unix socket")
-            canonical_absolute_path(account.endpoint[7:])
-            home = Path(canonical_absolute_path(account.account_home))
-            preceding = self.accounts[:index]
-            preceding_homes = tuple(Path(row.account_home) for row in preceding)
-            for other in (*shared_paths, *preceding_homes):
-                if home.is_relative_to(other) or other.is_relative_to(home):
-                    raise ValueError("Codex home overlaps another home or workspace")
-            identity = (
-                account.expected_user_id,
-                account.expected_account_id,
-                account.expected_plan_type,
-            )
-            if any(
-                not value or not value.isprintable() or any(c.isspace() for c in value)
-                for value in identity
-            ):
-                raise ValueError("invalid opaque Codex enrollment identity")
-        host_users = {account.host_user for account in self.accounts}
-        subjects = {
-            (account.expected_user_id, account.expected_account_id)
-            for account in self.accounts
-        }
-        if (
-            len(set(self.endpoints.values())) != len(self.accounts)
-            or len(host_users) != len(self.accounts)
-            or self.jarvis_user in host_users
-            or len(subjects) != len(self.accounts)
+    def _validate_layout(self) -> CodexHostConfig:
+        personal = self.personal
+        neon = self.google_neon
+        canonical_absolute_path(self.binary)
+        shared_paths = (
+            Path(canonical_absolute_path(self.notes_repository)),
+            Path(canonical_absolute_path(self.cognition_cwd_parent)),
+        )
+        personal_home = Path(canonical_absolute_path(personal.account_home))
+        neon_home = Path(canonical_absolute_path(neon.host_home))
+        for home, others in (
+            (personal_home, (*shared_paths, neon_home)),
+            (neon_home, shared_paths),
         ):
-            raise ValueError("Codex endpoints, hosts and subjects must be distinct")
+            if any(
+                home.is_relative_to(other) or other.is_relative_to(home)
+                for other in others
+            ):
+                raise ValueError("Codex home overlaps another home or workspace")
+        for endpoint in (personal.endpoint, neon.endpoint):
+            if not endpoint.startswith("unix:///"):
+                raise ValueError("Codex host endpoint must be a Unix socket")
+            canonical_absolute_path(endpoint[7:])
+        identity = (
+            personal.expected_user_id,
+            personal.expected_account_id,
+            personal.expected_plan_type,
+        )
+        if any(
+            not value or not value.isprintable() or any(c.isspace() for c in value)
+            for value in identity
+        ):
+            raise ValueError("invalid opaque personal Codex enrollment identity")
+        if (
+            personal.socket == neon.socket
+            or len(
+                {
+                    self.jarvis_user,
+                    personal.host_user,
+                    neon.host_user,
+                    NEON_ADAPTER_USER,
+                }
+            )
+            != 4
+            or any(
+                not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user)
+                for user in (personal.host_user, neon.host_user)
+            )
+        ):
+            raise ValueError("contained host users and endpoints must be distinct")
+        match = re.fullmatch(
+            r"http://127\.0\.0\.1:([1-9][0-9]{0,4})", neon.adapter_origin
+        )
+        if match is None or int(match[1]) > 65535:
+            raise ValueError("Neon adapter requires a loopback port")
+        if neon.credential_name in {
+            "neon-stock-bearer",
+            "neon-continuation-key",
+        } or not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", neon.credential_name):
+            raise ValueError("invalid systemd credential name")
+        if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", neon.project_id):
+            raise ValueError("invalid Google Cloud project id")
         return self
 
     def verify_notes_repository(self) -> None:

@@ -6,6 +6,10 @@ date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
 
+## direct google quota recovery target
+
+[adr 0110](docs/decisions/0110-neon-quota-recovery.md) governs the candidate cut to direct paid gemini for all new main events after confirmed personal included-quota exhaustion. inferred shared summaries and dreaming wait for personal capacity. recovery checks original effects before retry, with a separate one-time release for proven historical quota holds. the installed contract applies until a separately authorized cut.
+
 ## proposed google workspace connector cut
 
 [design 0107](docs/decisions/0107-google-workspace.md) specifies the fixture-first connector pr, including incoming mail, fresh search and reads, draft management and calendar event creation, reading, updating and deletion. gmail marks incoming mail with a dedicated label. jarvis checks its count every five minutes on standard and reserves the last 1,000 daily gmail units for owner requests. [live qualification](docs/issues/gmail-mcp-arrivals.md) covers backlog, missed mail and quota handling. the owner wants ordinary recording of google reads and answers and a separate [permission review](docs/issues/google-workspace-retention.md) before real use. existing installed contracts govern until an authorized cut.
@@ -102,7 +106,9 @@ in sections 7 and 9 and adr 0093. [adr 0109](docs/decisions/0109-existing-codex-
 authorizes existing credits on the enrolled personal accounts after included
 usage is exhausted. the assigned account stays fixed through each native run.
 source and isolated qualification precede a separately authorized installed cut.
-section 7's other authority rules still apply.
+section 7's other authority rules still apply. adr 0110 supersedes the standby
+order and credit-only starts on its candidate. earlier installed and archived
+requests retain their original contracts.
 
 
 ## accepted native recovery and memory availability target

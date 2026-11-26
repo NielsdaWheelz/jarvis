@@ -61,32 +61,113 @@ from pathlib import Path
 
 from jarvis.codex_config import CodexHostConfig
 mapping = CodexHostConfig.load(Path(sys.argv[1]))
-print(mapping.accounts[0].host_user)
+print(mapping.personal.host_user)
 print(mapping.binary)
-for account in mapping.accounts:
-    print(account.host_user)
-    print(account.account_home)
+print(mapping.personal.host_user)
+print(mapping.personal.account_home)
+print(mapping.google_neon.host_user)
+print(mapping.google_neon.host_home)
 PYCODE
 )
-[[ "${#layout[@]}" == 8 ]]
+[[ "${#layout[@]}" == 6 ]]
 host_user="${layout[0]}"
-for ((i=2; i<8; i+=2)); do
+for ((i=2; i<${#layout[@]}; i+=2)); do
   account_user="${layout[i]}"
   account_home="${layout[i+1]}"
-  sudo -n -u "$account_user" test -r "$account_home/auth.json"
+  if ((i == 2)); then
+    sudo -n -u "$account_user" test -r "$account_home/auth.json"
+  else
+    sudo -n test ! -e "$account_home/auth.json"
+  fi
   sudo -n -u jarvis test ! -r "$account_home/auth.json"
-  for ((j=2; j<8; j+=2)); do
+  for ((j=2; j<${#layout[@]}; j+=2)); do
     if ((i != j)); then
       sudo -n -u "${layout[j]}" test ! -x "$account_home"
     fi
   done
 done
 units=()
-for unit in "${CODEX_HOST_UNITS[@]}"; do units+=("$remote/$unit"); done
+sudo -n install -d -o root -g root -m 0700 /etc/jarvis/credentials
+sudo -n "$release/.venv/bin/python" - "$candidate" <<'PYCODE'
+import os
+import secrets
+import stat
+import sys
+from pathlib import Path
+
+from jarvis.codex_config import CodexHostConfig
+
+mapping = CodexHostConfig.load(Path(sys.argv[1]))
+directory = Path("/etc/jarvis/credentials")
+credential = directory / mapping.google_neon.credential_name
+metadata = credential.lstat()
+if (
+    not stat.S_ISREG(metadata.st_mode)
+    or metadata.st_uid != 0
+    or stat.S_IMODE(metadata.st_mode) != 0o600
+):
+    raise SystemExit("Gemini API credential must be a root-owned mode 0600 file")
+for name, content in (
+    ("neon-stock-bearer", secrets.token_hex(32).encode("ascii") + b"\n"),
+    ("neon-continuation-key", secrets.token_bytes(32)),
+):
+    path = directory / name
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        metadata = path.lstat()
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_size != len(content)
+        ):
+            raise SystemExit(f"{name} must be a root-owned mode 0600 credential")
+    else:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+PYCODE
+for unit in "${CODEX_HOST_UNITS[@]}" jarvis-neon-adapter.service; do units+=("$remote/$unit"); done
 sed "s|/opt/jarvis/current|$release|g" "$release/deploy/jarvis.service" >"$remote/jarvis.service"
+getent group jarvis-neon-control >/dev/null || sudo -n groupadd --system jarvis-neon-control
 sudo -n systemd-analyze verify "${units[@]}" "$remote/jarvis.service"
 if [[ "$change" != bootstrap ]]; then
   "$release/deploy/cutover-hold" close-native "$change"
+  # Inspect the retired hosts as inert installation data only.
+  retired_host_data="$("$release/.venv/bin/python" - <<'PYCODE'
+import json
+from pathlib import Path
+
+installed = Path("/etc/jarvis/codex-host.json")
+if installed.is_file():
+    mapping = json.loads(installed.read_bytes())
+    if mapping.get("schema_version") == 6:
+        for account in mapping["accounts"]:
+            if account["key"] != "personal":
+                print(account["host_user"])
+                print(account["account_home"])
+PYCODE
+)"
+  if [[ -n "$retired_host_data" ]]; then
+    mapfile -t retired_homes <<<"$retired_host_data"
+    for ((i=0; i<${#retired_homes[@]}; i+=2)); do
+      [[ "${layout[4]}" != "${retired_homes[i]}" ]]
+      sudo -n -u "${layout[4]}" test ! -x "${retired_homes[i+1]}"
+    done
+  fi
+  if sudo -n grep -q '^JARVIS_CODEX_PROFILE_KEY=' /etc/jarvis/jarvis.env; then
+    printf 'remove the retired JARVIS_CODEX_PROFILE_KEY under stopped custody before publication\n' >&2
+    exit 1
+  fi
+  # Remove only standby service registrations. Keep their homes and credentials.
+  for unit in jarvis-codex-contained-work.service jarvis-codex-contained-work2.service; do
+    if systemctl cat "$unit" >/dev/null 2>&1; then
+      sudo -n systemctl disable --now "$unit"
+      sudo -n rm -f -- "/etc/systemd/system/$unit"
+    fi
+  done
 fi
 if [[ "$change" == bootstrap ]]; then
   # This installer owns only the dedicated production distribution, never an account's CLI.
@@ -169,7 +250,7 @@ notes=/var/lib/jarvis-notes
 incoming="$notes/.git/jarvis-mail/incoming"
 primary_author=
 primary_committer=
-for ((i=2; i<8; i+=2)); do
+for ((i=2; i<${#layout[@]}; i+=2)); do
   account_user="${layout[i]}"
   sudo -n -u "$account_user" -g codex-clients test -w "$incoming"
   sudo -n -u "$account_user" -g codex-clients test -x "$incoming"
@@ -216,10 +297,10 @@ sudo -n env "JARVIS_CODEX_HOST_CONFIG_PATH=$candidate" \
   "$release/.venv/bin/python" "$release/deploy/codex-host" verify-notes-acl
 for directory in "$notes" "$notes/.git" "$notes/.git/objects" "$notes/.git/refs" \
   "$notes/.git/jarvis-pages" "$notes/.git/jarvis-mail"; do
-  for ((i=2; i<8; i+=2)); do
+  for ((i=2; i<${#layout[@]}; i+=2)); do
     probe_file="$directory/.jarvis-native-acl-$(cat /proc/sys/kernel/random/uuid)"
     sudo -n -u "${layout[i]}" -g codex-clients bash -c 'umask 077; set -C; : > "$1"' acl-probe "$probe_file"
-    for ((j=2; j<8; j+=2)); do
+    for ((j=2; j<${#layout[@]}; j+=2)); do
       if ! sudo -n -u "${layout[j]}" -g codex-clients test -r "$probe_file" ||
           ! sudo -n -u "${layout[j]}" -g codex-clients test -w "$probe_file"; then
         printf 'a new notes file lacks the inherited native writer ACL\n' >&2
@@ -238,52 +319,37 @@ done
 
 # Only the existing named hold (or virgin bootstrap) may publish a mapping and
 # its complete set of units. A retry republishes the same staged bytes.
-if [[ "$change" != bootstrap ]]; then
-  "$release/.venv/bin/python" - <<'PYCODE'
-import os
-import stat
-import tempfile
-from pathlib import Path
-
-path = Path("/etc/jarvis/jarvis.env")
-metadata = path.lstat()
-if (
-    not stat.S_ISREG(metadata.st_mode)
-    or metadata.st_uid != 0
-    or metadata.st_gid != 0
-    or stat.S_IMODE(metadata.st_mode) != 0o600
-):
-    raise SystemExit("native environment requires its root-owned private file")
-previous = path.read_bytes()
-current = b"".join(
-    line for line in previous.splitlines(keepends=True)
-    if line.partition(b"=")[0] != b"JARVIS_CODEX_PROFILE_KEY"
-)
-if current != previous:
-    with tempfile.TemporaryDirectory(prefix=".native-cut-", dir=path.parent) as tmp:
-        replacement = Path(tmp) / path.name
-        with replacement.open("xb") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            stream.write(current)
-            stream.flush()
-            os.fsync(stream.fileno())
-        replacement.replace(path)
-PYCODE
+paid_unit=jarvis-codex-contained-neon.service
+paid_disabled=false
+if [[ "$(systemctl is-enabled "$paid_unit" 2>/dev/null || true)" == disabled ]]; then
+  paid_disabled=true
 fi
+sudo -n install -m 0644 -o root -g root "$remote/codex-neon-requirements.toml" \
+  /etc/jarvis/codex-neon-requirements.toml
 sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json
-for unit in "${CODEX_HOST_UNITS[@]}"; do
+for unit in "${CODEX_HOST_UNITS[@]}" jarvis-neon-adapter.service; do
   sudo -n install -m 0644 -o root -g root "$remote/$unit" "/etc/systemd/system/$unit"
 done
 sync -f /etc/jarvis /etc/systemd/system
 sudo -n systemctl daemon-reload
-if [[ "$change" == bootstrap ]]; then
-  sudo -n systemctl enable jarvis-codex-contained.service
-else
+sudo -n systemctl enable jarvis-codex-contained.service
+if [[ "$change" != bootstrap ]]; then
   "$release/deploy/cutover-hold" open-native "$change"
 fi
-sudo -n systemctl start "${CODEX_HOST_UNITS[@]}"
-for ((i=0; i<3; i++)); do
-  systemctl is-active --quiet "${CODEX_HOST_UNITS[i]}"
-  verify_native_account "$release" "${CODEX_PROFILES[i]}"
-done
-printf 'contained accounts qualified for %s; jarvis remains stopped\n' "$commit"
+sudo -n systemctl start jarvis-codex-contained.service
+verify_native_account "$release" personal
+if [[ "$paid_disabled" == false ]]; then
+  if sudo -n systemctl enable "$paid_unit" &&
+     sudo -n systemctl start "$paid_unit" &&
+     systemctl is-active --quiet jarvis-neon-adapter.service &&
+     verify_native_account "$release" google_neon; then
+    printf 'paid native binding verified; billing is checked separately\n'
+  else
+    sudo -n systemctl disable --now "$paid_unit"
+    sudo -n systemctl stop jarvis-neon-adapter.service
+    printf 'paid binding unavailable and disabled; personal qualified\n' >&2
+  fi
+else
+  printf 'paid binding remains disabled; personal qualified\n'
+fi
+printf 'contained binding installation completed for %s; jarvis remains stopped\n' "$commit"

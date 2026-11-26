@@ -1,10 +1,22 @@
 {
-  "application_session_contract_revision": "jarvis-google-workspace-v1",
+  "application_session_contract_revision": "jarvis-neon-quota-recovery-v1",
   "dependencies": {
-    "llm-agent-kernel": "4115afaf8bbc6c99bf9701c21b2f8482dc138e42",
+    "llm-agent-kernel": "0865b8ff5ad7b257c474ff8da542ffcc9645e397",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "5acc2c2e483368f3bc9dad224a141855c4e94415",
+    "provider-runtime": "7c01859e5836ea9cd548730b5273cc62341005ff",
     "universal-memory": "6cfdf262e3c342ae4701b0587bf7994c03437459"
+  },
+  "google_neon": {
+    "catalog_revision": "codex-neon.v1:94da7afcedb26d39312ea45691e2e5c91adc619bedc3ac6d4d0831eb92fb739d",
+    "child_efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ],
+    "effort": "high",
+    "model": "gemini-4-neon",
+    "model_version": "gemini-4-neon"
   },
   "roles": {
     "compactor": {
@@ -23,5 +35,5 @@
       "revision": "jarvis-main-google-workspace-v27"
     }
   },
-  "schema_version": "jarvis-session-compatibility.v4"
+  "schema_version": "jarvis-session-compatibility.v5"
 }

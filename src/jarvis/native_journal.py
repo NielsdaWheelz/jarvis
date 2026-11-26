@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID, uuid4, uuid5
 from zoneinfo import ZoneInfo
 
@@ -54,6 +54,7 @@ from provider_runtime.agent_runtime import (
     AgentTerminal,
     AgentTerminalFailure,
     AgentTurnRef,
+    FrozenJsonDict,
     JsonObject,
     JsonSchemaAgentOutput,
     NativeTerminalEvidence,
@@ -63,6 +64,7 @@ from provider_runtime.agent_runtime import (
     terminal_to_json,
     thaw_json_value,
 )
+from provider_runtime.agent_runtime.neon_control import NeonControlError
 from pydantic import ValidationError
 from sqlalchemy import ColumnElement, RowMapping, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -83,6 +85,7 @@ from jarvis.approval_tools import (
     ApprovalRespondInput,
     ApprovalRespondResult,
 )
+from jarvis.codex_config import NATIVE_ROUTES
 from jarvis.db import (
     action,
     message,
@@ -101,10 +104,21 @@ from jarvis.messages import (
     MAX_TRACE_BYTES,
     cancel_unentered_actions,
     causal_component_ids,
+    current_native_retry,
+    native_retry_pin,
 )
 from jarvis.native_failure_notice import record_parking_notice
-from jarvis.native_protocol import JarvisNativeMessage, JarvisTerminal
-from jarvis.ownership import Database, lock_conversation, memory_is_admitted
+from jarvis.native_protocol import (
+    NATIVE_REQUEST_SCHEMA,
+    JarvisNativeMessage,
+    JarvisTerminal,
+)
+from jarvis.ownership import (
+    Database,
+    DeploymentOwnershipDefect,
+    lock_conversation,
+    memory_is_admitted,
+)
 from jarvis.terminal import (
     Answered,
     Partial,
@@ -120,7 +134,20 @@ from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_host import WorkspaceHost, check_observations, is_workspace_wake
 from jarvis.write_tools import WRITE_TOOL_IDS
 
+if TYPE_CHECKING:
+    from provider_runtime.agent_runtime.neon_control import (
+        NeonChildFacts,
+        NeonControl,
+        NeonFirstSampleRefusal,
+        NeonLease,
+    )
+
 LOGGER = logging.getLogger(__name__)
+NEON_REFILL_INTERVAL = timedelta(seconds=60)
+_ACTIVE_REQUEST = native_attempt.c.request["schema_version"].as_string() == (
+    NATIVE_REQUEST_SCHEMA
+)
+_ACTIVE_ROUTE = case((_ACTIVE_REQUEST, native_attempt.c.request["route"].as_string()))
 
 
 def _contains_nul(value: object) -> bool:
@@ -201,6 +228,10 @@ class ProductSettlement:
     workspace_match: WorkspaceOccurrence | None = None
 
 
+class NeonOpeningUnavailable(NativeDefect):
+    """The host could not arm the tree before preparing a stock request."""
+
+
 class NativeContentDefect(NativeDefect):
     """A well-formed final response contradicts its delivered inputs or actions."""
 
@@ -225,6 +256,7 @@ async def recover_sealed_turn(
                         ),
                         native_attempt.c.request["output"].label("output"),
                         native_attempt.c.request["input_ids"].label("input_ids"),
+                        native_attempt.c.request["route"].as_string().label("route"),
                         native_attempt.c.request["account_profile"]
                         .as_string()
                         .label("account_profile"),
@@ -250,13 +282,24 @@ async def recover_sealed_turn(
         or prepared.attempt_id != attempt_id
     ):
         raise NativeDefect("product recovery requires original sealed native evidence")
-    initial_delivery_proven = row["request_schema"] == "jarvis-native-request.v3"
+    schema = row["request_schema"]
+    if schema not in {
+        "jarvis-native-request.v2",
+        "jarvis-native-request.v3",
+        NATIVE_REQUEST_SCHEMA,
+    }:
+        raise NativeDefect("unknown sealed native request schema")
+    initial_delivery_proven = schema != "jarvis-native-request.v2"
     if initial_delivery_proven:
         binding = row["native_binding"]
         ref = terminal.evidence.native_ref
+        route = (
+            row["route"] if schema == NATIVE_REQUEST_SCHEMA else row["account_profile"]
+        )
         if (
-            not isinstance(ref, AgentTurnRef)
-            or ref.session_ref.profile_key != row["account_profile"]
+            (schema == NATIVE_REQUEST_SCHEMA and route not in NATIVE_ROUTES)
+            or not isinstance(ref, AgentTurnRef)
+            or ref.session_ref.profile_key != route
             or binding is None
             or binding != _turn_binding(ref)
         ):
@@ -282,11 +325,9 @@ def _turn_binding(turn: AgentTurnRef) -> dict[str, object]:
     }
 
 
-def _account_request_fingerprint(request: NativeRequest, profile: str) -> str:
+def _route_request_fingerprint(request: NativeRequest, route: str) -> str:
     return sha256(
-        canonical_json_bytes(
-            {"request": request.fingerprint, "account_profile": profile}
-        )
+        canonical_json_bytes({"request": request.fingerprint, "route": route})
     ).hexdigest()
 
 
@@ -299,12 +340,15 @@ class PostgresNativeJournal:
         plan: FrozenToolPlan,
         owner: JarvisOwner,
         memory: MemoryService,
+        neon_control: NeonControl | None = None,
     ) -> None:
         self.database = database
         self.definition = definition
         self.plan = plan
         self.owner = owner
         self.memory = memory
+        self.neon_control = neon_control
+        self.neon_lease: NeonLease | None = None
 
     async def recover(self, attempt_id: str) -> NativeRecovery | None:
         async with self.database.connect() as connection:
@@ -339,8 +383,9 @@ class PostgresNativeJournal:
     def restore_request(self, row: RowMapping) -> NativeRequest:
         value = row["request"]
         if (
-            value.get("schema_version") != "jarvis-native-request.v3"
-            or value.get("account_profile") != self.definition.provider.auth.profile_key
+            value.get("schema_version") != NATIVE_REQUEST_SCHEMA
+            or value.get("route") != self.definition.provider.auth.profile_key
+            or value["route"] not in NATIVE_ROUTES
             or value["definition_fingerprint"]
             != self.definition.session_fingerprint(self.plan)
             or value["plan_revision"] != self.plan.plan_revision
@@ -365,7 +410,7 @@ class PostgresNativeJournal:
             else Checkpoint(value["through_checkpoint"]),
         )
         if (
-            _account_request_fingerprint(request, value["account_profile"])
+            _route_request_fingerprint(request, value["route"])
             != row["request_fingerprint"]
         ):
             raise NativeDefect("native recovery request bytes changed")
@@ -386,10 +431,12 @@ class PostgresNativeJournal:
             raise NativeDefect(
                 "Jarvis main requires an original structured output contract"
             )
-        profile = self.definition.provider.auth.profile_key
+        route = self.definition.provider.auth.profile_key
+        if route not in NATIVE_ROUTES:
+            raise NativeDefect("native request has an unknown route")
         document: dict[str, Any] = {
-            "schema_version": "jarvis-native-request.v3",
-            "account_profile": profile,
+            "schema_version": NATIVE_REQUEST_SCHEMA,
+            "route": route,
             "output": {
                 "name": self.definition.output.name,
                 "schema": thaw_json_value(self.definition.output.schema),
@@ -411,6 +458,28 @@ class PostgresNativeJournal:
             "through_checkpoint": request.through_checkpoint,
         }
         canonical_json_bytes(document)
+        if route == "google_neon":
+            params = submitted_request.get("params")
+            root = (
+                params.get("threadId") if isinstance(params, FrozenJsonDict) else None
+            )
+            if self.neon_control is None or not isinstance(root, str) or not root:
+                raise NativeDefect("paid native request lacks its control lease")
+            try:
+                self.neon_lease = await self.neon_control.arm(
+                    attempt_id=request.attempt_id,
+                    owner_epoch=str(request.permit.owner_token),
+                    root_thread_id=root,
+                    generation=request.attempt_id,
+                    on_delivery=lambda turn_id: self._record_neon_delivery(
+                        request, turn_id
+                    ),
+                    on_child=lambda child: self._record_neon_child(request, child),
+                )
+            except (OSError, NeonControlError) as error:
+                raise NeonOpeningUnavailable(
+                    "paid native control unavailable"
+                ) from error
         async with self.database.begin() as connection:
             await lock_conversation(connection, request.permit.scope_id)
             admitted = (
@@ -427,18 +496,8 @@ class PostgresNativeJournal:
                         | (message.c.native_retry_after <= func.now()),
                         message.c.native_retry_after.is_(None)
                         | (
-                            message.c.trace.has_key("native_retry")
-                            & (
-                                message.c.trace["native_retry"]["profile"]
-                                .as_string()
-                                .is_(None)
-                                | (
-                                    message.c.trace["native_retry"][
-                                        "profile"
-                                    ].as_string()
-                                    == profile
-                                )
-                            )
+                            current_native_retry()
+                            & (native_retry_pin.is_(None) | (native_retry_pin == route))
                         ),
                     )
                     .order_by(message.c.id)
@@ -484,12 +543,89 @@ class PostgresNativeJournal:
                     stock_observations_pending=(
                         memory_is_admitted(connection) and self.memory.jarvis_admitted
                     ),
-                    request_fingerprint=_account_request_fingerprint(request, profile),
+                    request_fingerprint=_route_request_fingerprint(request, route),
                     request=document,
                     armed_at=datetime.now(UTC),
                     recovery_pending=True,
                 )
             )
+
+    async def close_neon(self, attempt_id: str) -> NeonFirstSampleRefusal | None:
+        lease, self.neon_lease = self.neon_lease, None
+        if lease is None:
+            return None
+        try:
+            await lease.close()
+        except DeploymentOwnershipDefect:
+            raise
+        except Exception as error:
+            LOGGER.warning(
+                "paid control ended without proof: attempt=%s type=%s",
+                attempt_id,
+                type(error).__name__,
+            )
+            return None
+        return lease.first_sample_refusal
+
+    async def _record_neon_child(
+        self, request: NativeRequest, child: NeonChildFacts
+    ) -> None:
+        await self.owner.require_current(request.permit)
+        async with self.database.begin() as connection:
+            row = await _locked_attempt(
+                connection,
+                self.owner,
+                request.attempt_id,
+                native_attempt.c.local_outcome,
+            )
+            local: dict[str, Any] = row["local_outcome"]
+            if not local or local.get("neon_may_have_delivered") is None:
+                raise NativeDefect("paid child preceded the durable delivery boundary")
+            children: dict[str, object] = local.get("neon_children", {})
+            facts = {
+                "parent_thread_id": child.parent_thread_id,
+                "requested_model": self.definition.provider.model_key,
+                "model_version": child.model_version,
+                "effort": child.effort,
+            }
+            previous = children.get(child.thread_id)
+            if previous == facts:
+                return
+            if previous is not None:
+                raise NativeDefect("paid child changed its observed provider facts")
+            await connection.execute(
+                update(native_attempt)
+                .where(native_attempt.c.id == row["id"])
+                .values(
+                    local_outcome={
+                        **local,
+                        "neon_children": {**children, child.thread_id: facts},
+                    }
+                )
+            )
+
+    async def _record_neon_delivery(self, request: NativeRequest, turn_id: str) -> None:
+        await self.owner.require_current(request.permit)
+        async with self.database.begin() as connection:
+            row = await _locked_attempt(
+                connection,
+                self.owner,
+                request.attempt_id,
+                native_attempt.c.local_outcome,
+            )
+            local: dict[str, Any] = row["local_outcome"] or {
+                "terminal": None,
+                "control_receipts": {},
+                "fence_reason": None,
+            }
+            if local.get("neon_refusal") is not None:
+                raise NativeDefect("paid delivery follows a recorded refusal")
+            if local.get("neon_may_have_delivered") is None:
+                await connection.execute(
+                    update(native_attempt)
+                    .where(native_attempt.c.id == row["id"])
+                    .values(local_outcome={**local, "neon_may_have_delivered": turn_id})
+                )
 
     async def bind(self, attempt_id: str, native_turn: AgentTurnRef) -> None:
         if (
@@ -2206,9 +2342,7 @@ async def _product_inputs(
                     native_attempt.c.recovery_pending,
                     native_attempt.c.owner_epoch,
                     native_attempt.c.product_outcome.is_not(None).label("settled"),
-                    native_attempt.c.request["account_profile"]
-                    .as_string()
-                    .label("account_profile"),
+                    _ACTIVE_ROUTE.label("route"),
                     native_attempt.c.request["control_sequence"]
                     .as_integer()
                     .label("control_sequence"),
@@ -2295,20 +2429,24 @@ async def _fail_inputs(
     reason: str,
     *,
     attempt_id: str | None,
-    account_profile: str | None = None,
+    route: str | None = None,
 ) -> None:
     """A waking input shares one fresh opening across contact and context failures."""
     retry: set[UUID] = set()
-    if reason in {
-        "lost_contact",
-        "context_window_exceeded",
-        "codex_quota_before_activity",
-    }:
-        if attempt_id is None or account_profile is None:
+    if reason in {"context_window_exceeded", "codex_quota_before_activity"}:
+        if attempt_id is None or route not in NATIVE_ROUTES:
             reason = "retired_native_retry"
         else:
             retry = {
-                key for key, row in inputs.items() if row["native_retry_after"] is None
+                key
+                for key, row in inputs.items()
+                if row["native_retry_after"] is None
+                or (
+                    (retry_evidence := row["trace"].get("native_retry"))
+                    and retry_evidence.get("reason")
+                    in {"neon_prepaid_depleted", "neon_rate_limited"}
+                    and retry_evidence.get("fault_retry_used") is False
+                )
             }
     parked = {key: row for key, row in inputs.items() if key not in retry}
     if retry:
@@ -2316,9 +2454,10 @@ async def _fail_inputs(
             {
                 "native_retry": {
                     "attempt_id": attempt_id,
-                    "profile": None
-                    if reason == "codex_quota_before_activity"
-                    else account_profile,
+                    "route": route,
+                    "selection": (
+                        "fresh" if reason == "codex_quota_before_activity" else "pinned"
+                    ),
                     "reason": reason,
                 }
             }
@@ -2336,12 +2475,6 @@ async def _fail_inputs(
     for identifier, row in parked.items():
         if reason == "context_window_exceeded":
             failure = "the model reached its context limit while retrying"
-        elif reason == "lost_contact":
-            failure = (
-                "i lost contact with the model while retrying"
-                if row["trace"].get("native_context_retry") is True
-                else "i lost contact with the model twice"
-            )
         else:
             failure = reason
         trace = {**row["trace"], "failure_code": failure}
@@ -2369,40 +2502,127 @@ async def _fail_inputs(
     )
 
 
-async def park_quota_pinned_retry(
-    owner: JarvisOwner, attempt_id: str, profile: str
-) -> bool:
-    """Quarantine outstanding inputs whose possible effects pin recovery."""
+async def defer_first_sample_refusal(
+    owner: JarvisOwner, attempt_id: str, refusal: NeonFirstSampleRefusal
+) -> ProductSettlement | None:
+    """Atomically retain a fenced adapter refusal and its pending input disposition."""
     await owner.require_current(owner.permit("jarvis-product:" + attempt_id))
+    identifier = UUID(attempt_id)
     async with owner.database.begin() as connection:
-        attempt, inputs = await _product_inputs(
+        row = await _locked_attempt(
+            connection,
+            owner,
+            attempt_id,
+            _ACTIVE_ROUTE.label("route"),
+            native_attempt.c.local_outcome,
+            native_attempt.c.native_binding,
+            native_attempt.c.request["submitted_request"]["params"]["threadId"]
+            .as_string()
+            .label("root"),
+            native_attempt.c.submission_evidence["type"]
+            .as_string()
+            .label("submission"),
+            native_attempt.c.terminal["status"].as_string().label("terminal_status"),
+            live=False,
+        )
+        local: dict[str, Any] = row["local_outcome"] or {}
+        binding: dict[str, Any] = row["native_binding"] or {}
+        if (
+            row["route"] != "google_neon"
+            or row["owner_epoch"] != str(owner.token)
+            or row["settled"]
+            or row["fenced_at"] is None
+            or row["submission"] != "AgentAccepted"
+            or row["terminal_status"] == "succeeded"
+            or binding.get("native_turn_id") != refusal.turn_id
+            or binding.get("session_ref", {}).get("native_session_id") != row["root"]
+            or local.get("neon_may_have_delivered") is not None
+            or local.get("neon_refusal") is not None
+            or local.get("fence_reason") in {"owner_stop", "cancelled"}
+            or await connection.scalar(
+                select(native_invocation.c.id)
+                .where(native_invocation.c.attempt_id == identifier)
+                .limit(1)
+            )
+            or await connection.scalar(
+                select(native_input_delivery.c.attempt_id)
+                .where(
+                    native_input_delivery.c.attempt_id == identifier,
+                    native_input_delivery.c.mode == "steer",
+                    native_input_delivery.c.state != "rejected",
+                )
+                .limit(1)
+            )
+        ):
+            return None
+        _, inputs = await _product_inputs(
             connection,
             owner,
             attempt_id,
             delivery=(
                 native_input_delivery.c.was_waking
+                & (native_input_delivery.c.mode == "initial")
                 & (native_input_delivery.c.state != "rejected")
             ),
         )
-        if attempt is None or attempt["account_profile"] != profile:
-            raise NativeDefect("quota-blocked retry changed its original account")
-        parked = {
-            key: row
-            for key, row in inputs.items()
-            if row["native_retry_after"] is not None
-            and row["native_retry_after"] <= datetime.now(UTC)
-            and isinstance(row["trace"].get("native_retry"), dict)
-            and row["trace"]["native_retry"].get("attempt_id") == attempt_id
-            and row["trace"]["native_retry"].get("profile") == profile
+        observed = datetime.now(UTC)
+        reason = "neon_" + refusal.reason
+        for input_id, item in inputs.items():
+            trace = dict(item["trace"])
+            previous = trace.get("native_retry")
+            old = (
+                cast(dict[str, object], previous) if isinstance(previous, dict) else {}
+            )
+            pinned = (
+                old.get("selection") == "pinned" and old.get("route") == "google_neon"
+            )
+            trace["native_retry"] = {
+                "attempt_id": attempt_id,
+                "route": "google_neon",
+                "selection": "pinned" if pinned else "fresh",
+                "reason": reason,
+                "fault_retry_used": item["native_retry_after"] is not None
+                and (
+                    old.get("reason")
+                    not in {"neon_prepaid_depleted", "neon_rate_limited"}
+                    or old.get("fault_retry_used") is True
+                ),
+            }
+            await connection.execute(
+                update(message)
+                .where(message.c.id == input_id)
+                .values(native_retry_after=observed, trace=trace)
+            )
+        outcome: dict[str, Any] = {
+            "local_outcome": {
+                **local,
+                "neon_refusal": asdict(refusal),
+                "neon_capacity": {
+                    "status": refusal.reason,
+                    "requires_billing_probe": refusal.reason == "prepaid_depleted",
+                    "check_after": (
+                        observed
+                        + max(
+                            NEON_REFILL_INTERVAL,
+                            timedelta(seconds=refusal.retry_after or 0),
+                        )
+                    ).isoformat(),
+                },
+            },
+            "recovery_pending": False,
         }
-        await _fail_inputs(
-            connection,
-            owner,
-            parked,
-            "codex_quota_uncertain_effects",
-            attempt_id=attempt_id,
+        if row["terminal_at"] is not None:
+            outcome["product_outcome"] = {
+                "status": "failed" if inputs else "stale",
+                "reason": reason,
+            }
+        await connection.execute(
+            update(native_attempt)
+            .where(native_attempt.c.id == identifier)
+            .values(**outcome)
         )
-        return bool(parked)
+        # A capacity wait is not foreground progress. Let the normal wake recheck.
+        return ProductSettlement("failed" if row["terminal_at"] is not None else None)
 
 
 async def park_oversized_input(
@@ -2445,9 +2665,9 @@ native_loss_product = case(
     ),
     else_=_fence_reason.in_(("native_protocol_fault", "NativeSubmissionConflict")),
 )
-never_submitted_v3 = (
-    native_attempt.c.request["schema_version"].as_string() == "jarvis-native-request.v3"
-) & (native_attempt.c.submission_evidence["type"].as_string() == "AgentNotSubmitted")
+never_submitted = _ACTIVE_REQUEST & (
+    native_attempt.c.submission_evidence["type"].as_string() == "AgentNotSubmitted"
+)
 
 
 async def consume_fenced_losses(
@@ -2461,7 +2681,7 @@ async def consume_fenced_losses(
     changed = False
     work = native_attempt.c.recovery_pending & native_attempt.c.terminal_at.is_(None)
     if confirmed_unsubmitted_quota is None:
-        work &= ~func.coalesce(never_submitted_v3, False)
+        work &= ~func.coalesce(never_submitted, False)
     if attempt_id is not None:
         work = (native_attempt.c.id == attempt_id) & (
             work
@@ -2482,9 +2702,7 @@ async def consume_fenced_losses(
                             native_attempt.c.submission_evidence,
                             native_attempt.c.terminal_at,
                             native_attempt.c.recovery_pending,
-                            native_attempt.c.request["account_profile"]
-                            .as_string()
-                            .label("account_profile"),
+                            _ACTIVE_ROUTE.label("route"),
                             native_attempt.c.local_outcome["control_receipts"].label(
                                 "controls"
                             ),
@@ -2563,14 +2781,14 @@ async def consume_fenced_losses(
                         else "the model request was not submitted"
                     )
                 else:
-                    reason = "lost_contact"
+                    reason = "native_effects_uncertain"
                 await _fail_inputs(
                     connection,
                     owner,
                     inputs,
                     reason,
                     attempt_id=identifier,
-                    account_profile=pending["account_profile"],
+                    route=pending["route"],
                 )
                 changed |= affected
             changes: dict[str, Any] = {"recovery_pending": False}
@@ -2634,7 +2852,7 @@ async def fail_native_product(
             attempt is None or attempt["terminal_at"] is None
         ):
             raise NativeDefect("provider failure settlement requires its original seal")
-        account_profile = None if attempt is None else attempt["account_profile"]
+        route = None if attempt is None else attempt["route"]
         already_charged = (
             not isinstance(failure, str)
             and attempt is not None
@@ -2652,7 +2870,7 @@ async def fail_native_product(
                     or row["trace"]["native_retry"].get("attempt_id") == attempt_id
                 )
             }
-            if inputs and (quota or account_profile is None):
+            if inputs and (quota or route is None):
                 await _fail_inputs(
                     connection, owner, inputs, reason, attempt_id=attempt_id
                 )
@@ -2663,7 +2881,8 @@ async def fail_native_product(
                         "native_context_retry": True,
                         "native_retry": {
                             "attempt_id": attempt_id,
-                            "profile": account_profile,
+                            "route": route,
+                            "selection": "pinned",
                             "reason": reason,
                         },
                     }
@@ -2678,7 +2897,7 @@ async def fail_native_product(
                 inputs,
                 reason,
                 attempt_id=attempt_id,
-                account_profile=account_profile,
+                route=route,
             )
         status: Literal["failed", "stale"] | None = None
         if attempt is not None:

@@ -1,20 +1,18 @@
 # shellcheck shell=bash
 # caller holds /opt/jarvis/.deploy.lock as root.
 # shellcheck disable=SC2034
-CODEX_PROFILES=(personal work work2)
+CODEX_PROFILES=(personal google_neon)
 CODEX_HOST_UNITS=(
   jarvis-codex-contained.service
-  jarvis-codex-contained-work.service
-  jarvis-codex-contained-work2.service
+  jarvis-codex-contained-neon.service
 )
 # shellcheck disable=SC2034
-CODEX_SOCKET_ROOTS=(/run/jarvis-contained /run/jarvis-contained-work /run/jarvis-contained-work2)
+CODEX_SOCKET_ROOTS=(/run/jarvis-contained /run/jarvis-contained-neon)
 CODEX_SOCKET_PROPERTIES=(
   --property=BindsTo=jarvis-codex-contained.service
   "--property=After=${CODEX_HOST_UNITS[*]}"
   --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock
-  --property=BindReadOnlyPaths=-/run/jarvis-contained-work/exec/app-server.sock:/run/jarvis-contained-work/app-server.sock
-  --property=BindReadOnlyPaths=-/run/jarvis-contained-work2/exec/app-server.sock:/run/jarvis-contained-work2/app-server.sock
+  --property=BindReadOnlyPaths=-/run/jarvis-contained-neon/exec/app-server.sock:/run/jarvis-contained-neon/app-server.sock
 )
 
 verify_native_account() {
@@ -161,7 +159,7 @@ prune_releases() {
     fi
   fi
 
-  for host_unit in "${CODEX_HOST_UNITS[@]}"; do
+  for host_unit in "${CODEX_HOST_UNITS[@]}" jarvis-neon-adapter.service; do
     host_state="$(systemctl show --property=ActiveState --value "$host_unit")" || return 1
     host_pid="$(systemctl show --property=MainPID --value "$host_unit")" || return 1
     host_control_pid="$(systemctl show --property=ControlPID --value "$host_unit")" || return 1

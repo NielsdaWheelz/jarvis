@@ -278,14 +278,8 @@ if [[ -f "$stored_mapping" ]]; then
 elif [[ "$incoming_mapping" != none ]]; then
   mapping_source="$incoming_mapping"
 fi
-"$release/.venv/bin/python" - "$mapping_source" <<'PYCODE'
-import sys
-from pathlib import Path
-
-from jarvis.codex_config import CodexHostConfig
-
-CodexHostConfig.load(Path(sys.argv[1]))
-PYCODE
+JARVIS_CODEX_HOST_CONFIG_PATH="$mapping_source" \
+  "$release/.venv/bin/python" "$release/deploy/codex-host" verify-agy
 mapping_digest="$(sha256sum "$mapping_source" | cut -d' ' -f1)"
 digest="$mapping_digest"
 stored_reader="$held/reader-$change.json"
@@ -389,8 +383,9 @@ elif [[ "$phase" == held && "$repair_of" == none ]] &&
   fi
   refuse "change $change blocked by stopped compatibility checks"
 fi
-if [[ "$source_schema" == "$target_schema" ]] &&
-   [[ "$(native_contract_of "$source_release")" != "$(native_contract_of "$release")" ]]; then
+source_native_contract="$(native_contract_of "$source_release")"
+target_native_contract="$(native_contract_of "$release")"
+if [[ "$source_schema" == "$target_schema" && "$source_native_contract" != "$target_native_contract" ]]; then
   native_inventory="$held/native-inventory-$change.json"
   if [[ "$phase" == held && ! -f "$native_inventory" ]]; then
     deployment_runtime_check "$source_release" 0 "$source_release/.venv/bin/jarvis" cutover-native

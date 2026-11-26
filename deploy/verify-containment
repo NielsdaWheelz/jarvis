@@ -188,22 +188,30 @@ if systemctl is-active --quiet "$AGY_HOST_UNIT"; then
   [[ "$(systemctl show -p ProtectSystem --value "$AGY_HOST_UNIT")" == strict ]]
   [[ "$(systemctl show -p NoNewPrivileges --value "$AGY_HOST_UNIT")" == yes ]]
   [[ "$(systemctl show -p RuntimeDirectoryPreserve --value "$AGY_HOST_UNIT")" == no ]]
+  [[ "$(systemctl show -p StandardOutput --value "$AGY_HOST_UNIT")" == null ]]
+  [[ "$(systemctl show -p StandardError --value "$AGY_HOST_UNIT")" == null ]]
   [[ -z "$(systemctl show -p CapabilityBoundingSet --value "$AGY_HOST_UNIT")" ]]
   [[ -z "$(systemctl show -p LoadCredential --value "$AGY_HOST_UNIT")" ]]
   grep -qFx 'jarvis-antigravity-localharness (unconfined)' /sys/kernel/security/apparmor/profiles
   [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" == 1 ]]
-  for directory in /var/lib/jarvis-notes /run/jarvis-codex-cognition; do
-    mount_options="$(nsenter --target "$agy_pid" --mount \
-      findmnt --target "$directory" --noheadings --output VFS-OPTIONS)"
-    [[ ",$mount_options," == *,rw,* ]]
-  done
+  [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined)" == 1 ]]
+  notes=/var/lib/jarvis-notes
   mount_options="$(nsenter --target "$agy_pid" --mount \
-    findmnt --target "$cache" --noheadings --output VFS-OPTIONS)"
-  [[ ",$mount_options," == *,ro,* ]]
+    findmnt --target "$notes" --noheadings --output VFS-OPTIONS)"
+  [[ ",$mount_options," == *,rw,* ]]
+  for path in "$cache" /run/jarvis-codex-cognition "$notes/.git/config" "$notes/.git/hooks" "$notes/.git/info"; do
+    mount_options="$(nsenter --target "$agy_pid" --mount \
+      findmnt --target "$path" --noheadings --output VFS-OPTIONS)"
+    [[ ",$mount_options," == *,ro,* ]]
+  done
   nsenter --target "$app_pid" --mount runuser -u jarvis -g jarvis-agy-control -- \
     test -w "$agy_root/control.sock"
-  nsenter --target "$agy_pid" --mount runuser -u "$agy_user" -g jarvis-agy-control -- \
-    test ! -w /run/jarvis-neon-adapter/control.sock
+  for path in /run/jarvis-neon-adapter/control.sock /run/jarvis-home/http.sock \
+      /run/jarvis-memory/internal.sock /run/jarvis-skid-state \
+      /run/jarvis-contained/exec/app-server.sock /run/jarvis-contained-neon/exec/app-server.sock; do
+    nsenter --target "$agy_pid" --mount runuser -u "$agy_user" -g jarvis-agy-control -- \
+      test ! -w "$path"
+  done
   nsenter --target "$agy_pid" --mount runuser -u "$agy_user" -g jarvis-agy-control -- \
     test ! -r /run/credentials/jarvis-neon-adapter.service/gemini-api-key
   for user in "${users[@]}"; do
@@ -220,8 +228,8 @@ else
   [[ ! -e "$agy_root" ]]
 fi
 
+adapter="$NEON_GATEWAY_UNIT"
 if ((host_count == 2)) || [[ "$agy_active" == true ]]; then
-  adapter="$NEON_GATEWAY_UNIT"
   systemctl is-active --quiet "$adapter"
   [[ "$(systemctl show -p User --value "$adapter")" == jarvis-neon-adapter ]]
   [[ "$(systemctl show -p DynamicUser --value "$adapter")" == yes ]]
@@ -244,6 +252,8 @@ if ((host_count == 2)) || [[ "$agy_active" == true ]]; then
     nsenter --target "${pids[1]}" --mount cmp -s \
       /etc/jarvis/codex-neon-requirements.toml /etc/codex/requirements.toml
   fi
+else
+  ! systemctl is-active --quiet "$adapter"
 fi
 
 printf 'jarvis connector-secret, process-inspection and native-host boundary passed.\n'

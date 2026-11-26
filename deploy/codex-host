@@ -519,10 +519,11 @@ def verify_agy_bundle(config: CodexHostConfig, release: Path) -> None:
     if (
         not stat.S_ISREG(metadata.st_mode)
         or metadata.st_uid != 0
-        or metadata.st_mode & 0o022
-        or not os.access(binary, os.X_OK)
+        or stat.S_IMODE(metadata.st_mode) not in (0o700, 0o750)
+        or (stat.S_IMODE(metadata.st_mode) == 0o750
+        and metadata.st_gid != grp.getgrnam("jarvis-agy-exec").gr_gid)
     ):
-        raise RuntimeError("Antigravity executable must be root-owned and executable")
+        raise RuntimeError("Antigravity executable requires its private launch grant")
     with binary.open("rb") as executable:
         digest = hashlib.file_digest(executable, "sha256").hexdigest()
     if digest != pin.executable_sha256:
@@ -592,18 +593,21 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
     agy = config.agy_neon
     agy_user = pwd.getpwnam(agy.host_user)
     agy_group = grp.getgrnam("jarvis-agy-control")
+    agy_exec = grp.getgrnam("jarvis-agy-exec")
     if (
         agy_user.pw_uid in uids
         or agy_user.pw_gid != agy_group.gr_gid
         or agy_user.pw_dir != agy.host_home
         or agy_user.pw_shell != "/usr/sbin/nologin"
         or set(agy_group.gr_mem) - {agy.host_user}
+        or agy_exec.gr_mem
         or any(
-            user.pw_gid == agy_group.gr_gid and user.pw_uid != agy_user.pw_uid
+            user.pw_gid == agy_exec.gr_gid
+            or (user.pw_gid == agy_group.gr_gid and user.pw_uid != agy_user.pw_uid)
             for user in pwd.getpwall()
         )
     ):
-        raise RuntimeError("Antigravity requires its own non-login uid and socket group")
+        raise RuntimeError("Antigravity requires a private non-login uid and group")
     verify_agy_bundle(config, release)
     notes = Path(config.notes_repository)
     if notes.exists() or notes.is_symlink():
@@ -749,6 +753,9 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
                 NEON_CONTROL_SOCKET.parent,
                 "/var/lib/jarvis",
                 "/etc/jarvis/credentials",
+                "/run/jarvis-home",
+                "/run/jarvis-memory",
+                "/run/jarvis-skid-state",
             )
         ),
     }.items():

@@ -345,7 +345,9 @@ the default group at most `r-x`, and others no access. the installer extends
 the existing acl to the sdk uid and exercises inherited access with empty
 probes. each native writer uses the same checkout-specific git identity.
 stock retains its existing private origin access. the sdk shell uses local
-git and runs offline.
+git and runs offline. the shared git config, hooks and info stay read-only
+in the sdk service. ordinary git status, staging and commits use the remaining
+checkout writes.
 
 use `deploy/activate-release --change "$id" --codex-host-config "$mapping" "$to"`
 under [named custody](decisions/0104-maintenance-without-owner-pause.md).
@@ -1175,20 +1177,28 @@ releasable old retries before native publication. use the original release
 to settle or disposition any listed blocker. retry the same held change with
 the same staged mapping. finalized receipts and the existing shared funding
 hold remain in canonical storage. the selection changes after target checks.
+a failure after publishing v8 leaves stopped custody and requires forward
+repair, even if the selection still names the original release. each new
+release needs its own staged mapping with that release's executable path.
 
 the installer checks the sdk version, pinned linux wheel digest and installed
-executable digest. the selected executable gets the narrow apparmor user
-namespace grant. the global restriction stays enabled. the service allows
+executable digest. only the service joins the executable's launch group.
+the selected executable gets the scoped apparmor user namespace grant. the
+global restrictions on user namespaces and unconfined profile transitions stay
+enabled. the service allows
 loopback for the trusted sdk transport, and the native shell runs in the sdk
 sandbox without network. agy receives an ephemeral attempt credential from
 the private host process. the shared adapter holds the google key. the home
 and attempt state under `/run/jarvis-agy-host` are removed on stop and crash
-restart. verify the installed policy with `deploy/verify-containment` and
+restart. the sdk service discards its output streams. systemd retains service
+state and jarvis retains normalized failures and canonical receipts. verify the installed policy with `deploy/verify-containment` and
 qualify an actual sandboxed turn with synthetic material before live use.
 
 the optional harnesses retain explicit operator disablement and can be
-stopped independently. report their liveness and the shared project's
-capacity separately. repair a stock socket replacement through a stopped
+stopped independently. systemd stops the gateway after its last host
+stops. an enabled host that fails install verification remains enabled and
+requires repair before installed containment verification passes. report
+host and gateway liveness and the shared project's capacity separately. repair a stock socket replacement through a stopped
 application remount. record the requested and observed model, effort,
 project, route, attempt and disposition in the redacted release receipt.
 identify fixture, live and absent evidence explicitly.

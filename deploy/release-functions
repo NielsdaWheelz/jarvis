@@ -54,8 +54,12 @@ async def check():
     async with AgentRuntime(
         AgentRuntimeConfig(Path("/tmp"), antigravity_endpoint=mapping.agy_neon.socket)
     ) as runtime:
-        if not await runtime.antigravity_ready():
-            raise SystemExit("contained Antigravity host is unavailable")
+        try:
+            async with asyncio.timeout(10):
+                while not await runtime.antigravity_ready():
+                    await asyncio.sleep(0.2)
+        except TimeoutError:
+            raise SystemExit("contained Antigravity host is unavailable") from None
 
 
 asyncio.run(check())

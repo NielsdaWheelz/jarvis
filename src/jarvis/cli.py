@@ -88,6 +88,7 @@ from jarvis.kernel import (
     resolve_paid_provider,
     resolve_role_providers,
 )
+from jarvis.mail_editor import MailEditor
 from jarvis.memory_config import MEMORY_IDENTITIES, MemoryConfig
 from jarvis.memory_rpc import MemoryRPC
 from jarvis.memory_server import serve_memory
@@ -109,6 +110,15 @@ from jarvis.native_runtime import (
     NativeRunner,
     neon_paid_ready,
     recover_native_products,
+)
+from jarvis.owner_gmail import OwnerGmail
+from jarvis.owner_gmail_state import (
+    enroll_editor_epoch,
+    invalidate_editor_epoch,
+    owner_drive_reader,
+    owner_gmail_directory,
+    owner_workspace_tokens,
+    read_editor_stamp,
 )
 from jarvis.ownership import (
     DEPLOYMENT_LOCK_KEY,
@@ -152,7 +162,7 @@ from jarvis.work import WorkStore
 from jarvis.workspace_enrollment import enroll_workspace
 from jarvis.workspace_host import WorkspaceHost, current_workspace_read
 from jarvis.workspace_mcp import WorkspaceError
-from jarvis.workspace_write_models import FrozenCompose
+from jarvis.workspace_write_models import DraftEditorStamp, FrozenCompose
 from jarvis.write_dispatch import (
     RECOVERABLE_ACTION_IDS,
     ActionRecovery,
@@ -465,6 +475,7 @@ async def _compose_main(
     maps_http: httpx.AsyncClient,
     brave_http: httpx.AsyncClient,
     qualify_neon: bool = False,
+    editor_stamp: DraftEditorStamp | None = None,
 ) -> tuple[ToolComposition, RoleDefinitions, AgentController]:
     """Compose the release's tools and role plans from the live codex catalog."""
 
@@ -493,6 +504,7 @@ async def _compose_main(
         work=work,
         events=events,
         event_admitted=event_admitted,
+        editor_stamp=editor_stamp,
     )
     definitions = build_definitions(
         catalog=composition.catalog,
@@ -565,6 +577,33 @@ async def _serve(
                         _memory_service(settings, config, database)
                     )
                     tokens = google_tokens(settings, google_oauth_http)
+                    editor_directory = owner_gmail_directory(
+                        settings.owner_gmail_state_directory
+                    )
+                    editor_stamp = read_editor_stamp(editor_directory)
+                    editor = MailEditor(
+                        database,
+                        OwnerGmail(
+                            google_api_http,
+                            owner_workspace_tokens(
+                                settings,
+                                editor_directory,
+                                google_oauth_http,
+                                product="gmail",
+                            ),
+                            tokens.enrollment,
+                        ),
+                        epoch=editor_stamp.epoch if editor_stamp else None,
+                    )
+                    await editor.startup()
+                    clients.push_async_callback(editor.drain)
+                    drive_reader = owner_drive_reader(
+                        settings,
+                        editor_directory,
+                        tokens,
+                        google_oauth_http,
+                        google_api_http,
+                    )
                     workspace = WorkspaceHost(
                         owner,
                         owner_zone=ZoneInfo(settings.owner_timezone),
@@ -610,6 +649,7 @@ async def _serve(
                         google_api_http=google_api_http,
                         maps_http=maps_http,
                         brave_http=brave_http,
+                        editor_stamp=editor_stamp,
                     )
                     clients.push_async_callback(composition.workspace_approvals.close)
                     _require_mail_cut(
@@ -776,10 +816,11 @@ async def _serve(
                         work=work,
                         attachments=composition.attachments,
                         submit=service.submit,
-                        spool=settings.runtime_state_directory / "uploads",
                         pages=DEFAULT_EXPORT,
                         phone=phone,
                         workspace_approvals=composition.workspace_approvals,
+                        mail_editor=editor,
+                        drive_reader=drive_reader,
                     )
                     await run_service(service, app, settings.home_socket_path, shutdown)
             finally:
@@ -798,6 +839,45 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
+            if arguments.command.startswith(("owner-gmail-", "owner-drive-")):
+                product: Literal["gmail", "drive"] = (
+                    "drive" if arguments.command.startswith("owner-drive-") else "gmail"
+                )
+                directory = owner_gmail_directory(settings.owner_gmail_state_directory)
+                restore = arguments.command == "owner-gmail-invalidate-restore"
+                if restore:
+                    invalidate_editor_epoch(directory)
+                human = owner_workspace_tokens(
+                    settings, directory, http, product=product
+                )
+                if arguments.command.endswith("-enroll"):
+                    await require_native_data(
+                        database, conversation_id=settings.owner_scope
+                    )
+                    workspace = google_tokens(settings, http).enrollment()
+                    if workspace is None:
+                        raise WorkspaceError("grant_unavailable")
+                    enrollment = await enroll_workspace(
+                        human,
+                        directory / "client.json",
+                        expected_email=workspace.account,
+                        expected_subject=workspace.subject,
+                        pending_label_id=None,
+                        confirm=lambda text: input(f"{text}\ntype yes: ") == "yes",
+                        show_url=print,
+                    )
+                    if product == "gmail":
+                        enroll_editor_epoch(directory, enrollment.subject)
+                    print(f"connected the owner {product} client.")
+                else:
+                    if (current := human.enrollment()) is not None:
+                        await human.disconnect(current.grant_id)
+                    print(
+                        "invalidated the editor epoch for restore."
+                        if restore
+                        else f"disconnected the owner {product} client."
+                    )
+                return
             await require_native_data(database, conversation_id=settings.owner_scope)
             if arguments.command == "workspace-confirm-removed":
                 await EventStore(database, settings.owner_scope).confirm_removed_ack(
@@ -1748,6 +1828,22 @@ def _parser() -> argparse.ArgumentParser:
         "workspace-disconnect",
         help="invalidate the local workspace grant while stopped",
     )
+    commands.add_parser(
+        "owner-gmail-enroll", help="connect the stopped owner gmail editor"
+    )
+    commands.add_parser(
+        "owner-gmail-disconnect", help="disconnect the stopped owner gmail editor"
+    )
+    commands.add_parser(
+        "owner-drive-enroll", help="connect the stopped owner drive reader"
+    )
+    commands.add_parser(
+        "owner-drive-disconnect", help="disconnect the stopped owner drive reader"
+    )
+    commands.add_parser(
+        "owner-gmail-invalidate-restore",
+        help="invalidate the stopped editor before restoring the database",
+    )
     restore_gap = commands.add_parser(
         "workspace-restore-gap", help="record the coverage gap from a verified restore"
     )
@@ -1906,6 +2002,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             asyncio.run(serve(settings, settings.codex_host_config))
         elif arguments.command in {
             "resume-recovery-quota-wait",
+            "owner-gmail-enroll",
+            "owner-gmail-disconnect",
+            "owner-drive-enroll",
+            "owner-drive-disconnect",
+            "owner-gmail-invalidate-restore",
             "workspace-enroll",
             "workspace-disconnect",
             "workspace-restore-gap",

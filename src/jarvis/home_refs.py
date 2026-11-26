@@ -49,5 +49,13 @@ class ProposalRef(_Ref):
     action_id: CanonicalUuid
 
 
+class DraftPresentationRef(_Ref):
+    """Host-generated only. The message containing it supplies the address."""
+
+    kind: Literal["draft"] = "draft"
+    request_id: CanonicalUuid
+    create_action_id: CanonicalUuid
+
+
 type HomeRef = ViewRef | FilePageRef | FileRef | DriveFileRef | TodoRef | ProposalRef
 HOME_REF_ADAPTER = TypeAdapter[HomeRef](HomeRef)

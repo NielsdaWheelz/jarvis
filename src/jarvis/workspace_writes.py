@@ -67,6 +67,7 @@ from jarvis.workspace_write_models import (
     DiscardSelection,
     DiscardTarget,
     DocsUpdate,
+    DraftEditorStamp,
     DraftEdits,
     DraftObservation,
     DraftRef,
@@ -1164,6 +1165,7 @@ class WorkspaceWrites:
         drive_download_qualified: bool = False,
         drive_revise_qualified: bool = False,
         docs_update_qualified: bool = False,
+        editor_stamp: Callable[[UUID], DraftEditorStamp | None] | None = None,
     ):
         self._client = client
         self._files = mail_files
@@ -1172,6 +1174,7 @@ class WorkspaceWrites:
         self._drive_download_qualified = drive_download_qualified
         self._drive_revise_qualified = drive_revise_qualified
         self._docs_update_qualified = docs_update_qualified
+        self._editor_stamp = editor_stamp
 
     async def prepare(
         self,
@@ -1235,6 +1238,10 @@ class WorkspaceWrites:
                         account,
                         CreateDraft.model_validate(arguments),
                     )
+                    if self._editor_stamp is not None:
+                        effect = effect.model_copy(
+                            update={"editor": self._editor_stamp(grant_id)}
+                        )
                 elif tool == "gmail.prepare_replacement":
                     effect = await _compose(
                         io,

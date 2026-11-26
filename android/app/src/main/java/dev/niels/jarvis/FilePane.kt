@@ -79,7 +79,7 @@ internal fun driveProblem(error: IOException): String = when ((error as? DriveFa
     "drive_rate_limited" -> {
         val seconds = (error as? DriveFailure)?.retryAfter?.toLongOrNull()
         if (seconds == null) "google drive is limiting requests. try again shortly."
-        else "google drive is limiting requests. retry in $seconds seconds."
+        else "google drive is limiting requests. retry in $seconds " + (if (seconds == 1L) "second." else "seconds.")
     }
     "drive_version_changed" -> "the file changed while opening. try again."
     "drive_cursor_stale" -> "this search expired. start it again."
@@ -135,7 +135,7 @@ private fun PendingDownload(api: HomeApi, id: String, name: String) {
             problem = null
             try {
                 withContext(Dispatchers.IO) {
-                    api.request("/api/files/$id").use { response ->
+                    api.request("/api/drive/origin/$id/content").use { response ->
                         response.checkDrive()
                         val bytes = response.body ?: throw IOException("download unavailable")
                         val output = context.contentResolver.openOutputStream(uri) ?: throw IOException("destination unavailable")
@@ -157,6 +157,7 @@ private fun PendingDownload(api: HomeApi, id: String, name: String) {
 internal fun FilePane(
     route: Route.DriveFile, api: HomeApi, reload: Pair<Int, Int>, signIn: () -> Unit,
     navigate: (Route) -> Unit,
+    attach: (DiscussionRef) -> Unit,
 ) {
     val context = LocalContext.current
     var attempt by remember { mutableIntStateOf(0) }
@@ -165,7 +166,7 @@ internal fun FilePane(
         var path: File? = null
         try {
             val apiPath = "/api/drive/${route.subject}/${route.id}"
-            val item = api.drive("$apiPath?trail=true")
+            val item = api.drive(apiPath)
             value = FileVisit(item = item)
             if (item.optBoolean("preview")) {
                 val version = item.string("version") ?: throw IOException("file version unavailable")
@@ -198,11 +199,11 @@ internal fun FilePane(
     }
     val item = visit?.item
     if (item?.string("mime") == folderMime) {
-        DriveList(item, api, reload, signIn, navigate, route.subject)
+        DriveList(item, api, reload, signIn, navigate, attach, route.subject)
     } else Pane {
         if (item != null) {
             Heading(item.getString("name"))
-            FileActions(item, route)
+            FileActions(item, route) { attach(DiscussionRef.DriveFile(route.subject, route.id, null)) }
         }
         val current = visit
         val problem = current?.error
@@ -213,19 +214,20 @@ internal fun FilePane(
                 BodyStatus("this file is no longer a pdf.")
                 TextButton(onClick = { navigate(route.copy(page = null)) }) { Text("open the file") }
             }
-            current.local != null -> FilePreview(current.local, route)
+            current.local != null -> FilePreview(current.local, route, attach)
             item?.optBoolean("preview") == true -> CircularProgressIndicator()
         }
     }
 }
 
 @Composable
-private fun FileActions(item: JSONObject, route: Route.DriveFile) {
+private fun FileActions(item: JSONObject, route: Route.DriveFile, attach: () -> Unit) {
     val context = LocalContext.current
     var failed by remember { mutableStateOf(false) }
     FlowRow {
         TextButton(onClick = { failed = !openDrive(context, item.string("url")) }) { Text("open in drive") }
         TextButton(onClick = { copyLink(context, route.copy(page = null)) }) { Text("copy file link") }
+        TextButton(onClick = attach) { Text("attach to chat") }
     }
     if (failed) BodyStatus("no browser or drive app is available.")
 }
@@ -248,7 +250,9 @@ private fun copyLink(context: Context, route: Route.DriveFile) {
 }
 
 @Composable
-private fun FilePreview(original: LocalPreview, route: Route.DriveFile) {
+private fun FilePreview(
+    original: LocalPreview, route: Route.DriveFile, attach: (DiscussionRef) -> Unit,
+) {
     val context = LocalContext.current
     var page by rememberSaveable(route.id, route.page) { mutableLongStateOf(route.page ?: 1L) }
     val pdf = original.mime == "application/pdf"
@@ -275,6 +279,7 @@ private fun FilePreview(original: LocalPreview, route: Route.DriveFile) {
                 TextButton(enabled = page > 1, onClick = { page-- }) { Text("previous page") }
                 TextButton(enabled = page < displayed.pages, onClick = { page++ }) { Text("next page") }
                 TextButton(onClick = { copyLink(context, route.copy(page = page)) }) { Text("copy page link") }
+                TextButton(onClick = { attach(DiscussionRef.DriveFile(route.subject, route.id, page)) }) { Text("attach page to chat") }
             }
         }
     }

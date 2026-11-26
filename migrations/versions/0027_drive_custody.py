@@ -7,7 +7,7 @@ from jarvis.drive_cut import DRIVE_CUSTODY_SCHEMA, DriveCutManifest
 from jarvis.ownership import DEPLOYMENT_LOCK_KEY, MEMORY_LOCK_KEY
 
 revision = DRIVE_CUSTODY_SCHEMA
-down_revision = "0025"
+down_revision = "0026"
 branch_labels = None
 depends_on = None
 
@@ -177,6 +177,11 @@ def upgrade() -> None:
 
         GRANT UPDATE (state,drive_subject,drive_file_id,filing_action_id,
             verified_at,disposition) ON attachment TO jarvis_runtime;
+        DO $$ BEGIN
+            IF EXISTS (SELECT FROM pg_roles WHERE rolname='jarvis_backup') THEN
+                GRANT SELECT ON attachment TO jarvis_backup;
+            END IF;
+        END $$;
 
         CREATE OR REPLACE FUNCTION jarvis_guard_attachment() RETURNS trigger
         LANGUAGE plpgsql AS $$
@@ -217,9 +222,9 @@ def upgrade() -> None:
                 SELECT FROM action WHERE id=OLD.filing_action_id
                    AND (
                     (status IN ('failed','cancelled') AND attempts=0)
-                    OR (status='failed' AND result @>
-                      '{"type":"Failure","error":{"type":"WorkspaceWriteFailure",
-                        "known_no_effect":true}}'::jsonb)
+                    OR (status='failed' AND result->>'type'='Failure'
+                        AND result #>> '{error,type}'='WorkspaceWriteFailure'
+                        AND result #> '{error,known_no_effect}'=to_jsonb(true))
                    )
             ) THEN
                 RAISE EXCEPTION 'filing action non-entry is not proved';

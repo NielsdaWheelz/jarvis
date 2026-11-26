@@ -32,7 +32,12 @@ from jarvis.db import (
     normalize_database_url,
 )
 from jarvis.drive_cut import DRIVE_CUSTODY_SCHEMA, load_stopped_drive_map
+from jarvis.owner_gmail_state import (
+    owner_gmail_directory,
+    read_editor_stamp,
+)
 from jarvis.ownership import maintenance_ownership
+from jarvis.settings import OWNER_GMAIL_DIRECTORY
 
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
@@ -496,6 +501,11 @@ def restored_compatibility(proof):
 
 
 async def inspect_restored(operation, snapshot, proof):
+    editor = owner_gmail_directory(OWNER_GMAIL_DIRECTORY)
+    require(
+        read_editor_stamp(editor) is None,
+        "invalidate the owner gmail editor before opening restored state",
+    )
     manifest = json.loads((snapshot / "SNAPSHOT.json").read_bytes())
     require(
         file_digest(snapshot / "database.dump") == manifest["dump_sha256"],

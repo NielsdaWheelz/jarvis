@@ -8,7 +8,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from jarvis._atomic_json import read_private_json
 
-DRIVE_CUSTODY_SCHEMA = "0026"
+DRIVE_CUSTODY_SCHEMA = "0027"
 DriveIdentifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,255}$")]
 ByteDigest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 

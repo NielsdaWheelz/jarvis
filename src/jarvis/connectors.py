@@ -52,6 +52,7 @@ from jarvis.read_tools import (
 )
 from jarvis.workspace_enrollment import (
     GOOGLE_TOKEN_ENDPOINT,
+    HumanWorkspaceProduct,
     WorkspaceEnrollment,
     exchange_workspace_code,
     granted_scopes,
@@ -183,6 +184,7 @@ class GoogleTokenManager:
         active_key_version: str,
         single_secret: str,
         project_id: str | None = None,
+        human_product: HumanWorkspaceProduct | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if not state_path.is_absolute():
@@ -196,6 +198,15 @@ class GoogleTokenManager:
             raise GoogleCredentialDefect(
                 "Google credential configuration is incomplete"
             )
+        self.human_product: HumanWorkspaceProduct | None = human_product
+        self._schema = (
+            f"jarvis.owner-{human_product}-oauth.v1"
+            if human_product
+            else GOOGLE_STATE_SCHEMA
+        )
+        self._aad = (
+            f"jarvis.owner.{human_product}" if human_product else GOOGLE_AAD_NAMESPACE
+        )
         self._state_path = state_path
         self._client = client
         self._client_id = client_id
@@ -256,7 +267,7 @@ class GoogleTokenManager:
             state = read_private_json(self._state_path)
             if (
                 not state
-                or state.get("schema") != GOOGLE_STATE_SCHEMA
+                or state.get("schema") != self._schema
                 or state.get("status") == "disconnected"
                 or not state.get("installation")
                 or state.get("installation") != self._installation
@@ -280,6 +291,7 @@ class GoogleTokenManager:
             or len(account.encode()) > 320
             or not re.fullmatch(r"[^@\s]+@[^@\s]+", account)
             or (label is not None and not isinstance(label, str))
+            or (self.human_product is not None and label is not None)
             or not valid_pending_label(label)
         ):
             raise GoogleCredentialDefect("workspace enrollment identity is invalid")
@@ -288,7 +300,9 @@ class GoogleTokenManager:
             isinstance(v, str) and " " not in v for v in cast(list[object], values)
         ):
             raise GoogleCredentialDefect("workspace enrollment scopes are invalid")
-        scopes = granted_scopes(" ".join(cast(list[str], values)))
+        scopes = granted_scopes(
+            " ".join(cast(list[str], values)), human_product=self.human_product
+        )
         return WorkspaceEnrollment(
             grant, self._project_id, account, subject, label, scopes
         )
@@ -305,7 +319,7 @@ class GoogleTokenManager:
         replace_private_json(
             self._state_path,
             {
-                "schema": GOOGLE_STATE_SCHEMA,
+                "schema": self._schema,
                 "provider": GOOGLE_STATE_PROVIDER,
                 "status": "disconnected",
                 "grant_id": str(grant_id),
@@ -328,11 +342,14 @@ class GoogleTokenManager:
         expected_email: str,
         pending_label_id: str | None,
         incremental_drive: bool = False,
+        expected_subject: str | None = None,
     ) -> WorkspaceEnrollment:
         installation = self._installation
         if (
             not self._project_id
             or not installation
+            or (self.human_product is not None) != (expected_subject is not None)
+            or (self.human_product is not None and pending_label_id is not None)
             or not valid_pending_label(pending_label_id)
         ):
             raise WorkspaceError("grant_unavailable")
@@ -346,7 +363,10 @@ class GoogleTokenManager:
                 nonce=nonce,
                 redirect_uri=redirect_uri,
                 expected_email=expected_email,
+                human_product=self.human_product,
             )
+            if expected_subject is not None and tokens.subject != expected_subject:
+                raise WorkspaceError("grant_unavailable")
             previous = self.enrollment()
             if incremental_drive and previous is not None:
                 if (
@@ -363,7 +383,7 @@ class GoogleTokenManager:
                 raise WorkspaceError("scope_missing")
             now = self._now().astimezone(UTC)
             state: dict[str, object] = {
-                "schema": GOOGLE_STATE_SCHEMA,
+                "schema": self._schema,
                 "provider": GOOGLE_STATE_PROVIDER,
                 "status": "connected",
                 "installation": installation,
@@ -385,9 +405,7 @@ class GoogleTokenManager:
                 ).isoformat(),
                 "token_obtained_at": now.isoformat(),
                 "encryption": {
-                    "aad_namespace": (
-                        f"{GOOGLE_AAD_NAMESPACE}:{self._active_key_version}"
-                    ),
+                    "aad_namespace": (f"{self._aad}:{self._active_key_version}"),
                     "algorithm": "AES-256-GCM",
                     "key_version": self._active_key_version,
                 },
@@ -508,14 +526,14 @@ class GoogleTokenManager:
                         retry_after=response.headers.get("Retry-After"),
                     )
                 if response.status_code != 200:
-                    error_payload = await _json_body(response, attempts=1)
+                    error_payload = await provider_json_body(response, attempts=1)
                     if error_payload.get("error") in {
                         "invalid_client",
                         "invalid_grant",
                     }:
                         raise _GoogleRefreshRejected("Google OAuth grant is unusable")
                     raise ConnectorFailure("provider_unavailable", attempts=1)
-                payload = await _json_body(response, attempts=1)
+                payload = await provider_json_body(response, attempts=1)
         except (TimeoutError, httpx.HTTPError, OSError):
             raise ConnectorFailure("provider_unavailable", attempts=1) from None
         try:
@@ -554,7 +572,9 @@ class GoogleTokenManager:
                 if not isinstance(returned_scope, str):
                     raise ValueError("Google OAuth scope is malformed")
                 try:
-                    refreshed_scopes = granted_scopes(returned_scope)
+                    refreshed_scopes = granted_scopes(
+                        returned_scope, human_product=self.human_product
+                    )
                 except ValueError:
                     raise _GoogleRefreshRejected("Google OAuth scope changed") from None
                 if (
@@ -586,7 +606,7 @@ class GoogleTokenManager:
             refresh_token, field="refresh_token"
         )
         updated["encryption"] = {
-            "aad_namespace": f"{GOOGLE_AAD_NAMESPACE}:{self._active_key_version}",
+            "aad_namespace": f"{self._aad}:{self._active_key_version}",
             "algorithm": "AES-256-GCM",
             "key_version": self._active_key_version,
         }
@@ -622,13 +642,12 @@ class GoogleTokenManager:
         )
         key_version = encryption_value.get("key_version")
         if (
-            state.get("schema") != GOOGLE_STATE_SCHEMA
+            state.get("schema") != self._schema
             or state.get("provider") != GOOGLE_STATE_PROVIDER
             or state.get("status") != "connected"
             or not isinstance(key_version, str)
             or encryption_value.get("algorithm") != "AES-256-GCM"
-            or encryption_value.get("aad_namespace")
-            != f"{GOOGLE_AAD_NAMESPACE}:{key_version}"
+            or encryption_value.get("aad_namespace") != f"{self._aad}:{key_version}"
         ):
             raise GoogleCredentialDefect("Google credential state contract is invalid")
         self._identity(state)
@@ -653,7 +672,7 @@ class GoogleTokenManager:
             plaintext = AESGCM(self._handoff_key).decrypt(
                 nonce,
                 ciphertext,
-                f"{GOOGLE_AAD_NAMESPACE}:{key_version}:{field}".encode(),
+                f"{self._aad}:{key_version}:{field}".encode(),
             )
             value = plaintext.decode()
         except (InvalidTag, UnicodeDecodeError):
@@ -668,7 +687,7 @@ class GoogleTokenManager:
         ciphertext = AESGCM(self._handoff_key).encrypt(
             nonce,
             _token_bytes(value),
-            f"{GOOGLE_AAD_NAMESPACE}:{version}:{field}".encode(),
+            f"{self._aad}:{version}:{field}".encode(),
         )
         return f"{_TOKEN_ENVELOPE_PREFIX}{_b64encode(nonce + ciphertext)}"
 
@@ -862,7 +881,7 @@ class MapsReadConnector:
                     )
                 if response.status_code < 200 or response.status_code >= 300:
                     raise ConnectorFailure("provider_unavailable", attempts=1)
-                payload = await _json_body(response, attempts=1)
+                payload = await provider_json_body(response, attempts=1)
         except (TimeoutError, httpx.HTTPError, OSError):
             raise ConnectorFailure("provider_unavailable", attempts=1) from None
         return payload
@@ -874,7 +893,7 @@ class MapsReadConnector:
         return value.astimezone(UTC)
 
 
-async def _json_body(
+async def provider_json_body(
     response: httpx.Response,
     *,
     attempts: int,

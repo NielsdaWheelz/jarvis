@@ -13,7 +13,12 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.mail_files import MailFileFailure
-from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, WorkspaceError, workspace_attempts
+from jarvis.workspace_mcp import (
+    HUMAN_WAIT_SECONDS,
+    WORKSPACE_DRIVE_RPC_LIMIT,
+    WorkspaceError,
+    workspace_attempts,
+)
 from jarvis.workspace_write_models import (
     CalendarWriteReceipt,
     DiscardReceipt,
@@ -41,6 +46,17 @@ def submission_source_id(frozen: FrozenWorkspaceWrite) -> UUID | None:
         if isinstance(effect, FrozenDriveCreate | FrozenDriveRevise)
         and isinstance(effect.source.value, SubmissionSource)
         else None
+    )
+
+
+def write_rpc_limit(tool: str) -> int:
+    # RPCs are preflight/readback traffic under a single logical write entry.
+    from jarvis.write_tools import GMAIL_WRITE_POLICY
+
+    return (
+        WORKSPACE_DRIVE_RPC_LIMIT
+        if tool.startswith(("drive.", "docs."))
+        else GMAIL_WRITE_POLICY.max_attempts
     )
 
 
@@ -117,9 +133,9 @@ async def execute_workspace_write(
             - HUMAN_WAIT_SECONDS
             - entry.prepare_seconds
         )
-        maximum = context.grant.limits.max_attempts - entry.prepare_attempts
+        maximum = write_rpc_limit(entry.frozen.tool) - entry.prepare_attempts
         if seconds <= 0 or maximum <= 0:
-            raise WorkspaceError("budget_exceeded")
+            raise WorkspaceError("budget_exceeded", known_no_effect=source is not None)
         with workspace_attempts(
             maximum,
             seconds=seconds,

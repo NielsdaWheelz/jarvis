@@ -431,6 +431,11 @@ class DraftSnapshot(_GmailEnvelope):
     files: Annotated[tuple[MailFile, ...], Field(max_length=MAIL_MAX_FILES)]
 
 
+class DraftEditorStamp(_StrictModel):
+    epoch: UUID
+    google_sub: Annotated[str, Field(min_length=1, max_length=255)]
+
+
 class FrozenCompose(_StrictModel):
     tool: Literal["gmail.create_draft", "gmail.prepare_replacement"]
     old: DraftObservation | None
@@ -440,6 +445,7 @@ class FrozenCompose(_StrictModel):
     # Only the digest of the verified parent's quoted text is needed for readback.
     quote_digest: Sha256 | None
     expected_body_digest: Sha256 | None
+    editor: DraftEditorStamp | None = None
 
     def matches_observed_body(self, body: str) -> bool:
         if (
@@ -451,6 +457,20 @@ class FrozenCompose(_StrictModel):
         return body == authored or (
             body.startswith(authored)
             and sha256(body[len(authored) :].encode()).hexdigest() == self.quote_digest
+        )
+
+    def matches_snapshot(
+        self, snapshot: DraftSnapshot, receipt: DraftWriteReceipt
+    ) -> bool:
+        envelope = {"to", "cc", "bcc", "subject"}
+        return (
+            snapshot.sender.address == receipt.account
+            and snapshot.model_dump(include=envelope)
+            == self.content.model_dump(include=envelope)
+            and snapshot.files == self.files
+            and receipt.generated_quote
+            == (snapshot.body_text != self.content.body_text)
+            and self.matches_observed_body(snapshot.body_text)
         )
 
 

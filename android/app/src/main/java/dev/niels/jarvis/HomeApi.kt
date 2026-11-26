@@ -47,6 +47,7 @@ internal class HomeApi(context: Context) {
         val request = Request.Builder().url(url).method(method, payload)
         for ((name, value) in headers) request.header(name, value)
         request.header("Cache-Control", "no-store")
+        request.header("X-Jarvis-Viewer-Contract", "drive-files")
         if (method != "GET" && method != "HEAD") request.header("Origin", Routes.origin)
         var bearer = access.currentBearer() ?: throw SignInRequired()
         var response = execute(request.header("Authorization", "Bearer $bearer").build())
@@ -65,7 +66,8 @@ internal class HomeApi(context: Context) {
     }
 
     private suspend fun execute(request: Request): Response = suspendCancellableCoroutine { continuation ->
-        val call = client.newCall(request)
+        val transport = if (request.method == "GET" || request.method == "HEAD") reads else client
+        val call = transport.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) = continuation.resumeWithException(e)
@@ -111,6 +113,8 @@ internal class HomeApi(context: Context) {
             .readTimeout(45, TimeUnit.SECONDS)
             .writeTimeout(45, TimeUnit.SECONDS)
             .build()
+        // A stale pooled connection can be retried only for an idempotent read.
+        val reads = client.newBuilder().retryOnConnectionFailure(true).build()
     }
 }
 

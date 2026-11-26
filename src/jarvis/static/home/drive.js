@@ -1,3 +1,5 @@
+import { el, button, link } from "./home-dom.js";
+
 const driveId = /^[A-Za-z0-9_-]{1,255}$/;
 const folderType = "application/vnd.google-apps.folder";
 const previewLimit = 100 * 1024 * 1024;
@@ -33,6 +35,7 @@ const messages = {
   drive_cursor_stale: "this search expired. start it again.",
   drive_preview_too_large: "this file is too large to preview.",
   drive_preview_unsupported: "this file cannot be previewed here.",
+  drive_unavailable: "google drive couldn’t complete this read. try again.",
 };
 
 export function originStatus(state, disposition) {
@@ -54,12 +57,12 @@ function typeLabel(type) {
   }
 }
 
-async function pdfPreview(blob, number, region, signal, el) {
+async function pdfPreview(data, number, region, signal) {
   const pdf = await import("./pdf/pdf.min.mjs");
   if (signal.aborted) return;
   pdf.GlobalWorkerOptions.workerSrc = new URL("./pdf/pdf.worker.min.mjs", import.meta.url).href;
   const task = pdf.getDocument({
-    data: new Uint8Array(await blob.arrayBuffer()),
+    data,
     isEvalSupported: false,
     useWasm: false,
     useSystemFonts: true,
@@ -93,7 +96,7 @@ async function pdfPreview(blob, number, region, signal, el) {
   }
 }
 
-export function bindFiles({ $, el, button, link, navigate, changeState, request, time }) {
+export function bindFiles({ $, navigate, changeState, request, time, attach }) {
   const page = $("drive");
   const canvas = $("canvas");
   let active = null;
@@ -121,7 +124,7 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
   async function read(path, signal, binary = false) {
     let response;
     try {
-      response = await request(path, { signal });
+      response = await request(path, { signal, allowServerError: true });
     } catch (error) {
       if (signal.aborted || error.login) throw error;
       throw new Error("couldn’t reach jarvis. try again.");
@@ -130,7 +133,7 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
       const code = (await response.json().catch(() => ({}))).detail;
       const wait = response.headers.get("Retry-After");
       const message = code === "drive_rate_limited" && /^\d+$/.test(wait || "")
-        ? "google drive is limiting requests. retry in " + wait + " seconds."
+        ? "google drive is limiting requests. retry in " + wait + (wait === "1" ? " second." : " seconds.")
         : messages[code] || "couldn’t open google drive.";
       throw Object.assign(new Error(message), { code });
     }
@@ -138,9 +141,14 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
     const length = Number(response.headers.get("Content-Length"));
     if (!Number.isSafeInteger(length) || length > previewLimit || length <= 0)
       throw new Error(messages.drive_preview_too_large);
-    const blob = await response.blob();
-    if (blob.size !== length) throw new Error("this file didn’t finish downloading.");
-    return blob;
+    if (response.headers.get("Content-Type") === "application/pdf") {
+      const data = new Uint8Array(await response.arrayBuffer());
+      if (data.byteLength !== length) throw new Error("this file didn’t finish downloading.");
+      return data;
+    }
+    const image = await response.blob();
+    if (image.size !== length) throw new Error("this file didn’t finish downloading.");
+    return image;
   }
 
   function official(label, url) {
@@ -157,7 +165,7 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
   }
 
   function downloadOrigin(record) {
-    const download = link("download", "/api/files/" + record.id);
+    const download = link("download", "/api/drive/origin/" + record.id + "/content");
     download.download = record.name || "";
     return download;
   }
@@ -212,6 +220,9 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
     const snapshot = { depth: 0, rows: new Map(), next: null, partial: false };
     view.list = snapshot;
     controls(selector, folder, ref.subject);
+    if (folder) page.append(button("attach to chat", () => attach(
+      { kind: "drive_file", subject: ref.subject, id: folder.id }, folder.name,
+    )));
     const title = folder?.name || (selector.q ? "search results" : selector.recent ? "recent" : "my drive");
     const pending = el("section", undefined, "drive-pending");
     page.append(el("h1", title), pending);
@@ -249,6 +260,7 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
       view.refreshPending();
     }
 
+    const locations = new Map();
     function showLocations(subject) {
       const groups = new Map();
       for (const entry of snapshot.rows.values()) {
@@ -270,9 +282,11 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
             set("no accessible parent");
             continue;
           }
-          entry.details = read("/api/drive/" + subject + "/" + id + "?trail=true", signal)
-            .then(item => set([...item.trail.map(part => part.name)].join(" / ") ||
-              (item.trail_partial ? "location unavailable" : "my drive")))
+          const parent = entry.file.parent;
+          if (!locations.has(parent))
+            locations.set(parent, read("/api/drive/" + subject + "/" + parent, signal));
+          entry.details = locations.get(parent)
+            .then(item => set([...item.trail.map(part => part.name), item.name].join(" / ")))
             .catch(() => set("location unavailable"));
         }
       }
@@ -339,7 +353,7 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
   async function showItem(ref, view) {
     const { signal } = view.controller;
     const base = "/api/drive/" + ref.subject + "/" + ref.id;
-    const item = await read(base + "?trail=true", signal);
+    const item = await read(base, signal);
     if (signal.aborted) return;
     if (item.mime === folderType) {
       await showList(ref, item, view);
@@ -350,14 +364,16 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
     tools.setAttribute("aria-label", "file actions");
     const copied = el("span");
     copied.setAttribute("role", "status");
+    let attachRef = { kind: "drive_file", subject: ref.subject, id: ref.id };
     tools.append(official("open in drive", item.url),
+      button("attach to chat", () => attach(attachRef, item.name)),
       button(ref.page ? "copy page link" : "copy file link", async () => {
         const path = drivePath(ref);
         try {
           await navigator.clipboard.writeText(new URL(path, location.origin).href);
           copied.textContent = "link copied";
         } catch {
-          copied.replaceChildren(link("copy address", path));
+          copied.replaceChildren(link("link address", path));
         }
       }), copied);
     page.append(tools);
@@ -371,22 +387,24 @@ export function bindFiles({ $, el, button, link, navigate, changeState, request,
     region.append(el("p", "opening file…"));
     page.append(region);
     try {
-      const blob = await read(base + "/content?version=" + encodeURIComponent(item.version), signal, true);
+      const data = await read(base + "/content?version=" + encodeURIComponent(item.version), signal, true);
       if (signal.aborted) return;
-      if (blob.type === "application/pdf") {
+      if (data instanceof Uint8Array) {
         const number = ref.page || 1;
-        const result = await pdfPreview(blob, number, region, signal, el);
+        const result = await pdfPreview(data, number, region, signal);
         if (signal.aborted) return;
         if (result.missing) {
           region.replaceChildren(el("p", "page " + number + " is unavailable in this file."),
             pageLink("open page 1", { ...ref, page: 1 }));
-        } else if (result.count > 1) {
+        } else {
+          if (ref.page) attachRef = ref;
+          if (result.count === 1) return;
           if (number > 1) tools.append(pageLink("previous page", { ...ref, page: number - 1 }));
           tools.append(el("span", "page " + number + " of " + result.count));
           if (number < result.count) tools.append(pageLink("next page", { ...ref, page: number + 1 }));
         }
       } else {
-        const url = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(data);
         signal.addEventListener("abort", () => URL.revokeObjectURL(url), { once: true });
         const img = el("img");
         img.src = url;

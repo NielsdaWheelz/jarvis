@@ -65,7 +65,7 @@ def _fingerprint(files: list[UploadFile], submission_id: UUID) -> tuple[WebUploa
     return tuple(uploads)
 
 
-class _Form(MultiPartParser):
+class CompleteMultipartParser(MultiPartParser):
     complete = False
 
     def on_end(self) -> None:
@@ -91,13 +91,13 @@ async def read_submission(
             raise MultiPartException("incomplete multipart upload")
 
     media = request.headers.get("content-type", "").partition(";")[0].strip().lower()
-    parser: _Form | None = None
+    parser: CompleteMultipartParser | None = None
     files: list[UploadFile] = []
     form = None
     try:
         try:
             if media == "multipart/form-data":
-                parser = _Form(
+                parser = CompleteMultipartParser(
                     request.headers,
                     limited(),
                     max_files=FILE_LIMIT + 1,

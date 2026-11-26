@@ -97,6 +97,7 @@ from jarvis.write_connectors import (
     WorkspaceWriteEntry,
     submission_source_id,
     workspace_failure,
+    write_rpc_limit,
 )
 from jarvis.write_policy import classify_write
 from jarvis.write_tools import WRITE_TOOL_IDS
@@ -404,7 +405,7 @@ class WriteToolDispatcher:
             try:
                 limits = plan.grant(tool_id).limits
                 with workspace_attempts(
-                    limits.max_attempts,
+                    write_rpc_limit(str(tool_id)),
                     seconds=limits.deadline_seconds - HUMAN_WAIT_SECONDS,
                 ) as meter:
                     async with asyncio.timeout(limits.deadline_seconds):

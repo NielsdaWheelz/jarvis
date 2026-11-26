@@ -24,6 +24,19 @@ def media_type(header: bytes) -> str:
     return "application/octet-stream"
 
 
+def download_headers(name: str, mime: str, length: int) -> dict[str, str]:
+    filename = name.replace("\\", "/").split("/")[-1]
+    filename = "".join(ch for ch in filename if ch.isprintable()).strip() or "file"
+    disposition = "attachment" if mime == "application/octet-stream" else "inline"
+    encoded = quote(filename, safe="")
+    return {
+        "Content-Disposition": f"{disposition}; filename*=utf-8''{encoded}",
+        "Content-Length": str(length),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store, no-transform",
+    }
+
+
 def file_response(
     stream: BinaryIO,
     name: str,
@@ -32,14 +45,7 @@ def file_response(
     head: bool = False,
 ) -> Response:
     try:
-        filename = name.replace("\\", "/").split("/")[-1]
-        filename = "".join(ch for ch in filename if ch.isprintable()).strip() or "file"
-        disposition = "attachment" if mime == "application/octet-stream" else "inline"
-        encoded = quote(filename, safe="")
-        headers = {
-            "Content-Disposition": f"{disposition}; filename*=utf-8''{encoded}",
-            "Content-Length": str(os.fstat(stream.fileno()).st_size),
-        }
+        headers = download_headers(name, mime, os.fstat(stream.fileno()).st_size)
         if head:
             stream.close()
             return Response(media_type=mime, headers=headers)

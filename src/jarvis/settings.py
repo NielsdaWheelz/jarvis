@@ -54,6 +54,7 @@ OwnerScope = Annotated[str, AfterValidator(_owner_scope)]
 OwnerArchiveKey = Annotated[str, AfterValidator(_owner_archive_key)]
 MEMORY_SOCKET_PATH = Path("/run/jarvis-memory/internal.sock")
 HOME_SOCKET_PATH = Path("/run/jarvis-home/http.sock")
+OWNER_GMAIL_DIRECTORY = Path("/var/lib/jarvis-owner-gmail")
 
 
 class DatabaseSettings(BaseModel):
@@ -185,6 +186,7 @@ class Settings(MemoryJobSettings):
     google_oauth_state_path: Path = Path(
         "/var/lib/jarvis/connectors/google-oauth-state.json"
     )
+    owner_gmail_state_directory: AbsolutePath = OWNER_GMAIL_DIRECTORY
     google_oauth_client_id: SecretStr = Field(default=SecretStr(""), repr=False)
     google_oauth_client_secret: SecretStr = Field(default=SecretStr(""), repr=False)
     connector_encryption_key_version: str = Field(

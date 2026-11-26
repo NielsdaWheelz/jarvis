@@ -179,7 +179,10 @@ async def _check_response(response: httpx.Response, *, cursor: bool = False) -> 
 
 
 def _headers(grant: DriveGrant, *, item: _File | None = None) -> dict[str, str]:
-    result = {"Authorization": "Bearer " + grant.access_token}
+    result = {
+        "Authorization": "Bearer " + grant.access_token,
+        "Accept-Encoding": "identity",
+    }
     if item and item.resourceKey:
         result["X-Goog-Drive-Resource-Keys"] = item.id + "/" + item.resourceKey
     return result
@@ -297,7 +300,14 @@ class DriveReader:
             sum(value is not None for value in (folder, recent, query)) != 1
             or (folder is not None and not _ID.fullmatch(folder))
             or recent not in (None, "true")
-            or (query is not None and (not query.strip() or len(query) > 255))
+            or (
+                query is not None
+                and (
+                    not query.strip()
+                    or len(query) > 255
+                    or any(ord(c) < 32 for c in query)
+                )
+            )
         ):
             raise HTTPException(400, "drive_invalid_input")
         grant = await self._authorized()
@@ -367,7 +377,7 @@ class DriveReader:
         item = await self._file(grant, identifier)
         path: list[dict[str, object]] = []
         path_partial = False
-        if trail and item.parent:
+        if (trail or item.mimeType == _FOLDER) and item.parent:
             root = await self._file(grant, "root")
             ids = {item.id}
             parent = item.parent
@@ -440,6 +450,8 @@ class DriveReader:
                         raise HTTPException(409, "drive_version_changed")
                     await joined_thread(stream.write, chunk)
             after = await self._file(grant, identifier, item=item)
+            if not (after.capabilities and after.capabilities.canDownload):
+                raise HTTPException(404, "drive_inaccessible")
             if (after.version, after.mimeType, after.size) != (
                 item.version,
                 item.mimeType,

@@ -42,6 +42,7 @@ private class DirectoryVisit {
     var partial by mutableStateOf(false)
     var depth by mutableIntStateOf(0)
     var subject by mutableStateOf<String?>(null)
+    var locations by mutableStateOf<Map<String, String>>(emptyMap())
 }
 
 @Composable
@@ -51,6 +52,7 @@ internal fun DriveList(
     reload: Pair<Int, Int>,
     signIn: () -> Unit,
     navigate: (Route) -> Unit,
+    attach: (DiscussionRef) -> Unit,
     subject: String? = null,
 ) {
     var input by rememberSaveable { mutableStateOf("") }
@@ -118,6 +120,26 @@ internal fun DriveList(
                 scroll.scrollToItem(selectedIndex.coerceAtMost(count - 1), selectedOffset)
             }
         }
+        val nameCounts = directory.rows.groupingBy { it.getString("name") }.eachCount()
+        val parentIds = directory.rows.mapNotNull {
+            it.string("parent").takeIf { _ -> (nameCounts[it.getString("name")] ?: 0) > 1 }
+        }.distinct()
+        val listingSubject = directory.subject
+        LaunchedEffect(directory, listingSubject, parentIds) {
+            if (listingSubject != null) for (parent in parentIds) {
+                if (parent in directory.locations) continue
+                val location = try {
+                    val result = api.drive("/api/drive/$listingSubject/$parent")
+                    val path = result.objects("trail").map { it.getString("name") } + result.getString("name")
+                    path.joinToString(" / ")
+                } catch (_: IOException) {
+                    "location unavailable"
+                } catch (_: JSONException) {
+                    "location unavailable"
+                }
+                directory.locations = directory.locations + (parent to location)
+            }
+        }
         LazyColumn(
             state = scroll,
             modifier = Modifier.fillMaxSize(),
@@ -146,6 +168,11 @@ internal fun DriveList(
                         recent = true
                         selected = null
                     }) { Text("recent") }
+                    if (folderId != null && subject != null && !recent && search.isEmpty()) {
+                        TextButton(onClick = { attach(DiscussionRef.DriveFile(subject, folderId, null)) }) {
+                            Text("attach to chat")
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = input,
@@ -175,27 +202,16 @@ internal fun DriveList(
             }
             val openedSubject = directory.subject
             if (openedSubject != null) {
-                val nameCounts = directory.rows.groupingBy { it.getString("name") }.eachCount()
                 val locations = directory.rows.groupingBy { it.getString("name") to it.string("parent") }.eachCount()
                 items(directory.rows, key = { it.getString("id") }) { item ->
                     val name = item.getString("name")
                     val id = item.getString("id")
                     val duplicate = (nameCounts[name] ?: 0) > 1
                     DriveRow(name, restoring == id && selected == id, { selected = null }, { open(Route.DriveFile(openedSubject, id), id) }) {
-                        val location by produceState<String?>(null, duplicate, id, openedSubject) {
-                            value = if (!duplicate) null else try {
-                                val file = api.drive("/api/drive/$openedSubject/$id?trail=true")
-                                val path = file.objects("trail").joinToString(" / ") { it.getString("name") }
-                                when {
-                                    item.string("parent") == null -> "no accessible parent"
-                                    path.isNotEmpty() -> path
-                                    file.optBoolean("trail_partial") -> "location unavailable"
-                                    else -> "my drive"
-                                }
-                            } catch (_: IOException) {
-                                "location unavailable"
-                            }
-                        }
+                        val parent = item.string("parent")
+                        val location = if (duplicate) {
+                            if (parent == null) "no accessible parent" else directory.locations[parent]
+                        } else null
                         val details = listOfNotNull(
                             fileType(item.getString("mime")),
                             item.string("modified")?.let { formattedTime(it) },

@@ -23,7 +23,6 @@
                 <data android:path="/" />
                 <data android:path="/overview" />
                 <data android:pathPrefix="/m/" />
-                <data android:pathPattern="/mail/.*/revision/.*" />
                 <data android:pathPrefix="/t/" />
                 <data android:pathPrefix="/f/" />
                 <data android:path="/files" />

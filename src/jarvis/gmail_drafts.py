@@ -14,10 +14,11 @@ from email.headerregistry import AddressHeader, BaseHeader
 from email.message import MIMEPart
 from email.parser import BytesParser
 from email.utils import getaddresses
-from typing import cast
+from typing import Annotated, cast
 from uuid import UUID
 
 from llm_tools import canonical_json_bytes
+from pydantic import Field
 
 from jarvis.actions import (
     ActionPersistenceDefect,
@@ -271,11 +272,19 @@ def _attachment_filename(message: MIMEPart) -> str:
     return filename
 
 
+class EditorSnapshot(GmailSnapshot):
+    """A human draft may have no primary recipient and retains its sender name."""
+
+    to: Annotated[tuple[Mailbox, ...], Field(max_length=50)]
+    sender_name: str | None
+
+
 def _envelope_snapshot(
     message: MIMEPart,
     account: str,
     body_text: str,
     files: tuple[MailFile, ...],
+    editor: bool,
 ) -> GmailSnapshot:
     if message.defects or any(
         header.lower() in _ROUTING_HEADERS or header.lower().startswith("resent-")
@@ -293,6 +302,8 @@ def _envelope_snapshot(
     ):
         raise ValueError("Gmail sender is not the configured account")
     subject = _header(message, "Subject")
+    if editor and subject is None:
+        subject = ""
     in_reply_to = _message_ids(_header(message, "In-Reply-To") or "")
     references = _message_ids(_header(message, "References") or "")
     if (
@@ -303,17 +314,20 @@ def _envelope_snapshot(
     ):
         raise ValueError("invalid Gmail subject or reply headers")
 
-    return GmailSnapshot(
-        sender=sender,
-        to=_mailboxes(message, "To"),
-        cc=_mailboxes(message, "Cc"),
-        bcc=_mailboxes(message, "Bcc"),
-        subject=subject,
-        body_text=body_text,
-        in_reply_to=in_reply_to[0] if in_reply_to else None,
-        references=references,
-        files=files,
-    )
+    fields = {
+        "from": sender,
+        "to": _mailboxes(message, "To"),
+        "cc": _mailboxes(message, "Cc"),
+        "bcc": _mailboxes(message, "Bcc"),
+        "subject": subject,
+        "body_text": body_text,
+        "in_reply_to": in_reply_to[0] if in_reply_to else None,
+        "references": references,
+        "files": files,
+    }
+    if editor:
+        return EditorSnapshot.model_validate({**fields, "sender_name": from_[0].name})
+    return GmailSnapshot.model_validate(fields)
 
 
 def _plain_parts(
@@ -406,6 +420,7 @@ def workspace_draft_content(
     account: str,
     *,
     replacing: bool = False,
+    editor: bool = False,
 ) -> tuple[GmailSnapshot, tuple[bytes, ...]]:
     """Return only a plain envelope that the public create_draft can reproduce."""
     normal_headers = {
@@ -455,7 +470,7 @@ def workspace_draft_content(
             if any(key.lower() not in allowed for key, _ in parameters[1:]):
                 raise ValueError("unsupported draft mime parameter")
     body, files, parts = _plain_parts(message)
-    return _envelope_snapshot(message, account, body, files), parts
+    return _envelope_snapshot(message, account, body, files, editor), parts
 
 
 def workspace_draft_snapshot(

@@ -114,6 +114,8 @@ from jarvis.write_tools import (
     GMAIL_CREATE_DRAFT_SPEC,
     WORKSPACE_IMPLEMENTATION,
     WORKSPACE_MAIL_IMPLEMENTATION,
+    WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION,
+    WORKSPACE_MAIL_SNAPSHOT_REVISIONS,
     WRITE_TOOL_IDS,
     workspace_implementation,
 )
@@ -171,7 +173,9 @@ _RETIRED_WORKSPACE_REVISIONS = {
         ("calendar.delete_event", 2),
     )
 }
-_RETIRED_WORKSPACE_REVISIONS[GMAIL_CREATE_DRAFT_SPEC.id].add(WORKSPACE_IMPLEMENTATION)
+_RETIRED_WORKSPACE_REVISIONS[GMAIL_CREATE_DRAFT_SPEC.id].update(
+    (WORKSPACE_IMPLEMENTATION, WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION)
+)
 
 
 class ActionPersistenceDefect(RuntimeError):
@@ -2434,16 +2438,7 @@ def _validate_stored_action(stored: StoredAction) -> None:
                 )
                 compose = frozen.effect
                 assert isinstance(compose, FrozenCompose)
-                fields = {"to", "cc", "bcc", "subject"}
-                if (
-                    revision.sender.address != frozen.account
-                    or revision.model_dump(include=fields)
-                    != compose.content.model_dump(include=fields)
-                    or revision.files != compose.files
-                    or receipt.generated_quote
-                    != (revision.body_text != compose.content.body_text)
-                    or not compose.matches_observed_body(revision.body_text)
-                ):
+                if not compose.matches_snapshot(revision, receipt):
                     raise ValueError(
                         "draft evidence differs from the verified revision"
                     )
@@ -2535,7 +2530,7 @@ def _stored_tool_result(stored: StoredAction) -> ToolResult:
     if (
         "draft_revision" in stored.result
         and stored.execution_contract.implementation_revision
-        == WORKSPACE_MAIL_IMPLEMENTATION
+        in WORKSPACE_MAIL_SNAPSHOT_REVISIONS
     ):
         return _tool_result(
             {
@@ -2991,7 +2986,7 @@ def public_resolution_result(stored: StoredAction) -> dict[str, object]:
     if (
         "draft_revision" in stored.result
         and stored.execution_contract.implementation_revision
-        == WORKSPACE_MAIL_IMPLEMENTATION
+        in WORKSPACE_MAIL_SNAPSHOT_REVISIONS
     ):
         return dict(_stored_tool_result(stored))
     if stored.status == "uncertain" and str(stored.tool_name) in GMAIL_WRITE_NAMES:

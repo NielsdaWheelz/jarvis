@@ -1133,6 +1133,7 @@ service stops are independent. select the owning service before stopping it.
 | --- | --- | --- |
 | `memory status` | neither | read-only status |
 | `list-parked` | neither | read-only owner-scope inventory, jarvis with runtime login |
+| `resume-recovery-quota-wait INVENTORY` | assistant | jarvis with runtime login. resumes an existing held mail report at its verified quota deadline |
 | `queue-recovery-catchup INVENTORY` | assistant | jarvis with runtime login. queues a named read-only mail report under [adr 0114](decisions/0114-automatic-foreground-recovery.md) |
 | `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
 | `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
@@ -1264,6 +1265,13 @@ maintenance wrapper. the command returns the canonical host input id.
 after restart verify the one logical report, the exact coverage
 dispositions and the absence of new executor entries. do not release the
 mail inputs into ordinary full main for this operation.
+
+a quota receipt with a future deadline defers the same read-only input without
+spending its fault retry. if an earlier release put that input on protocol hold
+while such a deadline was outstanding, use the same inventory and stopped
+wrapper with `jarvis resume-recovery-quota-wait INVENTORY`. this rechecks the
+original park, mail identities, owner controls and current grant before scheduling
+the held input. a deadline that has since passed makes it eligible immediately.
 
 Startup first reconciles every queued or executing action whose original turn
 cannot safely resume. Each exact current binding and immutable execution

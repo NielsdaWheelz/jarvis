@@ -129,14 +129,17 @@ private fun messageNoticeTag(id: String): String {
 }
 
 class NoticeDismissed : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) = PhoneNotices.get(context).updateGroup()
+    override fun onReceive(context: Context, intent: Intent) {
+        intent.data?.lastPathSegment?.let { PhoneNotices.get(context).dismissed(it) }
+    }
 }
 
 internal class PhoneNotices private constructor(private val context: Context) {
     val shown = ChatShown(context)
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val held = context.getSharedPreferences("held-chat-notices", Context.MODE_PRIVATE)
-    private var foreground = false
+    private var foreground: Boolean? = null
+    private val postingReplies = mutableSetOf<String>()
     private var revision = 0L
     private val groupHandler = Handler(Looper.getMainLooper())
     private val reconcileGroup = Runnable { updateGroup() }
@@ -146,6 +149,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
 
     @Synchronized
     fun foreground(visible: Boolean) {
+        if (foreground == visible) return
         foreground = visible
         if (visible) return
 
@@ -169,7 +173,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
         if (!manager.allows(kind)) return
         val tag = messageNoticeTag(id)
         issued[tag] = ++revision
-        if (foreground) {
+        if (foreground == true) {
             val previous = held.getString(id, null)
             val stamp = previous?.substringAfter(' ', "").orEmpty()
             if (held.edit().putString(id, if (stamp.isEmpty()) kind else "$kind $stamp").commit()) return
@@ -217,10 +221,13 @@ internal class PhoneNotices private constructor(private val context: Context) {
         val route = Intent(Intent.ACTION_VIEW, Routes.url(Route.Message(id)), context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val title = if (kind == REPLY) "jarvis replied" else "jarvis needs a reply"
-        val notice = notification(context, kind, title, route)
-        if (kind == REPLY) notice.setGroup(ReplyGroup).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
-            .setDeleteIntent(groupDismissed())
         val tag = messageNoticeTag(id)
+        val notice = notification(context, kind, title, route)
+        if (kind == REPLY) {
+            postingReplies.add(tag)
+            notice.setGroup(ReplyGroup).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+                .setDeleteIntent(groupDismissed(tag))
+        }
         issued[tag] = ++revision
         manager.notify(tag, 0, notice.build())
         if (kind == REPLY) reconcileGroupAfterQueue()
@@ -233,12 +240,25 @@ internal class PhoneNotices private constructor(private val context: Context) {
         groupHandler.postDelayed(reconcileGroup, 250)
     }
 
-    private fun replyTags() = manager.activeNotifications.filter {
-        it.notification.channelId == REPLY && it.notification.group == ReplyGroup && it.tag != ReplyGroup
-    }.mapTo(mutableSetOf()) { it.tag }
+    private fun replyTags(): MutableSet<String> {
+        val active = manager.activeNotifications.filter {
+            it.notification.channelId == REPLY && it.notification.group == ReplyGroup && it.tag != ReplyGroup
+        }.mapTo(mutableSetOf()) { it.tag }
+        // Android can cancel children with their summary. Account for queued posts
+        // until the manager acknowledges them as active.
+        postingReplies.removeAll(active)
+        active.addAll(postingReplies)
+        return active
+    }
 
     @Synchronized
-    fun updateGroup() = updateGroup(replyTags().size)
+    fun dismissed(tag: String) {
+        if (tag == ReplyGroup) postingReplies.clear() else postingReplies.remove(tag)
+        updateGroup()
+    }
+
+    @Synchronized
+    private fun updateGroup() = updateGroup(replyTags().size)
 
     private fun updateGroup(count: Int) {
         if (count == 0) {
@@ -249,14 +269,18 @@ internal class PhoneNotices private constructor(private val context: Context) {
                 .setGroupSummary(true)
                 .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
                 .setOnlyAlertOnce(true)
-                .setDeleteIntent(groupDismissed())
+                .setDeleteIntent(groupDismissed(ReplyGroup))
                 .setAutoCancel(false)
             manager.notify(ReplyGroup, 0, summary.build())
         }
     }
 
-    private fun groupDismissed() =
-        PendingIntent.getBroadcast(context, 0, Intent(context, NoticeDismissed::class.java), PendingIntent.FLAG_IMMUTABLE)
+    private fun groupDismissed(tag: String): PendingIntent {
+        val intent = Intent(context, NoticeDismissed::class.java).setData(
+            Uri.Builder().scheme("jarvis-notice").authority("dismiss").appendPath(tag).build(),
+        )
+        return PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+    }
 
     companion object {
         private const val ReplyGroup = "jarvis-replies"

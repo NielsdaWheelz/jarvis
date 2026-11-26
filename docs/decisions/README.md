@@ -154,6 +154,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0113](0113-desktop-worker.md) | desktop worker on the managed skid fleet | v13 predecessor. the v14 placement cut supersedes the fixed roster |
 | [0114](0114-automatic-foreground-recovery.md) | automatic foreground recovery | source and isolated candidate qualified. installed recovery and historical disposition are separate. |
 | [0114](0114-skid-worker-placement.md) | skid worker placement | installed. jarvis captures the enrolled machine when admitting a write. |
+| [0115](0115-web-home-address.md) | web home address | accepted. ordinary navigation stays at the bare domain and exact objects keep their links. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 the two decisions numbered 0114 likewise retain their distinct titles and paths.

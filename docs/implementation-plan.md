@@ -171,6 +171,10 @@ independent claude opus 5.5 passed the original design, its calendar and draft a
 
 ## private web home
 
+[stable web home address](decisions/0115-web-home-address.md) keeps home and
+todos at the bare domain. qualify the packaged shell against the adr’s browser
+journeys on macbook before release.
+
 the owner conversation, browser, originals, authored canvas and notifications share
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)
 records the source, candidate and stopped `0017` production proofs. the owner

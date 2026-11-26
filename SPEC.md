@@ -39,6 +39,11 @@ jarvis undertakes. conversation owns questions, proposals and answers.
 the adr supersedes the separate decisions surface and scopes the temporary
 per-feature design, opus review and live proof.
 
+[adr 0115](docs/decisions/0115-web-home-address.md) adopts `/` for the web
+home and todo list. each tab pins its chosen canvas in browser history.
+messages, individual todos, files, pdf pages and published revisions keep
+their own addresses. an incoming `/overview` link opens todos at `/`.
+
 [adr 0105](docs/decisions/0105-native-android.md) owns the native android
 client, explicit todo results on both clients and replacement of discord alert
 delivery by firebase. the installed 0087 contract governs until the recorded

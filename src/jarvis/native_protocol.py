@@ -29,7 +29,7 @@ from pydantic import model_validator
 from jarvis import terminal
 from jarvis.workspace_checks import WorkspaceResult
 
-NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v5"
+NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v6"
 NATIVE_OUTPUT_NAME = "jarvis_home_message_v3"
 WORKSPACE_CHECK_PROFILE = ProfileId("workspace_check")
 FOREGROUND_RECOVERY_PROFILE = ProfileId("foreground_recovery")

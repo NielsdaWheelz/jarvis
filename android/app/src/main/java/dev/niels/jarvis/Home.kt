@@ -358,6 +358,7 @@ private fun Conversation(
     var previousHead by rememberSaveable { mutableStateOf<String?>(null) }
     var held by rememberSaveable { mutableStateOf<String?>(null) }
     var restored by remember { mutableStateOf(false) }
+    var restoreSearchFailed by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf(false) }
     var owedCycle by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingJump by remember { mutableStateOf<String?>(null) }
@@ -371,8 +372,16 @@ private fun Conversation(
         list.layoutInfo.visibleItemsInfo.find { it.index == keys.lastIndex }?.let { list.scrollBy(it.size.toFloat()) }
     }
 
-    LaunchedEffect(keys, history.placedVisit, sent) {
+    val fetchingAnchor = !restored && !restoreSearchFailed &&
+        anchor?.let { it !in indexes } == true && history.before != null
+    LaunchedEffect(keys, history.placedVisit, sent, fetchingAnchor) {
         if (keys.isEmpty()) return@LaunchedEffect
+        if (fetchingAnchor) {
+            val cursor = history.before
+            history.earlier(readPage)
+            restoreSearchFailed = history.before == cursor
+            return@LaunchedEffect
+        }
         val oldHead = previousHead?.let { id -> messages.indexOfFirst { it.id == id } } ?: -1
         val arrivals = messages.drop(oldHead + 1).filter { it.tracked }
         val oldAnchor = indexes[anchor]
@@ -445,8 +454,10 @@ private fun Conversation(
     LaunchedEffect(list) {
         var userScroll = false
         snapshotFlow {
-            val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == list.firstVisibleItemIndex }
-            Triple(item?.key as? String, list.firstVisibleItemScrollOffset, list.isScrollInProgress && !moving)
+            val item = list.layoutInfo.visibleItemsInfo.firstOrNull {
+                it.index >= list.firstVisibleItemIndex && (it.key as? String)?.let(::canonicalUuid) == true
+            }
+            Triple(item?.key as? String, item?.let { -it.offset } ?: 0, list.isScrollInProgress && !moving)
         }.collect { (id, pixels, scrolling) ->
             if (restored && id != null) {
                 anchor = id
@@ -463,7 +474,11 @@ private fun Conversation(
         }
     }
 
-    viewport.Observe(history, line, history.newTotal > history.newAbove)
+    if (fetchingAnchor) {
+        Pane { BodyStatus("opening conversation") }
+        return
+    }
+    viewport.Observe(history, line, restored && history.newTotal > history.newAbove)
     val visible = list.layoutInfo.visibleItemsInfo
     val onScreen = visible.mapTo(mutableSetOf()) { it.key }
     val firstIndex = visible.firstOrNull()?.index ?: 0

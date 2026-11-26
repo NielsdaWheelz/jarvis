@@ -142,7 +142,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
     private val postingReplies = mutableSetOf<String>()
     private var revision = 0L
     private val groupHandler = Handler(Looper.getMainLooper())
-    private val reconcileGroup = Runnable { updateGroup() }
+    private val reconcileGroup = Runnable { settleGroup() }
     private val issued = mutableMapOf<String, Long>()
 
     internal data class BeforeRead(val active: List<StatusBarNotification>, val revision: Long)
@@ -153,7 +153,6 @@ internal class PhoneNotices private constructor(private val context: Context) {
         foreground = visible
         if (visible) return
 
-        val replies = replyTags()
         for ((id, stored) in held.all) {
             val receipt = stored as String
             val kind = receipt.substringBefore(' ')
@@ -161,11 +160,11 @@ internal class PhoneNotices private constructor(private val context: Context) {
                 ChatStamp(id, Instant.parse(it))
             }
             if (!shown.recorded(id) && (stamp == null || !shown.recorded(stamp))) {
-                if (post(id, kind) && kind == REPLY) replies.add(messageNoticeTag(id))
+                post(id, kind)
             }
             held.edit().remove(id).apply()
         }
-        updateGroup(replies.size)
+        updateGroup(replyTags().size)
     }
 
     @Synchronized
@@ -178,11 +177,8 @@ internal class PhoneNotices private constructor(private val context: Context) {
             val stamp = previous?.substringAfter(' ', "").orEmpty()
             if (held.edit().putString(id, if (stamp.isEmpty()) kind else "$kind $stamp").commit()) return
         }
-        val replies = if (kind == REPLY) replyTags() else null
-        if (post(id, kind) && replies != null) {
-            replies.add(tag)
-            updateGroup(replies.size)
-        }
+        post(id, kind)
+        if (kind == REPLY) updateGroup(replyTags().size)
     }
 
     @Synchronized
@@ -216,8 +212,8 @@ internal class PhoneNotices private constructor(private val context: Context) {
         updateGroup(replies.size)
     }
 
-    private fun post(id: String, kind: String): Boolean {
-        if (!manager.allows(kind)) return false
+    private fun post(id: String, kind: String) {
+        if (!manager.allows(kind)) return
         val route = Intent(Intent.ACTION_VIEW, Routes.url(Route.Message(id)), context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val title = if (kind == REPLY) "jarvis replied" else "jarvis needs a reply"
@@ -231,7 +227,6 @@ internal class PhoneNotices private constructor(private val context: Context) {
         issued[tag] = ++revision
         manager.notify(tag, 0, notice.build())
         if (kind == REPLY) reconcileGroupAfterQueue()
-        return true
     }
 
     // Posting and cancelling are queued by Android. Recount once from the manager after the burst.
@@ -247,8 +242,16 @@ internal class PhoneNotices private constructor(private val context: Context) {
         // Android can cancel children with their summary. Account for queued posts
         // until the manager acknowledges them as active.
         postingReplies.removeAll(active)
-        active.addAll(postingReplies)
         return active
+    }
+
+    @Synchronized
+    private fun settleGroup() {
+        val active = replyTags()
+        // A blocked or rate-limited post may never be acknowledged. Don't invent
+        // a count or cancel an apparently empty group based on that uncertainty.
+        updateGroup(active.size)
+        postingReplies.clear()
     }
 
     @Synchronized
@@ -262,7 +265,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
 
     private fun updateGroup(count: Int) {
         if (count == 0) {
-            manager.cancel(ReplyGroup, 0)
+            if (postingReplies.isEmpty()) manager.cancel(ReplyGroup, 0)
         } else if (manager.allows(REPLY)) {
             val summary = notification(context, REPLY, "jarvis · $count new", Intent(context, MainActivity::class.java))
                 .setGroup(ReplyGroup)

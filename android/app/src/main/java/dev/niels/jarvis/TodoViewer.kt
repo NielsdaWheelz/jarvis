@@ -275,7 +275,7 @@ internal fun TodoViewer(
                             val todo = data?.optJSONObject("record")
                             val zone = data?.string("timezone")
                             if (todo != null) {
-                                Prose(todo.getString("content"), navigate)
+                                LinkedText(todo.getString("content"), navigate)
                                 todo.string("wake_at")?.let {
                                     val past = Instant.parse(it) <= Instant.parse(data.getString("as_of"))
                                     Text("jarvis check ${if (past) "was due" else "scheduled for"} ${formattedTime(it, zone)}")

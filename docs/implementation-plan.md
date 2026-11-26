@@ -288,6 +288,26 @@ the stopped mail inventory and record the
 
 ## full answers in web chat
 
+[adr 0124](decisions/0124-citations-and-viewer-delivery.md) owns evidence
+inspection, full-width tables and work delivery. its reading prerequisite
+ships with this slice. use 0120 for verified downloadable files. use
+0122's contextual back and 0123's passive edition links on their matched
+cuts. 0119's production editor enrollment is tracked independently.
+the [installed and live check](issues/citation-viewer-live.md) records the
+remaining account, provider and signed phone work.
+the [controlled candidate record](decisions/0124-citations-and-viewer-delivery.md#implementation-evidence)
+binds the code, receipts, opus closure and fixture removal.
+
+the selected artifacts determine the release order. finish the stopped drive
+cut in #129 first, or repeat its migration, custody and client proof on the
+exact combined release. drain incompatible outputs on the original selected
+release before switching. preserve the installed and candidate request name,
+output name and schema digest, prepared prompt and schema digests, main
+revision and client contract. a reused name with different bytes holds the
+cut. use one matched viewer contract for chat, evidence, file submission and
+the artifact library. the v4/v7 or v30 identities from independent candidates
+cannot name the combined release.
+
 [adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)
 records the qualified source and isolated stock candidate. it removes the old
 final-reply limit and preserves reading position on direct message links.

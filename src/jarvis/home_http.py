@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -20,6 +21,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 
 from jarvis.attachments import AttachmentStore, SpoolFull, WebUpload
+from jarvis.citation_sources import MAX_SOURCES, read_source, source_is_available
+from jarvis.connectors import GoogleCredentialDefect
 from jarvis.db import message
 from jarvis.home_drive import DriveReader, mount_drive
 from jarvis.home_pages import (
@@ -34,6 +37,7 @@ from jarvis.home_reads import (
     conversation,
     eligible_draft,
     mail_revision,
+    source_slot,
     todo_results,
     visible_message,
 )
@@ -55,6 +59,7 @@ from jarvis.phone import (
     canonical_uuid,
 )
 from jarvis.work import WorkStore
+from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_mcp import WorkspaceApprovals
 
 _STATIC = Path(__file__).parent / "static" / "home"
@@ -97,6 +102,7 @@ def create_home_app(
     workspace_approvals: WorkspaceApprovals | None = None,
     drive_reader: DriveReader | None = None,
     mail_editor: MailEditor | None = None,
+    source_enrollment: Callable[[], WorkspaceEnrollment | None] | None = None,
 ) -> FastAPI:
     app = FastAPI(
         docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False
@@ -121,7 +127,7 @@ def create_home_app(
                 ("/api/messages/", "/api/submissions/", "/api/artifacts/")
             )
         ) and request.headers.getlist("x-jarvis-viewer-contract") != [
-            "artifact-library"
+            "cited-sources-v1"
         ]:
             response = JSONResponse(
                 {"detail": "reload the jarvis viewer or update the android app"},
@@ -225,11 +231,24 @@ def create_home_app(
             )
         )
 
+    async def source_grant() -> WorkspaceEnrollment | None:
+        if source_enrollment is None:
+            return None
+        try:
+            return await run_in_threadpool(source_enrollment)
+        except (OSError, GoogleCredentialDefect):
+            logging.getLogger(__name__).debug("source enrollment unavailable")
+            return None
+
     async def history(before: str | None = None) -> dict[str, Any]:
         async with database.connect() as conn:
             try:
                 return await conversation(
-                    conn, scope, before, editor_epoch=editor_epoch
+                    conn,
+                    scope,
+                    before,
+                    editor_epoch=editor_epoch,
+                    source_grant=await source_grant(),
                 )
             except ValueError as exc:
                 raise HTTPException(422, "invalid cursor") from exc
@@ -237,11 +256,45 @@ def create_home_app(
     async def one_message(identifier: UUID) -> dict[str, Any]:
         async with database.connect() as conn:
             row = await visible_message(
-                conn, scope, identifier, editor_epoch=editor_epoch
+                conn,
+                scope,
+                identifier,
+                editor_epoch=editor_epoch,
+                source_grant=await source_grant(),
             )
         if row is None:
             raise HTTPException(404)
         return row
+
+    async def evidence(identifier: str, slot: str) -> dict[str, Any]:
+        try:
+            reply = canonical_uuid(identifier)
+        except ValueError as exc:
+            raise HTTPException(404) from exc
+        if not re.fullmatch(r"[1-9][0-9]?", slot) or int(slot) > MAX_SOURCES:
+            raise HTTPException(404)
+        grant = await source_grant()
+        async with database.connect() as conn:
+            locator = await source_slot(conn, scope, reply, int(slot))
+            if locator is None:
+                raise HTTPException(404)
+            if not isinstance(locator, dict):
+                logging.getLogger(__name__).debug("source unavailable: invalid_locator")
+                return {"state": "unavailable"}
+            indexed = cast(dict[str, Any], locator)
+            if not source_is_available(indexed, grant):
+                reason = (
+                    "grant_fenced" if indexed.get("state") == "available" else "unbound"
+                )
+                logging.getLogger(__name__).debug("source unavailable: %s", reason)
+                return {"state": "unavailable"}
+            detail = await read_source(conn, scope, indexed, grant)
+        if detail["state"] != "available":
+            logging.getLogger(__name__).debug("source unavailable: receipt_unavailable")
+        elif not source_is_available(indexed, await source_grant()):
+            logging.getLogger(__name__).debug("source unavailable: grant_changed")
+            return {"state": "unavailable"}
+        return detail
 
     async def revision(message_id: UUID, action_id: UUID) -> dict[str, Any]:
         async with database.connect() as conn:
@@ -389,6 +442,9 @@ def create_home_app(
     app.add_api_route("/api/messages", history, methods=["GET"])
     app.add_api_route("/api/messages/{identifier}", one_message, methods=["GET"])
     app.add_api_route(
+        "/api/messages/{identifier}/sources/{slot}", evidence, methods=["GET"]
+    )
+    app.add_api_route(
         "/api/mail/{message_id}/revision/{action_id}", revision, methods=["GET"]
     )
     app.add_api_route("/api/todos", todo_list, methods=["GET"])
@@ -415,6 +471,10 @@ def create_home_app(
     app.add_api_route("/", shell, methods=["GET"])
     app.add_api_route("/t/{identifier}", shell, methods=["GET"])
     app.add_api_route("/m/{identifier}", shell, methods=["GET"])
+    app.add_api_route("/m/{identifier}/source/{slot}", shell, methods=["GET"])
+    app.add_api_route(
+        "/m/{identifier}/table/{ordinal}/{digest}", shell, methods=["GET"]
+    )
     app.add_api_route("/f/{identifier}", shell, methods=["GET"])
     app.add_api_route("/files", shell, methods=["GET"])
     app.add_api_route("/files/{subject}/{identifier}", shell, methods=["GET"])

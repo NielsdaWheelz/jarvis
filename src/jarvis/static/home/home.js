@@ -3,6 +3,10 @@ import { el, button, link } from "./home-dom.js";
 import { draftPreview, openEditor } from "./mail-editor.js";
 import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
 
+import { address } from "./home-address.js";
+import { linkedText, parseMessage, renderMarkdown, showTableControls, updateCitations } from "./chat-reader.js";
+import { bindInspection } from "./inspection.js";
+
 const $ = (id) => document.getElementById(id);
 function creationPath(messageId, created) {
   const kind = created.editable === true ? "draft" : "revision";
@@ -67,32 +71,7 @@ function save() {
   const files = draft.files.map(({ name, size, sha256 }) => ({ name, size, sha256 }));
   sessionStorage.setItem(draftKey, JSON.stringify({ ...draft, files }));
 }
-const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const conversationRoute = new RegExp("^/(m|t)/(" + uuid + ")$");
-const mailRoute = new RegExp("^/mail/(" + uuid + ")/(revision|draft)/(" + uuid + ")$");
-const artifactRoute = /^\/artifacts\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/([0-9a-f]{40}|[0-9a-f]{64}))?$/;
-function address(path) {
-  if (!path) return null;
-  const url = new URL(path, location.origin);
-  if (url.origin !== location.origin || url.href.includes("#")) return null;
-  if (!url.search && !url.href.endsWith("?")) {
-    const pathname = url.pathname;
-    if (pathname === "/") return { kind: "home" };
-    if (pathname === "/todos") return { kind: "todos" };
-    const literal = path.startsWith(location.origin) ? path.slice(location.origin.length) : path;
-    if (literal === pathname) {
-      if (pathname === "/artifacts") return { kind: "artifacts" };
-      const view = artifactRoute.exec(pathname);
-      if (view && view[1].length <= 64) return { kind: "view", slug: view[1], rev: view[2] };
-    }
-    const chat = conversationRoute.exec(pathname);
-    if (chat) return { kind: chat[1] === "m" ? "message" : "todo", id: chat[2] };
-    const mail = mailRoute.exec(pathname);
-    if (mail) return { kind: "mail", message: mail[1], mode: mail[2], action: mail[3] };
-  }
-  return driveRoute(url.href);
-}
-const isDetail = (path) => address(path)?.kind === "message";
+const isDetail = path => address(path)?.kind === "message";
 let mailEditor = null;
 let shownIndex = history.state?.entryIndex ?? 0;
 let undoingTraversal = false;
@@ -386,7 +365,7 @@ function discuss(ref, title, origin) {
 }
 async function request(path, { allowServerError = false, ...options } = {}) {
   const headers = new Headers(options.headers);
-  headers.set("X-Jarvis-Viewer-Contract", "artifact-library");
+  headers.set("X-Jarvis-Viewer-Contract", "cited-sources-v1");
   const response = await fetch(path, { redirect: "manual", cache: "no-store", ...options, headers });
   if (response.type === "opaqueredirect" || [401, 403].includes(response.status)) {
     if (!loginRequired) {
@@ -395,6 +374,7 @@ async function request(path, { allowServerError = false, ...options } = {}) {
       document.body.classList.add("auth-required");
       armed = null;
       presentations.clear();
+      inspection.close();
       files.close();
       artifacts.leave();
       for (const id of ["object", "object-tools", "location", "todo-list", "messages", "workspace-approval"])
@@ -554,62 +534,6 @@ $("message").onkeydown = (e) => {
   if (!e.repeat) $("send").click();
 };
 
-function linkDestination(text, start) {
-  let href = "";
-  let depth = 0;
-  for (let i = start; i < text.length; i++) {
-    const c = text[i];
-    if (/[\s<>]/.test(c)) break;
-    if (c === ")" && depth === 0) return { href, end: i + 1 };
-    if (c === "\\" && /[()\\]/.test(text[i + 1] || "")) {
-      i++;
-      href += text[i];
-      continue;
-    }
-    if (c === "(") depth++;
-    if (c === ")") depth--;
-    href += c;
-  }
-  return null;
-}
-
-function prose(text) {
-  const p = el("p", undefined, "prose");
-  // Recognise links without interpreting the rest of a message as markup.
-  const pattern =
-    /\[([^\]\n]+)\]\((?=https?:\/\/|\/(?:[mftv]\/|files\/))|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?:\/\/|\/(?:[mftv]\/|files\/))[^\s<>]+/gi;
-  let end = 0;
-  for (let match; (match = pattern.exec(text)); ) {
-    const [token, label, attachment] = match;
-    let tail = "";
-    let href;
-    if (label) {
-      const destination = linkDestination(text, pattern.lastIndex);
-      if (!destination) continue;
-      href = destination.href;
-      pattern.lastIndex = destination.end;
-    } else if (attachment) {
-      href = "/f/" + attachment;
-    } else {
-      href = token;
-      tail = /[.,;:!?'"\]}]+$/.exec(href)?.[0] || "";
-      href = href.slice(0, href.length - tail.length);
-      if (href.endsWith(")") && href.split(")").length > href.split("(").length) {
-        href = href.slice(0, -1);
-        tail = ")" + tail;
-      }
-    }
-    const a = link(label || (attachment ? "original file" : href), href);
-    if (a.origin !== location.origin) {
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-    }
-    p.append(text.slice(end, match.index), a, tail);
-    end = pattern.lastIndex;
-  }
-  p.append(text.slice(end));
-  return p;
-}
 function draftRevisionLink(messageId, actionId) {
   return link(
     "open draft revision",
@@ -617,14 +541,26 @@ function draftRevisionLink(messageId, actionId) {
     "result draft-revision-link",
   );
 }
-function renderMessage(m) {
-  const node = el("article");
+function renderMessage(m, existing) {
+  const node = existing || el("article");
   node.id = "msg-" + m.id;
-  const stamp = el("div", undefined, "stamp");
-  stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis"), el("time", time(m.at)));
-  node.append(stamp, prose(m.text));
+  if (!existing) {
+    const stamp = el("div", undefined, "stamp");
+    stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis"), el("time", time(m.at)));
+    node.append(stamp);
+  }
+  if (node.messageText !== m.text) {
+    node.parsed = parseMessage(m.text);
+    node.messageText = m.text;
+    const reader = renderMarkdown(m, node.parsed);
+    if (node.reader) node.reader.replaceWith(reader);
+    else node.append(reader);
+    node.reader = reader;
+  } else updateCitations(node.reader, m);
+  inspection.updateTable(m);
+  const controls = el("div");
   for (const f of m.files || [])
-    node.append(
+    controls.append(
       link(
         (f.name || "unnamed file") +
           " · " +
@@ -635,7 +571,7 @@ function renderMessage(m) {
     );
   if (m.ref) {
     const path = objectPath(m.ref);
-    node.append(
+    controls.append(
       path
         ? link("discussed · " + label(m.ref), path, "result")
         : el("small", "discussed · " + label(m.ref)),
@@ -645,7 +581,7 @@ function renderMessage(m) {
     const group = el("section", undefined, "proposal");
     group.append(
       el("strong", proposal.title),
-      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : prose(proposal.detail),
+      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : linkedText(proposal.detail),
       el("p", proposal.status_label || proposal.status.replaceAll("_", " "), "secondary"),
     );
     if (proposal.draft_revision_id) {
@@ -665,14 +601,14 @@ function renderMessage(m) {
     );
     reply.dataset.action = proposal.action_id;
     group.append(reply);
-    node.append(group);
+    controls.append(group);
   }
   if (m.draft_revision_error === "integrity")
-    node.append(el("p", "draft revision failed integrity checks.", "draft-evidence"));
+    controls.append(el("p", "draft revision failed integrity checks.", "draft-evidence"));
   if (m.draft_revision_id && !m.drafts?.some(d => d.editable !== true && d.create_action_id === m.draft_revision_id)) {
     const revision = draftRevisionLink(m.id, m.draft_revision_id);
     revision.classList.add("draft-evidence");
-    node.append(revision);
+    controls.append(revision);
   }
   for (const [i, created] of (m.drafts || []).entries()) {
     const subject = created.subject || "(no subject)";
@@ -680,13 +616,22 @@ function renderMessage(m) {
     const action = created.editable === true ? "open draft" : "open draft revision";
     const ordinal = m.drafts.slice(0, i + 1).filter(other => other.subject === created.subject).length;
     const name = action + " · " + subject + (numbered ? " · " + ordinal : "");
-    node.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
+    controls.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
   }
   const delivered = new Map((m.artifact_links || []).map(ref => [objectPath(ref), ref]));
-  if (m.present && m.present.ref.kind !== "draft")
+  if (m.present && !["draft", "source"].includes(m.present.ref.kind))
     delivered.set(objectPath(m.present.ref), m.present.ref);
-  for (const [path, ref] of delivered)
-    node.append(link("open " + label(ref), path, "result"));
+  const alreadyLinked = new Set([...node.reader.querySelectorAll("a[href]"), ...controls.querySelectorAll("a[href]")]
+    .map(anchor => anchor.getAttribute("href")));
+  for (const [path, ref] of delivered) {
+    if (!path || alreadyLinked.has(path)) continue;
+    const filename = ref.kind === "file" && m.files?.find(file => file.id === ref.id)?.name;
+    const name = filename ? filename + (ref.page ? " · page " + ref.page : "") : label(ref);
+    controls.append(link("open " + name, path, "result"));
+  }
+  if (node.controls) node.controls.replaceWith(controls);
+  else node.append(controls);
+  node.controls = controls;
   node.dataset.version = JSON.stringify(m);
   return node;
 }
@@ -711,18 +656,24 @@ function merge(items) {
           ref.request_id === request_id && d.create_action_id === ref.create_action_id);
         if (created) presentations.set(request_id, creationPath(m.id, created));
         else presentations.delete(request_id);
+      } else if (ref.kind === "source") {
+        if (m.sources?.some(source => source.slot === ref.slot && source.state === "available"))
+          presentations.set(request_id, "/m/" + m.id + "/source/" + ref.slot);
+        else presentations.delete(request_id);
       } else presentations.set(request_id, objectPath(ref));
     }
     if (existing?.dataset.version === JSON.stringify(m)) continue;
-    const node = renderMessage(m);
+    const focused = existing?.contains(document.activeElement) ? document.activeElement : null;
+    const node = renderMessage(m, existing);
     if (m.id === selectedMessage) node.classList.add("selected");
     const fraction = (m.at.match(/\.(\d+)/)?.[1] || "").padEnd(6, "0");
     // Date's millisecond precision alone loses the order of simultaneous writes.
     node.dataset.order = new Date(m.at).toISOString().slice(0, 19) + fraction + m.id;
     if (existing) {
-      const focused = existing.contains(document.activeElement) ? document.activeElement : null;
-      existing.replaceWith(node);
-      if (focused?.dataset.action)
+      if (!focused || focused.isConnected) continue;
+      if (focused.dataset.readerAnchor)
+        node.querySelector('[data-reader-anchor="' + focused.dataset.readerAnchor + '"]')?.focus({ preventScroll: true });
+      else if (focused.dataset.action)
         node
           .querySelector('[data-action="' + focused.dataset.action + '"]')
           ?.focus({ preventScroll: true });
@@ -773,7 +724,7 @@ async function messages(ver) {
   const rows = chunks.reverse().flat();
   const returning = !isDetail(location.pathname) && chatReturn;
   if (
-    returning && !$("msg-" + returning.messageId) &&
+    returning && !returning.table && !$("msg-" + returning.messageId) &&
     !rows.some((row) => row.id === returning.messageId)
   ) {
     const origin = await read("/api/messages/" + returning.messageId);
@@ -817,17 +768,25 @@ $("chat").addEventListener("scrollend", rememberReading);
 function restoreChatReturn() {
   const returning = chatReturn;
   if (!returning) return;
-  const article = $("msg-" + returning.messageId);
-  const chat = $("chat");
-  if (!article || !chat.clientHeight) return;
+  const root = returning.table ? $("inspection") : $("msg-" + returning.messageId);
+  const pane = returning.table ? $("canvas") : $("chat");
+  if (!root || !pane.clientHeight) return;
+  let control, anchor = root;
+  if (returning.anchor) {
+    control = root.querySelector('[data-reader-anchor="' + returning.anchor + '"]');
+    if (!control?.getClientRects().length) return;
+    anchor = control;
+  } else {
+    const matches = [...root.querySelectorAll("a")].filter(link => link.href === returning.href);
+    control = matches[returning.occurrence];
+  }
   chatReturn = null;
   if (document.activeElement !== document.body && document.activeElement !== returning.focus) return;
-  const offset = article.getBoundingClientRect().top - chat.getBoundingClientRect().top;
-  chat.scrollTop += offset - returning.offset;
-  const matches = [...article.querySelectorAll("a")].filter((link) => link.href === returning.href);
-  matches[returning.occurrence]?.focus({ preventScroll: true });
+  const scroll = control?.closest(".table-scroll");
+  if (scroll && returning.left !== undefined) scroll.scrollLeft = returning.left;
+  pane.scrollTop += anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top - returning.offset;
+  control?.focus({ preventScroll: true });
 }
-
 function navigate(path, { origin, canvasSelection = path, filesSelector, replace = false } = {}) {
   armed = null;
   if (undoingTraversal || !mayLeaveEditor(canvasSelection)) return;
@@ -851,21 +810,24 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
     destination?.kind === "mail" && origin?.classList.contains("draft-revision-link") && !fromRevision,
   );
   const article = origin?.closest("#messages article");
-  if (article || history.state.chatReturn) {
-    changeState({
-      chatReturn: article && {
-        fromEntry: shownIndex + 1,
-        messageId: article.id.slice(4),
-        href: origin.href,
-        occurrence: [...article.querySelectorAll("a")].filter((link) => link.href === origin.href).indexOf(origin),
-        offset: article.getBoundingClientRect().top - $("chat").getBoundingClientRect().top,
-      },
-    });
-  }
+  const readerAnchor = ["source", "table"].includes(destination?.kind) && origin?.dataset.readerAnchor;
+  const table = readerAnchor && origin.closest("#inspection") ? history.state.canvasSelection : null;
+  if (article || table) {
+    const pane = table ? $("canvas") : $("chat");
+    const anchor = readerAnchor ? origin : article;
+    changeState({ chatReturn: {
+      fromEntry: shownIndex + 1, messageId: table ? destination.message : article.id.slice(4),
+      table, anchor: readerAnchor || null, left: origin.closest(".table-scroll")?.scrollLeft,
+      href: origin.href,
+      occurrence: article && [...article.querySelectorAll("a")].filter(link => link.href === origin.href).indexOf(origin),
+      offset: anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top,
+    } });
+  } else if (history.state.chatReturn) changeState({ chatReturn: null });
   let state = {
     canvasSelection,
     ...(fromRevisionMessage ? { fromRevisionMessage } : {}),
     ...(filesSelector ? { filesSelector } : {}),
+    ...(readerAnchor ? { inspectionOrigin: { table } } : {}),
   };
   if (destination?.kind === "view") {
     state.artifactBack = true;
@@ -888,6 +850,7 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
 function todoEntry(id) {
   return { canvasSelection: "/todos", todoTarget: id, openTodos: { [id]: [] } };
 }
+const inspection = bindInspection({ object: $("object"), request, time, restore: restoreChatReturn, restoring: () => Boolean(chatReturn), refresh });
 const files = bindFiles({ $, navigate, changeState, request, time, attach: discuss });
 const artifacts = bindArtifacts({ $, read, refresh, objectPath, changeState, empty, discuss });
 $("files-return").onclick = () => history.back();
@@ -948,6 +911,7 @@ function startRoute(previousEntry) {
     mailEditor.close();
     mailEditor = null;
   }
+  inspection.close();
   routeVersion++;
   failures.delete("canvas");
   failures.delete("detail");
@@ -1108,6 +1072,14 @@ async function canvasRead(ver) {
     refreshTodoRows(false);
     return;
   }
+  if (route?.kind === "source" || route?.kind === "table") {
+    displayed = path;
+    $("location").textContent = route.kind;
+    $("object-tools").hidden = true;
+    if (!mobile.matches || !history.state.panel) await inspection.show(path, route);
+    else inspection.close();
+    return;
+  }
   if (route?.kind === "mail") {
     await mailRead(ver, path, route.message, route.mode, route.action);
     return;
@@ -1253,10 +1225,10 @@ function renderTodoBody(row, open) {
   const body = row.body;
   body.replaceChildren();
   if (record === null) {
-    body.append(prose("this todo is no longer available."));
+    body.append(linkedText("this todo is no longer available."));
   }
   if (item) {
-    if (item.content) body.append(prose(item.content));
+    if (item.content) body.append(linkedText(item.content));
     if (wake) body.append(el("p", wake));
     const discussTodo = button("discuss", (event) =>
       discuss({ kind: "todo", id: row.id }, item.title, event.currentTarget));
@@ -1536,9 +1508,14 @@ async function workspaceApproval(ver) {
   node.dataset.round = approval.id;
   node.hidden = false;
 }
+new ResizeObserver(() => {
+  showTableControls();
+  restoreChatReturn();
+}).observe($("chat"));
 showFiles();
 startRoute();
 window.addEventListener("pagehide", () => {
+  inspection.close();
   rememberOverview();
   artifacts.remember();
   files.remember(document.activeElement);
@@ -1546,8 +1523,9 @@ window.addEventListener("pagehide", () => {
   rememberReading();
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) armed = null;
+  if (document.hidden) { armed = null; inspection.close(); }
   else refresh();
 });
+window.addEventListener("pageshow", refresh);
 window.addEventListener("online", refresh);
 setInterval(refresh, 3000);

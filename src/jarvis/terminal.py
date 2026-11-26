@@ -15,7 +15,13 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from jarvis.action_requests import CanonicalUuid
-from jarvis.home_refs import FilePageRef, FileRef, NativeDriveFileRef, ViewRef
+from jarvis.home_refs import (
+    FilePageRef,
+    FileRef,
+    NativeDriveFileRef,
+    SourceRef,
+    ViewRef,
+)
 
 type TerminalOutcome = Literal[
     "answered",
@@ -46,9 +52,17 @@ def _terminal_text(value: str) -> str:
     return value
 
 
+class Source(_StrictModel):
+    request_id: CanonicalUuid
+    kind: Literal["mail", "event"]
+    item: str
+    reads: list[CanonicalUuid]
+    passage: str | None
+
+
 class Presentation(_StrictModel):
     request_id: CanonicalUuid
-    ref: ViewRef | FilePageRef | FileRef | NativeDriveFileRef
+    ref: ViewRef | FilePageRef | FileRef | NativeDriveFileRef | SourceRef
 
 
 class TodoResult(_StrictModel):

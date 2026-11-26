@@ -90,6 +90,7 @@ from jarvis.approval_tools import (
     ApprovalRespondInput,
     ApprovalRespondResult,
 )
+from jarvis.citation_sources import bind_sources
 from jarvis.codex_config import NATIVE_ROUTES, PAID_ROUTES
 from jarvis.db import (
     action,
@@ -104,7 +105,7 @@ from jarvis.db import (
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT, HomePages
 from jarvis.home_reads import draft_for_request, proposal_presented, reference_context
-from jarvis.home_refs import DraftPresentationRef, ViewRef
+from jarvis.home_refs import DraftPresentationRef, SourceRef, ViewRef
 from jarvis.mail_revisions import VerifiedWorkspaceDraft
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
@@ -1910,6 +1911,8 @@ async def _delivery_home(
     stopping: tuple[UUID, ...] = (),
     *,
     drive_subject: str | None = None,
+    source_bound: bool = False,
+    auto_present: bool = True,
 ) -> dict[str, object]:
     refs = artifact_links
     if present is not None and isinstance(present.ref, ViewRef):
@@ -1931,7 +1934,7 @@ async def _delivery_home(
     home: dict[str, object] = {
         "artifact_links": [ref.model_dump(mode="json") for ref in admitted]
     }
-    if present is None:
+    if present is None or not auto_present:
         return home
     ancestors = _request_ancestors(scope, attempt_id, stopping)
     request = await connection.scalar(
@@ -1945,21 +1948,25 @@ async def _delivery_home(
     )
     if request is None:
         reason = "unproven_lineage"
-    elif (
-        present.ref in admitted
-        if isinstance(present.ref, ViewRef)
-        else await reference_context(
-            connection,
-            scope,
-            present.ref.model_dump(mode="json"),
-            DEFAULT_EXPORT,
-            drive_subject=drive_subject,
-        )
-        is not None
-    ):
-        home["present"] = present.model_dump(mode="json")
-        return home
     else:
+        if isinstance(present.ref, SourceRef):
+            available = source_bound
+        elif isinstance(present.ref, ViewRef):
+            available = present.ref in admitted
+        else:
+            available = (
+                await reference_context(
+                    connection,
+                    scope,
+                    present.ref.model_dump(mode="json"),
+                    DEFAULT_EXPORT,
+                    drive_subject=drive_subject,
+                )
+                is not None
+            )
+        if available:
+            home["present"] = present.model_dump(mode="json")
+            return home
         reason = "unavailable_target"
     LOGGER.warning(
         "native presentation omitted: attempt=%s reason=%s", attempt_id, reason
@@ -2439,15 +2446,36 @@ async def commit_product(
         drive_subject = None if enrollment is None else enrollment.subject
         home: dict[str, object] = {}
         if rendered.content is not None and not isinstance(final.response, Silent):
+            sources = await bind_sources(
+                connection,
+                owner.scope_id,
+                attempt["id"],
+                set(statuses),
+                set(stopping),
+                final.sources,
+                enrollment,
+            )
+            present = final.response.present
+            source_bound = False
+            if present is not None and isinstance(present.ref, SourceRef):
+                index = present.ref.slot - 1
+                source_bound = (
+                    index < len(sources)
+                    and sources[index]["state"] == "available"
+                    and final.sources[index].request_id == present.request_id
+                )
             home = await _delivery_home(
                 connection,
                 owner.scope_id,
                 attempt["id"],
-                final.response.present,
+                present,
                 final.response.artifact_links,
                 stopping,
                 drive_subject=drive_subject,
+                source_bound=source_bound,
+                auto_present=not restricted,
             )
+            home["sources_v1"] = sources
         if catchup_result is not None:
             home["recovery_catchup"] = catchup_result
         occurrence = None

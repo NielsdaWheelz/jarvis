@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from jarvis.action_requests import CanonicalUuid
 from jarvis.home_pages import REV_PATTERN, SLUG_PATTERN
 
-type PageNumber = Annotated[int, Field(ge=1, le=2**53 - 1)]
-
 
 class _Ref(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -23,6 +21,9 @@ class ViewRef(_Ref):
 class FileRef(_Ref):
     kind: Literal["file"]
     id: CanonicalUuid
+
+
+type PageNumber = Annotated[int, Field(ge=1, le=2**53 - 1)]
 
 
 class FilePageRef(FileRef):
@@ -54,6 +55,11 @@ class ProposalRef(_Ref):
     kind: Literal["proposal"]
     message_id: CanonicalUuid
     action_id: CanonicalUuid
+
+
+class SourceRef(_Ref):
+    kind: Literal["source"]
+    slot: Annotated[int, Field(ge=1, le=2**53 - 1)]
 
 
 class DraftPresentationRef(_Ref):

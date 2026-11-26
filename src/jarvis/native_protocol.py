@@ -14,23 +14,21 @@ from llm_tools import (
     FrozenToolPlan,
     Native,
     ProfileId,
-    PromptSection,
-    PromptSectionKind,
-    PromptSections,
-    PromptText,
     ToolCatalog,
     ToolEffect,
     ToolGrant,
     ToolId,
     ToolPlan,
 )
+from provider_runtime.agent_runtime import TextContent
 from pydantic import model_validator
 
 from jarvis import terminal
+from jarvis.home_refs import SourceRef
 from jarvis.workspace_checks import WorkspaceResult
 
-NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v6"
-NATIVE_OUTPUT_NAME = "jarvis_artifact_library_message_v1"
+NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v8"
+NATIVE_OUTPUT_NAME = "jarvis_home_message_v5"
 WORKSPACE_CHECK_PROFILE = ProfileId("workspace_check")
 FOREGROUND_RECOVERY_PROFILE = ProfileId("foreground_recovery")
 
@@ -59,23 +57,18 @@ def workspace_check_native(
 def foreground_recovery_native(
     main: NativeDefinition, main_plan: FrozenToolPlan, catalog: ToolCatalog
 ) -> tuple[NativeDefinition, FrozenToolPlan]:
-    instructions = PromptSection(
-        PromptSectionKind("foreground_recovery"),
-        (),
-        PromptText(
-            "recover the delivered input's useful result. use original effect "
-            "receipts. distinguish missing answers and unknown effects. report "
-            "observed coverage, keep unfinished requests open. no new actions "
-            "or progress."
-        ),
+    instructions = TextContent(
+        "recover only the delivered input's independently useful result. "
+        "use original receipts for prior effects. distinguish the missing answer "
+        "from an unknown "
+        "effect. report only observed coverage and keep any request whose outcome "
+        "remains unfinished open. do not propose a new action or publish progress."
     )
     main = replace(
         main,
-        role=replace(
-            main.role,
-            instructions=PromptSections(
-                (*main.role.instructions.sections, instructions)
-            ),
+        provider=replace(
+            main.provider,
+            developer=(*main.provider.developer, instructions),
         ),
     )
     return _read_only_native(
@@ -128,16 +121,34 @@ def _read_only_native(
 
 
 class JarvisNativeMessage(terminal.JarvisNativeMessage):
+    sources: list[terminal.Source]
     workspace_result: WorkspaceResult | None
 
     @model_validator(mode="after")
     def progress_has_no_check_result(self) -> Self:
+        if (
+            isinstance(self.response, terminal.Progress | terminal.Silent)
+            and self.sources
+        ):
+            raise ValueError("progress and silence have no citations")
+        if isinstance(self.response, terminal.Progress) and isinstance(
+            self.response.present and self.response.present.ref, SourceRef
+        ):
+            raise ValueError("a source is presented only by a final")
         if isinstance(self.response, terminal.Progress) and self.workspace_result:
             raise ValueError("progress cannot settle a workspace occurrence")
         return self
 
 
 class JarvisTerminal(terminal.JarvisTerminal):
+    sources: list[terminal.Source]
+
+    @model_validator(mode="after")
+    def silent_has_no_sources(self) -> Self:
+        if isinstance(self.response, terminal.Silent) and self.sources:
+            raise ValueError("silence has no citations")
+        return self
+
     workspace_result: WorkspaceResult | None
 
     @classmethod

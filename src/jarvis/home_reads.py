@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from jarvis.action_requests import action_request_spec
 from jarvis.actions import ActionPersistenceDefect, StoredAction, recorded_action
+from jarvis.citation_sources import source_is_available
 from jarvis.db import action, attachment, message, work
 from jarvis.home_pages import HomePages
 from jarvis.mail_revisions import (
@@ -28,6 +29,7 @@ from jarvis.mail_revisions import (
     unavailable_revision,
     verified_compose,
 )
+from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_write_models import FrozenDiscard, FrozenWorkspaceWrite
 from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
@@ -72,6 +74,8 @@ SELECT m.id, m.role, m.source,
        CASE WHEN m.source = 'native_control' THEN COALESCE(m.processed_at, m.created_at)
             ELSE m.created_at END AS at, m.text,
        m.home->'ref' AS ref, m.home->'present' AS present,
+       CASE WHEN m.role = 'assistant' AND m.source = 'native_final'
+            THEN m.home->'sources_v1' END AS sources,
        COALESCE(m.home->'artifact_links', '[]') AS artifact_links,
        COALESCE(
           (SELECT jsonb_agg(d.item || jsonb_build_object(
@@ -132,12 +136,52 @@ def _cursor(before: str) -> tuple[datetime, UUID]:
     return at, UUID(identifier)
 
 
+def _source_metadata(
+    row: Record, grant: WorkspaceEnrollment | None
+) -> list[Record] | None:
+    slots = row["sources"]
+    if slots is None:
+        return None
+    if not isinstance(slots, list):
+        return []
+    metadata: list[Record] = []
+    for number, value in enumerate(cast(list[object], slots), 1):
+        if not isinstance(value, dict):
+            continue
+        slot = cast(Record, value)
+        if slot.get("kind") in {"mail", "event"}:
+            metadata.append(
+                {
+                    "slot": number,
+                    "kind": slot["kind"],
+                    "state": "available"
+                    if source_is_available(slot, grant)
+                    else "unavailable",
+                }
+            )
+    return metadata
+
+
+async def source_slot(
+    connection: AsyncConnection, scope: str, reply: UUID, slot: int
+) -> object:
+    return await connection.scalar(
+        select(message.c.home["sources_v1"][slot - 1]).where(
+            message.c.id == reply,
+            message.c.source_conversation_id == scope,
+            message.c.role == "assistant",
+            message.c.source == "native_final",
+        )
+    )
+
+
 async def conversation(
     connection: AsyncConnection,
     scope: str,
     before: str | None,
     *,
     editor_epoch: UUID | None = None,
+    source_grant: WorkspaceEnrollment | None = None,
 ) -> Record:
     at, identifier = _cursor(before) if before is not None else (None, None)
     result = await connection.execute(
@@ -162,6 +206,7 @@ async def conversation(
         before = f"{last['at'].isoformat()}~message~{last['id']}"
     proposals = await _proposals(connection, scope, [item["id"] for item in page])
     for item in page:
+        item["sources"] = _source_metadata(item, source_grant)
         item["proposals"] = proposals[item["id"]]
     return {"items": page[::-1], "next_before": before}
 
@@ -234,6 +279,7 @@ async def visible_message(
     identifier: UUID,
     *,
     editor_epoch: UUID | None = None,
+    source_grant: WorkspaceEnrollment | None = None,
 ) -> Record | None:
     result = await connection.execute(
         text(_MESSAGES + " AND m.id=:id"),
@@ -248,7 +294,11 @@ async def visible_message(
     if row is None:
         return None
     proposals = await _proposals(connection, scope, [identifier])
-    return {**row, "proposals": proposals[identifier]}
+    return {
+        **row,
+        "sources": _source_metadata(dict(row), source_grant),
+        "proposals": proposals[identifier],
+    }
 
 
 async def artifact_discussion(

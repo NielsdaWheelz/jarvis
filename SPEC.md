@@ -36,6 +36,14 @@ explicit enrollment, replacement and repair on the phone, and system notificatio
 preferences govern display. source is implemented.
 [installed acceptance](docs/issues/chat-sidebar-phone-alerts-installed.md) is separate.
 
+[adr 0124](docs/decisions/0124-citations-and-viewer-delivery.md) specifies
+one-tap inspection of the recorded mail passage or calendar occurrence in a
+new reply, full-width reading of a chat table, and delivery of reusable work
+in the viewer. it amends 0091 and co-delivers the 0118 reading slice. old
+replies keep authored links. source and controlled candidate passed. the
+updated service, web shell and signed app form one release. the installed
+contract governs until the stopped cut.
+
 [adr 0119](docs/decisions/0119-owner-gmail-draft-editor.md) adds the owner
 gmail editor on web and through android's browser. the human oauth client and
 editor receipt are separate from the agent connector and action ledger.

@@ -150,7 +150,20 @@ schema_of() {
 }
 
 native_contract_of() {
-  "$1/.venv/bin/python" -c 'from jarvis.native_protocol import NATIVE_OUTPUT_NAME, NATIVE_REQUEST_SCHEMA; print(NATIVE_REQUEST_SCHEMA, NATIVE_OUTPUT_NAME)'
+  "$1/.venv/bin/python" - <<'PYCODE'
+from hashlib import sha256
+
+from llm_tools import canonical_json_bytes
+
+from jarvis.native_protocol import (
+    NATIVE_OUTPUT_NAME,
+    NATIVE_REQUEST_SCHEMA,
+    JarvisNativeMessage,
+)
+
+schema = canonical_json_bytes(JarvisNativeMessage.model_json_schema())
+print(NATIVE_REQUEST_SCHEMA, NATIVE_OUTPUT_NAME, sha256(schema).hexdigest())
+PYCODE
 }
 
 persist() {
@@ -455,6 +468,11 @@ stopped_native_check() (
 
 source_native_contract="$(native_contract_of "$source_release")"
 target_native_contract="$(native_contract_of "$release")"
+read -r _ source_output source_digest <<<"$source_native_contract"
+read -r _ target_output target_digest <<<"$target_native_contract"
+if [[ "$source_output" == "$target_output" && "$source_digest" != "$target_digest" ]]; then
+  refuse "held $change. native output name aliases a different schema"
+fi
 if [[ "$source_schema" == "$target_schema" && "$source_native_contract" != "$target_native_contract" ]]; then
   native_inventory="$held/native-inventory.json"
   if [[ "$phase" == held && ! -f "$native_inventory" ]]; then

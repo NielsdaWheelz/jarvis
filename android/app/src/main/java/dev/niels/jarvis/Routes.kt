@@ -12,6 +12,8 @@ internal sealed interface Route {
     data object Todos : Route
     data object Files : Route
     data class Message(val id: String) : Route
+    data class Source(val reply: String, val slot: Int) : Route
+    data class Table(val message: String, val ordinal: Int, val digest: String) : Route
     data class Mail(val messageId: String, val actionId: String, val historical: Boolean) : Route
     data class Todo(val id: String) : Route
     data class File(val id: String, val page: Long?) : Route
@@ -46,6 +48,15 @@ internal object Routes {
         }
         val segments = path.removePrefix("/").split('/')
         val name = segments.getOrNull(1) ?: return null
+        if (segments[0] == "m" && segments.size >= 4 && uuid.matches(name) && query == null) {
+            val ordinal = segments[3].toIntOrNull()?.takeIf { it > 0 && it.toString() == segments[3] } ?: return null
+            return when {
+                segments[2] == "source" && segments.size == 4 -> Route.Source(name, ordinal)
+                segments[2] == "table" && segments.size == 5 && Regex("[0-9a-f]{64}").matches(segments[4]) ->
+                    Route.Table(name, ordinal, segments[4])
+                else -> null
+            }
+        }
         if (segments[0] == "mail") {
             if (query != null || segments.size != 4 || segments[2] !in setOf("draft", "revision") ||
                 !uuid.matches(name) || !uuid.matches(segments[3])) return null
@@ -84,6 +95,8 @@ internal object Routes {
             Route.Artifacts -> appendPath("artifacts")
             Route.Files -> appendPath("files")
             is Route.Message -> appendPath("m").appendPath(route.id)
+            is Route.Source -> appendPath("m").appendPath(route.reply).appendPath("source").appendPath(route.slot.toString())
+            is Route.Table -> appendPath("m").appendPath(route.message).appendPath("table").appendPath(route.ordinal.toString()).appendPath(route.digest)
             is Route.Mail -> appendPath("mail").appendPath(route.messageId)
                 .appendPath(if (route.historical) "revision" else "draft").appendPath(route.actionId)
             is Route.Todo -> appendPath("t").appendPath(route.id)

@@ -499,7 +499,7 @@ def verify_notes_acl(config: CodexHostConfig) -> None:
             )
 
 
-def verify_agy_bundle(config: CodexHostConfig, release: Path) -> None:
+def verify_agy_host(config: CodexHostConfig, release: Path) -> None:
     from jarvis.definitions import load_session_manifest
 
     pin = load_session_manifest().agy_neon
@@ -515,13 +515,30 @@ def verify_agy_bundle(config: CodexHostConfig, release: Path) -> None:
         or not binary.is_relative_to(release / ".venv")
     ):
         raise RuntimeError("Antigravity requires its pinned release-owned Linux bundle")
+    for setting, expected in (
+        ("/sys/module/apparmor/parameters/enabled", "Y"),
+        ("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"),
+        ("/proc/sys/kernel/apparmor_restrict_unprivileged_unconfined", "1"),
+    ):
+        try:
+            value = Path(setting).read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            raise RuntimeError(
+                f"Antigravity cannot read required AppArmor setting {setting}"
+            ) from None
+        if value != expected:
+            raise RuntimeError(
+                f"Antigravity requires AppArmor setting {setting}={expected}"
+            )
     metadata = binary.stat()
     if (
         not stat.S_ISREG(metadata.st_mode)
         or metadata.st_uid != 0
         or stat.S_IMODE(metadata.st_mode) not in (0o700, 0o750)
-        or (stat.S_IMODE(metadata.st_mode) == 0o750
-        and metadata.st_gid != grp.getgrnam("jarvis-agy-exec").gr_gid)
+        or (
+            stat.S_IMODE(metadata.st_mode) == 0o750
+            and metadata.st_gid != grp.getgrnam("jarvis-agy-exec").gr_gid
+        )
     ):
         raise RuntimeError("Antigravity executable requires its private launch grant")
     with binary.open("rb") as executable:
@@ -608,7 +625,7 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
         )
     ):
         raise RuntimeError("Antigravity requires a private non-login uid and group")
-    verify_agy_bundle(config, release)
+    verify_agy_host(config, release)
     notes = Path(config.notes_repository)
     if notes.exists() or notes.is_symlink():
         metadata = notes.lstat()
@@ -787,7 +804,7 @@ if __name__ == "__main__":
     )
     config = CodexHostConfig.load(mapping)
     if command == "verify-agy" and not arguments:
-        verify_agy_bundle(config, Path(__file__).resolve().parent.parent)
+        verify_agy_host(config, Path(__file__).resolve().parent.parent)
         raise SystemExit(0)
     if command == "verify-notes-acl" and not arguments:
         verify_notes_acl(config)

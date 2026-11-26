@@ -148,9 +148,6 @@ for unit in "${NATIVE_HOST_UNITS[@]}"; do units+=("$remote/$unit"); done
 sed "s|/opt/jarvis/current|$release|g" "$release/deploy/jarvis.service" >"$remote/jarvis.service"
 getent group jarvis-neon-control >/dev/null || sudo -n groupadd --system jarvis-neon-control
 sudo -n systemd-analyze verify "${units[@]}" "$remote/jarvis.service"
-[[ "$(cat /sys/module/apparmor/parameters/enabled)" == Y ]]
-[[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" == 1 ]]
-[[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined)" == 1 ]]
 sudo -n apparmor_parser --skip-kernel-load "$remote/jarvis-antigravity-localharness"
 if [[ "$change" != bootstrap ]]; then
   "$release/deploy/cutover-hold" close-native "$change"

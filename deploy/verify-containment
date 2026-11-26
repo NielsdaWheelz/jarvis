@@ -195,8 +195,6 @@ if systemctl is-active --quiet "$AGY_HOST_UNIT"; then
   for profile in jarvis-antigravity-localharness jarvis-antigravity-tool; do
     grep -qFx "$profile (enforce)" /sys/kernel/security/apparmor/profiles
   done
-  [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" == 1 ]]
-  [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined)" == 1 ]]
   notes=/var/lib/jarvis-notes
   mount_options="$(nsenter --target "$agy_pid" --mount \
     findmnt --target "$notes" --noheadings --output VFS-OPTIONS)"

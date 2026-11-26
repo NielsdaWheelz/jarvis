@@ -191,6 +191,51 @@ _releasable_parked_input = (
 )
 
 
+def native_fault_retry_used(row: RowMapping) -> bool:
+    return row["native_retry_after"] is not None and (
+        native_retry_evidence(row["trace"]).get("fault_retry_used") is not False
+    )
+
+
+async def queue_native_retry(
+    connection: AsyncConnection,
+    row: RowMapping,
+    *,
+    attempt_id: str,
+    route: str,
+    selection: Literal["fresh", "pinned"],
+    reason: str,
+    read_only: bool,
+    fault_retry_used: bool,
+    retry_at: datetime,
+) -> None:
+    retry: dict[str, object] = {
+        "attempt_id": attempt_id,
+        "route": route,
+        "selection": selection,
+        "reason": reason,
+        "fault_retry_used": fault_retry_used,
+    }
+    if read_only:
+        retry["kind"] = "read_only"
+        retry["origin_attempt_id"] = (
+            native_retry_evidence(row["trace"]).get("origin_attempt_id") or attempt_id
+        )
+    trace = {**row["trace"], "native_retry": retry}
+    if reason == "context_window_exceeded":
+        trace["native_context_retry"] = True
+    await connection.execute(
+        update(message)
+        .where(message.c.id == row["id"])
+        .values(
+            request_state="pending",
+            wait_reason=None,
+            native_retry_after=retry_at,
+            trace=trace,
+        )
+    )
+
+
 async def append_waking_input(
     connection: AsyncConnection,
     *,

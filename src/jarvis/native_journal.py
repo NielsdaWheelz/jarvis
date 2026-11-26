@@ -108,9 +108,11 @@ from jarvis.messages import (
     causal_component_ids,
     current_native_retry,
     latest_control,
+    native_fault_retry_used,
     native_recovery_input,
     native_retry_evidence,
     native_retry_pin,
+    queue_native_retry,
 )
 from jarvis.native_failure_notice import record_parking_notice
 from jarvis.native_protocol import (
@@ -2107,7 +2109,8 @@ async def commit_product(
                 if origin["role"] == "host" and origin["source"] == CATCHUP_SOURCE:
                     if (
                         grant is None
-                        or statuses[identifier].disposition != "complete"
+                        or statuses[identifier].disposition
+                        not in {"continue", "complete"}
                         or not isinstance(final.response, Answered | Partial)
                     ):
                         raise NativeContentDefect(
@@ -2126,7 +2129,7 @@ async def commit_product(
                             grant_id=grant.grant_id,
                             conclusion_id=conclusion_id,
                             timestamp=timestamp,
-                            allow_retry=not _fault_retry_used(origin),
+                            allow_retry=not native_fault_retry_used(origin),
                         )
                     except CatchupStale:
                         return await _hold_restricted_result(
@@ -2137,8 +2140,15 @@ async def commit_product(
                             timestamp,
                             "mail_catchup_inventory_changed",
                         )
+                    if (
+                        statuses[identifier].disposition != "complete"
+                        and not coverage.quota_wait
+                    ):
+                        raise NativeContentDefect(
+                            "an unfinished mail catch-up requires a proven quota wait"
+                        )
                     if coverage.retry_after is not None:
-                        await _queue_retry(
+                        await queue_native_retry(
                             connection,
                             origin,
                             attempt_id=turn.attempt_id,
@@ -2146,7 +2156,8 @@ async def commit_product(
                             selection="pinned",
                             reason="mail_catchup_retry",
                             read_only=True,
-                            fault_retry_used=True,
+                            fault_retry_used=native_fault_retry_used(origin)
+                            or not coverage.quota_wait,
                             retry_at=coverage.retry_after,
                         )
                         await connection.execute(
@@ -2645,51 +2656,6 @@ async def _product_inputs(
     return attempt, inputs
 
 
-def _fault_retry_used(row: RowMapping) -> bool:
-    return row["native_retry_after"] is not None and (
-        native_retry_evidence(row["trace"]).get("fault_retry_used") is not False
-    )
-
-
-async def _queue_retry(
-    connection: AsyncConnection,
-    row: RowMapping,
-    *,
-    attempt_id: str,
-    route: str,
-    selection: Literal["fresh", "pinned"],
-    reason: str,
-    read_only: bool,
-    fault_retry_used: bool,
-    retry_at: datetime,
-) -> None:
-    retry: dict[str, object] = {
-        "attempt_id": attempt_id,
-        "route": route,
-        "selection": selection,
-        "reason": reason,
-        "fault_retry_used": fault_retry_used,
-    }
-    if read_only:
-        retry["kind"] = "read_only"
-        retry["origin_attempt_id"] = (
-            native_retry_evidence(row["trace"]).get("origin_attempt_id") or attempt_id
-        )
-    trace = {**row["trace"], "native_retry": retry}
-    if reason == "context_window_exceeded":
-        trace["native_context_retry"] = True
-    await connection.execute(
-        update(message)
-        .where(message.c.id == row["id"])
-        .values(
-            request_state="pending",
-            wait_reason=None,
-            native_retry_after=retry_at,
-            trace=trace,
-        )
-    )
-
-
 async def _fail_inputs(
     connection: AsyncConnection,
     owner: JarvisOwner,
@@ -2710,7 +2676,7 @@ async def _fail_inputs(
     )
     for identifier, row in inputs.items():
         previous = native_retry_evidence(row["trace"])
-        fault_used = continuation is not None and _fault_retry_used(row)
+        fault_used = continuation is not None and native_fault_retry_used(row)
         if (
             continuation is None
             or attempt_id is None
@@ -2736,7 +2702,7 @@ async def _fail_inputs(
             or previous.get("kind") == "read_only"
             or row["source"] == CATCHUP_SOURCE
         )
-        await _queue_retry(
+        await queue_native_retry(
             connection,
             row,
             attempt_id=attempt_id,
@@ -2872,7 +2838,7 @@ async def defer_first_sample_refusal(
         reason = "neon_" + refusal.reason
         for item in inputs.values():
             previous = native_retry_evidence(item["trace"])
-            await _queue_retry(
+            await queue_native_retry(
                 connection,
                 item,
                 attempt_id=attempt_id,
@@ -2885,7 +2851,7 @@ async def defer_first_sample_refusal(
                     previous.get("kind") == "read_only"
                     or item["source"] == CATCHUP_SOURCE
                 ),
-                fault_retry_used=_fault_retry_used(item),
+                fault_retry_used=native_fault_retry_used(item),
                 retry_at=observed,
             )
         outcome: dict[str, Any] = {

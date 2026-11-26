@@ -192,7 +192,9 @@ if systemctl is-active --quiet "$AGY_HOST_UNIT"; then
   [[ "$(systemctl show -p StandardError --value "$AGY_HOST_UNIT")" == null ]]
   [[ -z "$(systemctl show -p CapabilityBoundingSet --value "$AGY_HOST_UNIT")" ]]
   [[ -z "$(systemctl show -p LoadCredential --value "$AGY_HOST_UNIT")" ]]
-  grep -qFx 'jarvis-antigravity-localharness (unconfined)' /sys/kernel/security/apparmor/profiles
+  for profile in jarvis-antigravity-localharness jarvis-antigravity-tool; do
+    grep -qFx "$profile (enforce)" /sys/kernel/security/apparmor/profiles
+  done
   [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" == 1 ]]
   [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined)" == 1 ]]
   notes=/var/lib/jarvis-notes

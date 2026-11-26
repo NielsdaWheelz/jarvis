@@ -242,6 +242,14 @@ fi
 notes=/var/lib/jarvis-notes
 incoming="$notes/.git/jarvis-mail/incoming"
 [[ -f "$notes/.git/config" && ! -L "$notes/.git/config" ]]
+[[ ! -e "$notes/.git/commondir" && ! -L "$notes/.git/commondir" ]]
+git_authority=0
+git config --file "$notes/.git/config" --no-includes \
+  --get-regexp '^(include\.path|includeif\..*\.path|core\.hookspath)$' >/dev/null || git_authority=$?
+[[ "$git_authority" == 1 ]] || {
+  printf 'the shared git checkout has redirected authority or unreadable config\n' >&2
+  exit 1
+}
 for directory in "$notes/.git/hooks" "$notes/.git/info"; do
   [[ -d "$directory" && ! -L "$directory" ]]
 done
@@ -361,7 +369,9 @@ sudo -n install -m 0644 -o root -g root "$remote/jarvis-antigravity-localharness
 sudo -n chgrp jarvis-agy-exec "${layout[8]}"
 sudo -n chmod 0750 "${layout[8]}"
 sudo -n apparmor_parser -r /etc/apparmor.d/jarvis-antigravity-localharness
-sudo -n grep -qFx 'jarvis-antigravity-localharness (unconfined)' /sys/kernel/security/apparmor/profiles
+for profile in jarvis-antigravity-localharness jarvis-antigravity-tool; do
+  sudo -n grep -qFx "$profile (enforce)" /sys/kernel/security/apparmor/profiles
+done
 sudo -n -u "$agy_user" -g codex-clients env GIT_CONFIG_GLOBAL=/etc/jarvis/antigravity-gitconfig \
   git -C "$notes" rev-parse --show-toplevel >/dev/null
 sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json

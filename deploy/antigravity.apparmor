@@ -1,0 +1,29 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+profile jarvis-antigravity-localharness "@BINARY@" flags=(mediate_deleted) {
+  /** rwklm,
+  "@BINARY@" ix,
+  /usr/bin/bwrap ix,
+  /{,usr/}bin/{sh,bash,dash} px -> jarvis-antigravity-tool,
+  capability,
+  network,
+  unix,
+  signal,
+  ptrace,
+  mount,
+  umount,
+  pivot_root,
+  userns,
+  deny /var/lib/jarvis-notes/.git/{commondir,config.worktree} wl,
+}
+
+profile jarvis-antigravity-tool flags=(mediate_deleted) {
+  /** rwklmix,
+  network,
+  unix,
+  signal,
+  deny capability,
+  deny userns,
+  deny /var/lib/jarvis-notes/.git/{commondir,config.worktree} wl,
+}

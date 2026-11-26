@@ -346,8 +346,9 @@ the existing acl to the sdk uid and exercises inherited access with empty
 probes. each native writer uses the same checkout-specific git identity.
 stock retains its existing private origin access. the sdk shell uses local
 git and runs offline. the shared git config, hooks and info stay read-only
-in the sdk service. ordinary git status, staging and commits use the remaining
-checkout writes.
+in the sdk service. the apparmor profiles also deny writes to git's common
+directory selector and worktree config. ordinary git status, staging and
+commits use the remaining checkout writes.
 
 use `deploy/activate-release --change "$id" --codex-host-config "$mapping" "$to"`
 under [named custody](decisions/0104-maintenance-without-owner-pause.md).
@@ -1184,8 +1185,9 @@ release needs its own staged mapping with that release's executable path.
 the installer checks the sdk version, pinned linux wheel digest and installed
 executable digest. only the service joins the executable's launch group.
 the selected executable gets the scoped apparmor user namespace grant. the
-global restrictions on user namespaces and unconfined profile transitions stay
-enabled. the service allows
+global restrictions on user namespaces and unconfined profile transitions must
+already be enabled at installation and startup. the tool profile denies
+capabilities and the creation of further user namespaces. the service allows
 loopback for the trusted sdk transport, and the native shell runs in the sdk
 sandbox without network. agy receives an ephemeral attempt credential from
 the private host process. the shared adapter holds the google key. the home

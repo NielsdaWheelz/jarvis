@@ -761,13 +761,8 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
     }.items():
         sdk_unit = sdk_unit.replace(marker, value)
     (output / "jarvis-antigravity-contained.service").write_text(sdk_unit)
-    (output / AGY_PROFILE).write_text(
-        "abi <abi/4.0>,\n"
-        "include <tunables/global>\n"
-        f"profile {AGY_PROFILE} {json.dumps(agy.binary)} flags=(unconfined) {{\n"
-        "  userns,\n"
-        "}\n"
-    )
+    profile = (release / "deploy/antigravity.apparmor").read_text()
+    (output / AGY_PROFILE).write_text(profile.replace("@BINARY@", agy.binary))
 
 
 def stock_unit(key: str) -> str:

@@ -22,11 +22,11 @@ Environment=GIT_CONFIG_GLOBAL=/etc/jarvis/antigravity-gitconfig
 RuntimeDirectory=jarvis-agy-host
 RuntimeDirectoryMode=0710
 RuntimeDirectoryPreserve=no
-ExecStartPre=/usr/bin/install -d -m 0700 @HOME@ /run/jarvis-agy-host/state
+ExecStartPre=/usr/bin/sh -ec '/usr/bin/grep -qx 1 /proc/sys/kernel/apparmor_restrict_unprivileged_userns && /usr/bin/grep -qx 1 /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined && exec /usr/bin/install -d -m 0700 @HOME@ /run/jarvis-agy-host/state'
 ExecStart=@RELEASE@/.venv/bin/provider-runtime-antigravity-host --socket @SOCKET@ --state-root /run/jarvis-agy-host/state --upstream @ORIGIN@
 Restart=on-failure
 RestartSec=5
-TimeoutStartSec=20
+TimeoutStartSec=90
 TimeoutStopSec=10
 KillMode=control-group
 UMask=0077

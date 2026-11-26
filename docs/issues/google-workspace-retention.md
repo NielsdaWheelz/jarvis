@@ -25,3 +25,24 @@ the [drive files cut](../decisions/0120-drive-files.md) also needs a determinati
 **why it blocks.** ordinary receipts and history are durable. database dumps have a 30-day remote object lock with asynchronous expiry. the verified mac generation may survive longer. no current check proves that disconnection removes these copies. a dashboard setting, no-training selection, local ephemeral thread, alternate google client, encrypted backup with a usable key or an empty search cannot establish the full claim. disabling agent traffic only limits further collection. the effect on previously acquired material remains an independent question. report any conflict with existing applicable policies immediately. [backup custody](../decisions/0088-storage-and-memory-recovery.md)
 
 **exit.** produce a dated, checkable determination for each use and processor, including whether earlier records are covered; give any written permissions their exact scope and term. prove the applicable retention and revocation behavior with synthetic records through actual capture, provider configuration and an isolated restore. record permitted, incompatible or unresolved with owner impact. permission for every necessary use and demonstrated behavior can clear rollout. a negative answer resolves the question and keeps rollout blocked until the owner chooses a different product contract. no answer by february 1, 2027 holds real google use; plan any necessary production stop separately with the owner. no deletion, expiry rule, reset or paid substitution is authorized by this issue.
+
+## drive custody review on november 26
+
+- google documents per-file access for a user-selected file and creation in
+  drive. filing a specific owner-supplied file for the requested task is a
+  plausible narrower use. the accepted 0120 cut also covers mail-derived
+  originals, broad agent reads and durable derived history, which need their
+  own evidence. [drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) · [workspace data policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy)
+- google requires prior written consent for backup of user or app content from
+  a developer app into drive. the proposed import is a one-time custody move
+  with predecessor copies held for verification. the public terms leave that
+  classification and rights to mixed legacy content unresolved. obtain a
+  scoped interpretation or written clarification before importing real bytes.
+  [drive terms](https://developers.google.com/workspace/drive/api/terms)
+- the separate human preview uses temporary bytes and needs its own retention
+  and revocation proof. the agent path carries observations and derived history
+  into processing, recall and recoverable backups. current terms constrain
+  permanent copies and data transfers. from february 1, 2027 the new addendum
+  also constrains task reuse, covered technical information and retention
+  after disconnection. no existing evidence resolves the mixed records or
+  proves deletion across their destinations. [api terms](https://developers.google.com/terms#e_prohibitions_on_content) · [workspace ai addendum](https://workspace.google.com/terms/ai-tools/) · [effective date](https://developers.google.com/workspace/guides/quota-usage-tiers)

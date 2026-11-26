@@ -41,7 +41,7 @@ from jarvis.actions import (
     recorded_action_result,
 )
 from jarvis.admission import JarvisOwner
-from jarvis.agent_tools import AGENT_DELEGATE_ID
+from jarvis.agent_tools import AGENT_DELEGATE_ID, AGENT_IMPLEMENTATION_REVISION
 from jarvis.connectors import gmail_headers
 from jarvis.db import native_attempt, native_invocation, read_position
 from jarvis.delegation import delegation_evidence
@@ -190,11 +190,11 @@ async def _result(
     reply: dict[str, Any] = row["reply"] or {}
     if row["action_id"] is not None and row["tool_id"].startswith(("agent.", "codex.")):
         stored = await recorded_action(connection, row["action_id"])
-        if stored is not None and archived_worker_action(stored):
-            return stored.result
         if (
             stored is not None
             and stored.tool_name == AGENT_DELEGATE_ID
+            and stored.execution_contract.implementation_revision
+            in ("jarvis-agent-control-v12", AGENT_IMPLEMENTATION_REVISION)
             and stored.result is not None
             and "registration_receipt" in stored.result
         ):
@@ -202,6 +202,8 @@ async def _result(
                 "type": "Success",
                 "value": delegation_evidence(delegation_state(stored)),
             }
+        if stored is not None and archived_worker_action(stored):
+            return stored.result
     if reply.get("type") == "local_result":
         return reply["result"]
     if reply.get("kind") == "host":

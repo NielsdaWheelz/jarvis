@@ -622,7 +622,7 @@ requires-dist = [
     { name = "python-multipart", specifier = "==0.0.32" },
     { name = "requests", specifier = "==2.34.2" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.43" },
-    { name = "universal-memory", git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=6cfdf262e3c342ae4701b0587bf7994c03437459" },
+    { name = "universal-memory", git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=dcd1fc514677079ce3d513195ceedee8f3b4af28" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 
@@ -1558,7 +1558,7 @@ wheels = [
 [[package]]
 name = "universal-memory"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=6cfdf262e3c342ae4701b0587bf7994c03437459#6cfdf262e3c342ae4701b0587bf7994c03437459" }
+source = { git = "https://github.com/NielsdaWheelz/universal-memory.git?rev=dcd1fc514677079ce3d513195ceedee8f3b4af28#dcd1fc514677079ce3d513195ceedee8f3b4af28" }
 dependencies = [
     { name = "llm-tools" },
     { name = "pgvector" },

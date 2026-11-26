@@ -289,7 +289,7 @@ receipts; the roadmap owns delivery order.
 
 | concept / owner | contract |
 | --- | --- |
-| lane | declared native home identified by `(machine, account)`, never a path; eighteen native lanes ({macbook, arch, devbox} × {codex-personal, codex-work, codex-work2, claude-personal, claude-work, claude-work2}) plus `(devbox, jarvis)` |
+| lane | declared native home identified by `(machine, account)`, never a path; twenty-four possible native lanes ({macbook, arch, devbox, desktop} × {codex-personal, codex-work, codex-work2, claude-personal, claude-work, claude-work2}) plus `(devbox, jarvis)` |
 | nexus client/source | one optional `nexus-owner` backend client for a configured viewer; librarian reads/notes and separately admitted durable source capture; no native lane or automated-helper tool grant |
 | conversation | native `(provider, native_id)` with first-report lane ownership, jarvis's configured-channel conversation, or nexus's configured owner transcript with explicit source identity |
 | event / part | complete persisted native item, never a streaming delta / one central text chunk of at most 8,000 utf-8 bytes |

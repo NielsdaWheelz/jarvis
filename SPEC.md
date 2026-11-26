@@ -529,9 +529,9 @@ through mcp/api. the core source and online installed rollout are qualified with
 the named profile deferrals. nexus memory access is limited to the owner's chats;
 automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
 backend client and tagged note attribution. adr 0070 adds the distinct nexus
-capture source without adding a native lane. the current native rollout includes
-`claude-work2` on each host: eighteen native lanes plus `(devbox, jarvis)`.
-the shared library account contract owns that fixed vocabulary.
+capture source without adding a native lane. macbook, arch, devbox and desktop
+each support three codex and three claude accounts. only devbox also runs the jarvis lane. the shared library owns the
+machine and account vocabulary. the private declaration enables individual lanes.
 the current client/capture handoff and remaining private provisioning are in the
 [consumer handoff](docs/issues/nexus-memory-client.md).
 source implementation does not imply installed activation or external client
@@ -1648,7 +1648,8 @@ pipeline, never a nested agent.
 | `memory.save_note` | main full plan only | admitted local append; no gate/action |
 
 [adr 0112](docs/decisions/0112-managed-agent-delegation.md) owns the current
-worker contract. machines are `macbook|dev-server|arch`. the selected host's
+worker contract. [adr 0113](docs/decisions/0113-desktop-worker.md) adds the
+`desktop` label in v13. machines are `macbook|dev-server|arch|desktop`. the selected host's
 applied skid configuration owns profile keys. model-visible terminal targets
 are `{machine,handle}`; the handle is `t-` plus 16 lowercase hex characters.
 exact target refs stay private.

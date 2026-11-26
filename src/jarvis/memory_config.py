@@ -13,15 +13,13 @@ from uuid import UUID
 from llm_tools import canonical_json_bytes
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from universal_memory import MemoryError
-from universal_memory.types import Account, Lane
+from universal_memory.types import Account, Lane, Machine
 
 from jarvis.config import ConfigurationError
 
-type Machine = Literal["macbook", "arch", "devbox"]
-
 MEMORY_IDENTITIES: frozenset[tuple[str, str]] = frozenset(
     (machine, account)
-    for machine in ("macbook", "arch", "devbox")
+    for machine in get_args(Machine.__value__)
     for account in get_args(Account.__value__)
     if account != "jarvis"
 ) | {("devbox", "jarvis")}

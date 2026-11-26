@@ -67,6 +67,66 @@
       "client_bearer_sha256": null
     },
     {
+      "machine": "desktop",
+      "account": "claude-personal",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "desktop",
+      "account": "claude-work",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "desktop",
+      "account": "claude-work2",
+      "provider": "claude",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "desktop",
+      "account": "codex-personal",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "desktop",
+      "account": "codex-work",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
+      "machine": "desktop",
+      "account": "codex-work2",
+      "provider": "codex",
+      "controller": null,
+      "sharing_authorization": null,
+      "admit": false,
+      "connect": false,
+      "client_bearer_sha256": null
+    },
+    {
       "machine": "devbox",
       "account": "claude-personal",
       "provider": "claude",

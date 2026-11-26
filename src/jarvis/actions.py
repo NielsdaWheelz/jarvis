@@ -518,6 +518,19 @@ class ActionStore:
                 connection, action_id, source_conversation_id=source_conversation_id
             )
 
+    async def action_for_invocation(self, invocation_id: UUID) -> StoredAction | None:
+        async with self.engine.connect() as connection:
+            action_id = await connection.scalar(
+                select(native_invocation.c.action_id).where(
+                    native_invocation.c.id == invocation_id
+                )
+            )
+            return (
+                None
+                if action_id is None
+                else await recorded_action(connection, action_id)
+            )
+
     async def is_standing_check(self, request_id: UUID) -> bool:
         async with self.engine.connect() as connection:
             origin = (

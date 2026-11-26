@@ -244,6 +244,33 @@ class WriteToolDispatcher:
         payload = request.arguments
         if await self._actions.is_standing_check(request_id):
             return host_rejected("workspace_check_read_only")
+        arguments = request.model_dump(mode="json")
+        if tool_id in AGENT_WRITE_IDS and request.existing_action_ref is None:
+            linked = await self._actions.action_for_invocation(
+                UUID(lineage.invocation_id)
+            )
+            if linked is not None:
+                require_current_action_binding(linked, plan)
+                if (
+                    linked.tool_name != tool_id
+                    or linked.origin_message_id != request_id
+                    or linked.arguments != arguments
+                ):
+                    raise ToolDispatchDefect("linked worker action changed its request")
+                if linked.status == "queued" and linked.attempts == 0:
+                    if cancellation.cancelled or self._closing:
+                        raise asyncio.CancelledError
+                    result = await execute_recorded_action(
+                        self._actions,
+                        action_id=linked.id,
+                        binding=binding,
+                        plan=plan,
+                        budgets=budgets,
+                        source_conversation_id=self._source_conversation_id,
+                    )
+                    self._agents.delegations.notify_changed()
+                    return result
+                return _existing_action_result(linked)
         grant = (
             self._workspace_grant()
             if tool_id in WRITE_TOOL_IDS
@@ -325,7 +352,6 @@ class WriteToolDispatcher:
             ReplayPolicy.ReDispatchable,
         }:
             raise ToolDispatchDefect("write replay policy has no action contract")
-        arguments = request.model_dump(mode="json")
         if contains_secret(arguments, self._host_secrets):
             return completed_tool_result(dict(_INVALID_INPUT))
         authority = classify_write(tool_id, payload)

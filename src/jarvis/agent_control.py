@@ -175,9 +175,14 @@ def _closed_json(raw: bytes) -> object:
     def invalid_constant(value: str) -> object:
         raise ValueError("non-json constant")
 
-    return json.loads(
-        raw, object_pairs_hook=object_pairs, parse_constant=invalid_constant
-    )
+    try:
+        return json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=object_pairs,
+            parse_constant=invalid_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("skid reply exceeds JSON nesting limit") from exc
 
 
 def decode_agent_reply[T: BaseModel](raw: bytes, model: type[T]) -> T | WireFailure:

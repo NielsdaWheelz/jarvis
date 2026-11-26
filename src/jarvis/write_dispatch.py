@@ -71,6 +71,7 @@ from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.events import EventStore
 from jarvis.mail_files import MailFileFailure, MailFiles
 from jarvis.native_journal import PostgresNativeJournal
+from jarvis.presence import Presence
 from jarvis.read_dispatch import ReadDispatchPort
 from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
 from jarvis.work import WorkStore
@@ -133,6 +134,7 @@ class WriteToolDispatcher:
         mail_files: MailFiles,
         agents: AgentController,
         read: ReadDispatchPort,
+        presence: Presence,
         source_conversation_id: str,
         host_secrets: tuple[str, ...],
         dispatch_lane: asyncio.Lock,
@@ -148,6 +150,7 @@ class WriteToolDispatcher:
         self._mail_files = mail_files
         self._agents = agents
         self._read = read
+        self._presence = presence
         self._source_conversation_id = source_conversation_id
         self._host_secrets = host_secrets
         self._dispatch_lane = dispatch_lane
@@ -279,6 +282,7 @@ class WriteToolDispatcher:
                         plan=plan,
                         budgets=budgets,
                         source_conversation_id=self._source_conversation_id,
+                        presence=self._presence,
                     )
                     self._agents.delegations.notify_changed()
                     return result
@@ -554,6 +558,7 @@ class WriteToolDispatcher:
             plan=plan,
             budgets=budgets,
             source_conversation_id=self._source_conversation_id,
+            presence=self._presence,
             workspace_entry=entry,
         )
         if staging and not isinstance(result, DispatchSuspended):
@@ -655,6 +660,7 @@ class WriteToolDispatcher:
                     plan=plan,
                     budgets=ExactToolBudgetFactory().create(plan),
                     source_conversation_id=self._source_conversation_id,
+                    presence=self._presence,
                     workspace_entry=entry,
                 )
             elif stored.status in {"queued", "executing"}:
@@ -669,6 +675,7 @@ class WriteToolDispatcher:
                     plan=plan,
                     source_conversation_id=self._source_conversation_id,
                     delegation_changed=self._agents.delegations.notify_changed,
+                    presence=self._presence,
                 ).recover_action(
                     action_id,
                     allow_queued_execution=not cancellation.cancelled
@@ -732,6 +739,7 @@ async def execute_recorded_action(
     plan: FrozenToolPlan,
     budgets: BudgetState,
     source_conversation_id: str,
+    presence: Presence,
     workspace_entry: WorkspaceWriteEntry | None = None,
 ) -> DispatchResult:
     """Enter the same durable position for immediate, approved and recovered work."""
@@ -748,6 +756,9 @@ async def execute_recorded_action(
         source_conversation_id=source_conversation_id,
         workspace_entry=workspace_entry,
     )
+    approved = stored.decided_at is not None
+    if approved:
+        presence.enter_effect(stored)
     try:
         result = await ToolExecutor.execute(
             binding,
@@ -768,6 +779,9 @@ async def execute_recorded_action(
         )
     except RecoveryRequired:
         return DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
+    finally:
+        if approved:
+            presence.leave_effect(action_id)
     return completed_tool_result(result, HostRef(str(action_id)))
 
 
@@ -793,6 +807,7 @@ class ActionRecovery:
         plan: FrozenToolPlan,
         source_conversation_id: str,
         delegation_changed: Callable[[], None],
+        presence: Presence,
     ) -> None:
         self._actions = actions
         self._work = work
@@ -804,6 +819,7 @@ class ActionRecovery:
         self._plan = plan
         self._source_conversation_id = source_conversation_id
         self._delegation_changed = delegation_changed
+        self._presence = presence
 
     async def recover(self, *, allow_queued_execution: bool = True) -> int:
         if type(allow_queued_execution) is not bool:
@@ -961,6 +977,7 @@ class ActionRecovery:
             plan=self._plan,
             budgets=ExactToolBudgetFactory().create(self._plan),
             source_conversation_id=self._source_conversation_id,
+            presence=self._presence,
         )
         self._delegation_changed()
         return (

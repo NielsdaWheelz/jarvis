@@ -976,10 +976,8 @@ class ActionStore:
             rows = (
                 await connection.execute(
                     select(action)
-                    .join(message, message.c.id == action.c.origin_message_id)
                     .where(
-                        message.c.source_conversation_id == source_conversation_id,
-                        registered_delegation(),
+                        scoped_delegation(source_conversation_id),
                         or_(
                             action.c.status == "queued",
                             action.c.result["ack_pending"].as_boolean().is_(True),
@@ -2873,6 +2871,17 @@ def registered_delegation() -> ColumnElement[bool]:
         (action.c.tool_name == AGENT_DELEGATE_ID)
         & action.c.result.is_not(None)
         & action.c.result.op("?")("registration_receipt")
+    )
+
+
+def scoped_delegation(scope: str) -> ColumnElement[bool]:
+    return registered_delegation() & (
+        select(message.c.id)
+        .where(
+            message.c.id == action.c.origin_message_id,
+            message.c.source_conversation_id == scope,
+        )
+        .exists()
     )
 
 

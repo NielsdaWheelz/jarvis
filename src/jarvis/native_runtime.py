@@ -56,6 +56,7 @@ from provider_runtime.agent_runtime import (
     AgentRuntimeError,
     AgentSubmissionRejected,
     AgentTerminal,
+    AgentToolUse,
     InvalidAgentRequest,
     NativeTerminalEvidence,
     OutputSchemaMismatch,
@@ -69,6 +70,7 @@ from jarvis.admission import ExactToolBudgetFactory, JarvisOwner
 from jarvis.codex_config import NATIVE_ROUTES, NativeRoute
 from jarvis.db import (
     action,
+    active_native_attempt,
     message,
     native_attempt,
     native_input_delivery,
@@ -133,6 +135,7 @@ if TYPE_CHECKING:
     from provider_runtime.agent_runtime.neon_control import NeonControl
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+    from jarvis.presence import Presence
     from jarvis.write_dispatch import WriteToolDispatcher
 
 LOGGER = logging.getLogger(__name__)
@@ -142,6 +145,7 @@ LOGGER = logging.getLogger(__name__)
 class NativeRunOutcome:
     status: Literal["no_work", "progressed", "blocked", "stopped"]
     retry_at: datetime | None = None
+    deferral: DeferredRoute | None = None
 
 
 def _host_inputs(
@@ -404,6 +408,7 @@ class NativeRunner:
             [NativeInputs, PostgresNativeJournal], WriteToolDispatcher
         ],
         actions: ActionStore,
+        presence: Presence,
         workspace: WorkspaceHost | None = None,
         recover_action: RecoverAction | None = None,
         neon_control: NeonControl | None = None,
@@ -414,6 +419,7 @@ class NativeRunner:
         self.kernel, self.definitions = kernel_runtime, definitions
         self.route_selector = route_selector
         self.memory, self.actions = memory, actions
+        self.presence = presence
         self.recover_action, self.neon_control = recover_action, neon_control
         self.workspace, self.notify_workspace_match = workspace, notify_workspace_match
         self.dispatcher_factory = dispatcher_factory
@@ -456,6 +462,8 @@ class NativeRunner:
         excluded: list[NativeRoute | None] = []
         excluded_inputs: list[UUID] = []
         retry_at: datetime | None = None
+        first_deferral = None
+        all_deferred = True
         while True:
             pending = await self.store.pending_inputs(
                 source_conversation_id=self.owner.scope_id,
@@ -465,7 +473,9 @@ class NativeRunner:
             )
             if not pending:
                 return NativeRunOutcome(
-                    "blocked" if excluded or excluded_inputs else "no_work", retry_at
+                    "blocked" if excluded or excluded_inputs else "no_work",
+                    retry_at,
+                    first_deferral if all_deferred else None,
                 )
             await self.owner.require_current(
                 self.owner.permit("jarvis-codex-admission")
@@ -476,6 +486,7 @@ class NativeRunner:
             if first.role == "host" and first.source == RECOVERY_CATCHUP_SOURCE:
                 grant = None if self.workspace is None else self.workspace.enrollment()
                 if grant is None:
+                    all_deferred = False
                     excluded_inputs.append(first.id)
                     continue
                 try:
@@ -493,28 +504,36 @@ class NativeRunner:
                     ):
                         self.notify_delivery()
                         return NativeRunOutcome("progressed")
+                    all_deferred = False
                     excluded_inputs.append(first.id)
                     continue
             pinned = _retry_pin(first)
             selected = await self.route_selector.choose_route("main", pinned=pinned)
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 return NativeRunOutcome("stopped")
-            if not isinstance(selected, DeferredRoute):
+            if isinstance(selected, DeferredRoute):
+                outcome = selected
+            else:
                 cohort = tuple(item for item in pending if _retry_pin(item) == pinned)
                 outcome = await self._run_selected(
                     cohort, selected, pinned, cancellation
                 )
-                if outcome is not None:
-                    if outcome.status != "blocked" or retry_at is None:
-                        return outcome
-                    return NativeRunOutcome(
-                        "blocked", min(retry_at, outcome.retry_at or retry_at)
+            if isinstance(outcome, NativeRunOutcome):
+                if outcome.status != "blocked" or retry_at is None:
+                    return outcome
+                return NativeRunOutcome(
+                    "blocked", min(retry_at, outcome.retry_at or retry_at)
+                )
+            if outcome is None:
+                all_deferred = False
+            else:
+                if first_deferral is None:
+                    first_deferral = self.route_selector.describe_deferral(
+                        outcome, pinned
                     )
-            elif selected.reset_at is not None and selected.reset_at > datetime.now(
-                UTC
-            ):
-                if retry_at is None or selected.reset_at < retry_at:
-                    retry_at = selected.reset_at
+                deadline = outcome.reset_at
+                if deadline is not None and deadline > datetime.now(UTC):
+                    retry_at = deadline if retry_at is None else min(retry_at, deadline)
             excluded.append(pinned)
 
     async def _run_selected(
@@ -523,7 +542,7 @@ class NativeRunner:
         selected: SelectedRoute,
         pinned: NativeRoute | None,
         cancellation: CancellationToken,
-    ) -> NativeRunOutcome | None:
+    ) -> NativeRunOutcome | DeferredRoute | None:
         profile = _opening_profile(pending[0])
         match profile:
             case "foreground_recovery":
@@ -588,7 +607,11 @@ class NativeRunner:
                         "main", after=selected
                     )
                     if isinstance(next_route, DeferredRoute):
-                        return None
+                        return (
+                            DeferredRoute.opening_failure(selected.route)
+                            if projection is not None and projection[2].fits
+                            else None
+                        )
                     selected = next_route
             overflow = None if projection is None else projection[2].overflow
             if projection is None or overflow is not None:
@@ -601,7 +624,7 @@ class NativeRunner:
                     self.notify_delivery()
                 return NativeRunOutcome("progressed" if parked else "blocked")
             if self._session is None:
-                return None
+                return DeferredRoute.opening_failure(selected.route)
             inputs, projected, _ = projection
             request = NativeRequest(
                 attempt_id,
@@ -627,7 +650,7 @@ class NativeRunner:
                 return outcome
             fallback = await self.route_selector.choose_route("main", after=selected)
             if isinstance(fallback, DeferredRoute):
-                return None
+                return DeferredRoute.opening_failure(selected.route)
             definition = with_main_provider(template, fallback.provider)
             if not native_request_fit(definition, projected).fits:
                 return None
@@ -638,7 +661,7 @@ class NativeRunner:
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 return NativeRunOutcome("stopped")
             if not await self._acquire_route(fallback, definition, plan, permit):
-                return None
+                return DeferredRoute.opening_failure(fallback.route)
             outcome = await self._run_opened(
                 fallback,
                 definition,
@@ -686,7 +709,7 @@ class NativeRunner:
         cutoff: int,
         pinned: NativeRoute | None,
         cancellation: CancellationToken,
-    ) -> NativeRunOutcome | Literal["retry_stock"] | None:
+    ) -> NativeRunOutcome | DeferredRoute | Literal["retry_stock"]:
         session = self._session
         if session is None:
             raise NativeDefect("supervision requires an acquired native session")
@@ -720,6 +743,7 @@ class NativeRunner:
                     memory=self.memory,
                     neon_control=self.neon_control,
                     antigravity=antigravity,
+                    on_armed=self.presence.arm,
                     workspace_grant=(
                         self.workspace.enrollment()
                         if profile == FOREGROUND_RECOVERY_PROFILE
@@ -750,6 +774,12 @@ class NativeRunner:
                     observations = StockObservationWriter(
                         self.memory, str(self.owner.token), UUID(attempt_id)
                     )
+
+                def stock_tool(event: AgentToolUse) -> None:
+                    self.presence.stock(event)
+                    if observations is not None:
+                        observations.offer(event)
+
                 terminal = await run_native(
                     definition=definition,
                     request=request,
@@ -762,7 +792,7 @@ class NativeRunner:
                     budgets=ExactToolBudgetFactory(),
                     messages=self,
                     cancellation=cancellation,
-                    on_stock_tool=None if observations is None else observations.offer,
+                    on_stock_tool=stock_tool,
                     on_child=(
                         None
                         if antigravity is None
@@ -784,7 +814,7 @@ class NativeRunner:
                     and await self.neon_control.available()
                 ):
                     return "retry_stock"
-                return None
+                return DeferredRoute.opening_failure(selected.route)
             except StaleCatchupInventory:
                 parked = await park_unadmitted_input(
                     self.owner,
@@ -1028,8 +1058,7 @@ async def recover_native_products(
                 update(native_attempt)
                 .where(
                     native_attempt.c.conversation_id == owner.scope_id,
-                    native_attempt.c.fenced_at.is_(None),
-                    native_attempt.c.product_outcome.is_(None),
+                    active_native_attempt,
                 )
                 .values(fenced_at=func.now())
                 .returning(native_attempt.c.id)

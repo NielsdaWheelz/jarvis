@@ -81,7 +81,7 @@ EXPECTED_GIT_PINS = {
     "llm-agent-kernel": "0865b8ff5ad7b257c474ff8da542ffcc9645e397",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
     "provider-runtime": "7c01859e5836ea9cd548730b5273cc62341005ff",
-    "universal-memory": "6cfdf262e3c342ae4701b0587bf7994c03437459",
+    "universal-memory": "dcd1fc514677079ce3d513195ceedee8f3b4af28",
 }
 # llm-tools requires positive byte/call ceilings even for an empty catalog;
 # zero external attempts keeps the compactor tool-free.

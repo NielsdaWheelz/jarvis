@@ -1729,7 +1729,7 @@ def _parser() -> argparse.ArgumentParser:
     attachment.add_argument("id", type=UUID)
     attachment.add_argument("--after-manual-cleanup", action="store_true")
     enrollment = commands.add_parser(
-        "workspace-enroll", help="enroll an isolated workspace grant while stopped"
+        "workspace-enroll", help="enroll a workspace grant while stopped"
     )
     enrollment.add_argument("--client", required=True, type=Path)
     enrollment.add_argument("--email", required=True)

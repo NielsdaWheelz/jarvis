@@ -1,9 +1,9 @@
 {
   "application_session_contract_revision": "jarvis-neon-quota-recovery-v1",
   "dependencies": {
-    "llm-agent-kernel": "682f882964ca7b2bc7c86c09b66c11bc080f0a62",
+    "llm-agent-kernel": "32e54aff6c6fb5ce627f0a15177072af7b4fdc47",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "e94680693f95ee614bbe18e4a312c84b9e994bcd",
+    "provider-runtime": "fe6269cee5aea98533853342978358a05b008bcf",
     "universal-memory": "6cfdf262e3c342ae4701b0587bf7994c03437459"
   },
   "google_neon": {

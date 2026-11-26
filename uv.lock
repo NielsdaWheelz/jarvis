@@ -612,11 +612,11 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.143.0" },
     { name = "google-auth", extras = ["requests"], specifier = "==2.57.1" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=682f882964ca7b2bc7c86c09b66c11bc080f0a62" },
+    { name = "llm-agent-kernel", git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=32e54aff6c6fb5ce627f0a15177072af7b4fdc47" },
     { name = "llm-tools", git = "https://github.com/NielsdaWheelz/llm-tools.git?rev=37b7688381161d398b8094795d43bb7c87ca1885" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "pgvector", specifier = "==0.4.1" },
-    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=e94680693f95ee614bbe18e4a312c84b9e994bcd" },
+    { name = "provider-runtime", git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=fe6269cee5aea98533853342978358a05b008bcf" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = "==3.2.9" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "python-multipart", specifier = "==0.0.32" },
@@ -711,7 +711,7 @@ wheels = [
 [[package]]
 name = "llm-agent-kernel"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=682f882964ca7b2bc7c86c09b66c11bc080f0a62#682f882964ca7b2bc7c86c09b66c11bc080f0a62" }
+source = { git = "https://github.com/NielsdaWheelz/llm-agent-kernel.git?rev=32e54aff6c6fb5ce627f0a15177072af7b4fdc47#32e54aff6c6fb5ce627f0a15177072af7b4fdc47" }
 dependencies = [
     { name = "llm-tools" },
     { name = "provider-runtime" },
@@ -1047,7 +1047,7 @@ wheels = [
 [[package]]
 name = "provider-runtime"
 version = "0.1.0"
-source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=e94680693f95ee614bbe18e4a312c84b9e994bcd#e94680693f95ee614bbe18e4a312c84b9e994bcd" }
+source = { git = "https://github.com/NielsdaWheelz/llm-calling.git?rev=fe6269cee5aea98533853342978358a05b008bcf#fe6269cee5aea98533853342978358a05b008bcf" }
 dependencies = [
     { name = "aiohttp" },
     { name = "anthropic" },

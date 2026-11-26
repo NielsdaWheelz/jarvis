@@ -1147,7 +1147,9 @@ tier, with $25 manual refills and auto-reload off. confirm billing mode and
 workspace data permission before production inference. stage the google
 authorization credential as root, mode 0600, under
 `/etc/jarvis/credentials/<credential_name>` from mapping v7. the host installer
-generates a distinct private stock bearer. record project, mapping/release
+generates a distinct private stock bearer and adapter-only continuation key.
+changing the continuation key or served model pin invalidates old paid
+continuations. settle entered paid work under its original release first. record project, mapping/release
 digests, host identity, actual served model and tier, and which evidence came
 from google. leave balances, credential values and context out of the receipt.
 

@@ -63,9 +63,10 @@ def foreground_recovery_native(
         PromptSectionKind("foreground_recovery"),
         (),
         PromptText(
-            "recover the delivered input's useful result. use original effect receipts. "
-            "distinguish missing answers and unknown effects. report observed coverage, "
-            "keep unfinished requests open. no new actions or progress."
+            "recover the delivered input's useful result. use original effect "
+            "receipts. distinguish missing answers and unknown effects. report "
+            "observed coverage, keep unfinished requests open. no new actions "
+            "or progress."
         ),
     )
     main = replace(

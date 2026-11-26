@@ -313,7 +313,9 @@ async def recover_sealed_turn(
         or not isinstance(output, dict)
         or output.get("name") != NATIVE_OUTPUT_NAME
     ):
-        raise NativeDefect("retired native contract requires original-release settlement")
+        raise NativeDefect(
+            "retired native contract requires original-release settlement"
+        )
     terminal = terminal_from_json(row["terminal"])
     prepared = AgentAttempt(**row["provider_attempt"])
     if (

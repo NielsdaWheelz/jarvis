@@ -36,6 +36,11 @@ place for long work. jarvis chooses content and handles owner corrections in
 conversation. clickable sources stay with the findings in chat, including when
 the owner asks for a separate page.
 
+[adr 0121](docs/decisions/0121-exact-chat-draft-revisions.md) owns the exact
+draft revision reader. both clients open the revision bound to the presenting
+chat message. the matching release retires inline mail bodies. installed
+qualification remains separate.
+
 [adr 0097](docs/decisions/0097-todo-home.md) specifies the todo-only default
 when no published home is selected. one owner todo list includes follow-ups
 jarvis undertakes. conversation owns questions, proposals and answers.

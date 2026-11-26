@@ -207,6 +207,14 @@ use the normal web release and signed app update for delivery. record
 one installed gesture-to-receipt check on each client. both use the existing
 api and can be released independently.
 
+## exact draft revisions from chat
+
+apply [adr 0121](decisions/0121-exact-chat-draft-revisions.md) to the later mail
+presentation cut. integrate the revision controls with the matching chat
+projection before staging the service, browser shell and signed app. repeat
+the stopped mail inventory and record the
+[remaining acceptance](issues/chat-draft-revision-inspection.md).
+
 ## full answers in web chat
 
 [adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)

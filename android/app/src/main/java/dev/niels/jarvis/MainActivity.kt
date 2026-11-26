@@ -54,7 +54,8 @@ class MainActivity : ComponentActivity() {
                     val current = Routes.parse(Uri.parse(trail.last()))
                     val resolved = current == Route.Home ||
                         (current is Route.Canvas && current.revision == null &&
-                            route is Route.Canvas && route.slug == current.slug)
+                            route is Route.Canvas && route.slug == current.slug) ||
+                        (current is Route.DraftRevision && trail.size == 1 && route == Route.Message(current.messageId))
                     val previous = trail.indexOf(target)
                     trail = ArrayList(when {
                         previous >= 0 -> trail.take(previous + 1)

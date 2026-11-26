@@ -100,6 +100,9 @@ async def execute_workspace_write(
                 invocation_id=str(entry.invocation_id),
                 before_send=entry.before_send,
                 record_ack=context.recorder.record_workspace_ack,
+                capture_draft=context.recorder.capture_draft_revision
+                if entry.frozen.tool == "gmail.create_draft"
+                else None,
             )
     except MailFileFailure as exc:
         raise DeclaredToolFailure(exc.detail, actual_attempts=1) from exc

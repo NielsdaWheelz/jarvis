@@ -163,6 +163,9 @@ internal fun JarvisHome(route: Route, onNavigate: (Route) -> Unit, onBack: (() -
                             is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, newDraft) {
                                 chat = true
                             }
+                            is Route.DraftRevision -> DraftRevisionPane(
+                                route, api, reload, signIn, onNavigate.takeIf { onBack == null },
+                            )
                             is Route.Todo -> TodoDetail(route, api, reload, signIn, onNavigate, newDraft)
                             is Route.File -> FilePane(route, api, reload, signIn, newDraft)
                             is Route.Canvas -> CanvasPane(route, api, reload, signIn, activity, onNavigate, newDraft)
@@ -372,52 +375,14 @@ private fun MessageDetail(
     conversation: () -> Unit,
 ) {
     val path = "/api/messages/${route.id}"
-    var showMail by rememberSaveable { mutableStateOf(false) }
     Read(path, reload, signIn, { api.read(path) }, signInLabel = "sign in to open this reply") { message ->
         Pane {
             if (message == null) {
                 BodyStatus("this message is no longer available")
                 return@Pane
             }
-            val saved = message.optJSONObject("saved_draft")
-            val proposals = message.objects("proposals")
             Heading("message")
             MessageEntry(message, navigate, discuss)
-            if (message.string("saved_draft_error") == "integrity") {
-                BodyStatus("saved draft receipt failed integrity checks")
-            }
-            if (saved != null) {
-                HorizontalDivider()
-                Section("draft revision verified at ${formattedTime(saved.string("observed_at"))}")
-                Text(saved.getString("subject"))
-                for (field in listOf("to", "cc", "bcc")) {
-                    val recipients = saved.objects(field)
-                    if (recipients.isNotEmpty()) Text("$field · " + recipients.joinToString(", ") { mailbox ->
-                        val address = mailbox.getString("address")
-                        mailbox.string("name")?.takeUnless(String::isBlank)?.let { "$it <$address>" } ?: address
-                    })
-                }
-                for (file in saved.objects("files")) {
-                    Text("${file.getString("filename")} · ${android.text.format.Formatter.formatFileSize(LocalContext.current, file.getLong("size_bytes"))}")
-                }
-            }
-            if (saved != null || proposals.any { it.optBoolean("read_email") }) {
-                TextButton(onClick = { showMail = !showMail }) {
-                    Text(if (showMail) "hide email text" else if (saved != null) "read saved draft" else "read email")
-                }
-                if (showMail) Read("$path?mail_body=true", reload, signIn, { api.read("$path?mail_body=true") }) { expanded ->
-                    if (saved != null) {
-                        val body = expanded?.optJSONObject("saved_draft")?.string("body_text")
-                        Text(body?.ifBlank { "empty email body" } ?: "saved draft text unavailable")
-                    }
-                    for (proposal in expanded?.objects("proposals").orEmpty()) {
-                        proposal.string("mail_body")?.let { text ->
-                            Text(proposal.getString("title"), style = MaterialTheme.typography.titleMedium)
-                            Text(text.ifBlank { "empty email body" })
-                        }
-                    }
-                }
-            }
             TextButton(onClick = conversation) { Text("all conversation") }
         }
     }
@@ -447,9 +412,15 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
     for (proposal in message.objects("proposals")) {
         HorizontalDivider()
         Section(proposal.getString("title"))
-        if (proposal.optBoolean("read_email")) Text(proposal.getString("detail"))
+        val revision = proposal.string("draft_revision_id")
+        if (revision != null) Text(proposal.getString("detail"))
         else Prose(proposal.getString("detail"), navigate)
         BodyStatus(proposal.string("status_label") ?: proposal.getString("status").replace('_', ' '))
+        if (revision != null) {
+            TextButton(onClick = { navigate(Route.DraftRevision(id, revision)) }) {
+                Text("open draft revision")
+            }
+        }
         proposal.string("owner_message_id")?.let { owner ->
             TextButton(onClick = { navigate(Route.Message(owner)) }) { Text("owner reply · ${proposal.getString("decision")}") }
         }
@@ -457,9 +428,68 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
             Text("reply to ${proposal.getString("title")}")
         }
     }
+    message.string("draft_revision_id")?.let { revision ->
+        TextButton(onClick = { navigate(Route.DraftRevision(id, revision)) }) { Text("open draft revision") }
+    }
+    if (message.string("draft_revision_error") == "integrity") {
+        BodyStatus("exact revision failed integrity checks")
+    }
     DiscussionRef.parse(message.optJSONObject("present")?.optJSONObject("ref"))?.let { ref ->
         TextButton(onClick = { navigate(ref.route()) }) { Text("open ${ref.label}") }
     }
+}
+
+@Composable
+private fun DraftRevisionPane(
+    route: Route.DraftRevision,
+    api: HomeApi,
+    reload: Pair<Int, Int>,
+    signIn: () -> Unit,
+    openColdSource: ((Route) -> Unit)?,
+) {
+    val path = "/api/mail/${route.messageId}/revision/${route.actionId}"
+    Read(path, reload, signIn, { api.read(path) }, signInLabel = "sign in to open this draft revision") { revision ->
+        Pane {
+            Heading("exact draft revision")
+            if (revision == null) {
+                BodyStatus("this revision is not linked to this message")
+                return@Pane
+            }
+            when (revision.string("status")) {
+                "complete" -> {
+                    revision.string("observed_at")?.let { BodyStatus("observed ${formattedTime(it)}") }
+                    revision.string("subject")?.let { Section(it.ifEmpty { "(no subject)" }) }
+                    revision.optJSONObject("from")?.let { Text("from · ${draftMailbox(it)}") }
+                    for (field in listOf("to", "cc", "bcc")) {
+                        revision.optJSONArray(field)?.let { recipients ->
+                            val names = recipients.objects().joinToString(", ", transform = ::draftMailbox)
+                            Text("$field · " + names.ifEmpty { "none" })
+                        }
+                    }
+                    val context = LocalContext.current
+                    for (file in revision.objects("files")) {
+                        val size = android.text.format.Formatter.formatFileSize(context, file.getLong("size_bytes"))
+                        Text("${file.getString("filename")} · $size")
+                    }
+                    revision.string("body_text")?.let { Text(it.ifEmpty { "empty email body" }) }
+                }
+                "integrity" -> BodyStatus("exact revision failed integrity checks")
+                else -> {
+                    BodyStatus("could not read this draft revision")
+                    return@Pane
+                }
+            }
+            openColdSource?.let { navigate ->
+                TextButton(onClick = { navigate(Route.Message(route.messageId)) }) { Text("open message") }
+            }
+        }
+    }
+}
+
+private fun draftMailbox(mailbox: JSONObject): String {
+    val address = mailbox.getString("address")
+    val name = mailbox.string("name")
+    return if (name.isNullOrEmpty()) address else "$name <$address>"
 }
 
 @Composable

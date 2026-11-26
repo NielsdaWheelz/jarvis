@@ -97,6 +97,7 @@ from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, MAX_CONSENT_ROUNDS, Workspa
 from jarvis.workspace_write_models import (
     CalendarWriteReceipt,
     DiscardReceipt,
+    DraftSnapshot,
     DraftWriteReceipt,
     FrozenCompose,
     FrozenDiscard,
@@ -107,7 +108,13 @@ from jarvis.write_connectors import (
     WorkspaceWriteEntry,
     WorkspaceWriteFailure,
 )
-from jarvis.write_tools import WORKSPACE_IMPLEMENTATION, WRITE_TOOL_IDS
+from jarvis.write_tools import (
+    GMAIL_CREATE_DRAFT_SPEC,
+    WORKSPACE_IMPLEMENTATION,
+    WORKSPACE_MAIL_IMPLEMENTATION,
+    WRITE_TOOL_IDS,
+    workspace_implementation,
+)
 
 ActionStatus = Literal[
     "queued",
@@ -161,6 +168,7 @@ _RETIRED_WORKSPACE_REVISIONS = {
         ("calendar.delete_event", 2),
     )
 }
+_RETIRED_WORKSPACE_REVISIONS[GMAIL_CREATE_DRAFT_SPEC.id].add(WORKSPACE_IMPLEMENTATION)
 
 
 class ActionPersistenceDefect(RuntimeError):
@@ -1086,6 +1094,7 @@ class ActionPositionRecorder:
         self._reservation: Reservation | None = None
         self._reservation_accepted: bool | None = None
         self._settlement: Settlement | None = None
+        self._draft_revision: DraftSnapshot | None = None
 
     @property
     def durable(self) -> bool:
@@ -1431,6 +1440,15 @@ class ActionPositionRecorder:
                     result=receipt_result,
                 )
             else:
+                durable_result: dict[str, object] = dict(canonical_result)
+                if (
+                    self._draft_revision is not None
+                    and canonical_result["type"] == "Success"
+                    and canonical_result["value"].get("verification") == "verified"
+                ):
+                    durable_result["draft_revision"] = self._draft_revision.model_dump(
+                        mode="json"
+                    )
                 await _update_action(
                     connection,
                     stored.id,
@@ -1443,7 +1461,7 @@ class ActionPositionRecorder:
                     result={"tool_result": canonical_result, "control": stored.result}
                     if stored.result is not None
                     and stored.result.get("type") == "agent_control_v5"
-                    else canonical_result,
+                    else durable_result,
                 )
             self._settlement = settlement
         if ambiguous_boundary_failure:
@@ -1490,6 +1508,9 @@ class ActionPositionRecorder:
         await self._store.record_workspace_ack(
             self._action_id, self.workspace_entry.invocation_id, receipt
         )
+
+    def capture_draft_revision(self, revision: DraftSnapshot) -> None:
+        self._draft_revision = revision
 
     def _require_contract(self, stored: StoredAction) -> None:
         if (
@@ -1788,7 +1809,7 @@ def _workspace_uncertainty() -> dict[str, object]:
 
 def _verify_workspace_receipt(stored: StoredAction, value: object) -> WorkspaceReceipt:
     frozen = stored.current_execution_contract.workspace
-    if frozen is None:
+    if frozen is None or frozen.action_id != stored.id:
         raise ValueError("receipt lacks its frozen workspace action")
     effect = frozen.effect
     if isinstance(effect, FrozenCompose):
@@ -1841,7 +1862,7 @@ def _verify_workspace_receipt(stored: StoredAction, value: object) -> WorkspaceR
         ):
             raise ValueError("calendar receipt differs from its frozen operation")
     if (receipt.action_id, receipt.grant_id, receipt.account) != (
-        stored.id,
+        frozen.action_id,
         frozen.grant_id,
         frozen.account,
     ):
@@ -2462,7 +2483,7 @@ def _validate_new_action(
             raise ValueError("workspace write requires its exact frozen effect")
         if contract.workspace is not None and (
             contract.workspace.tool != tool_name
-            or contract.implementation_revision != WORKSPACE_IMPLEMENTATION
+            or contract.implementation_revision != workspace_implementation(tool_name)
         ):
             raise ValueError("workspace effect differs from its binding")
         if contract.workspace is None and (
@@ -2543,7 +2564,33 @@ def _validate_stored_action(stored: StoredAction) -> None:
         ):
             raise ValueError("workspace action identity changed")
         if stored.status == "succeeded":
-            _verify_workspace_receipt(stored, _stored_tool_result(stored)["value"])
+            receipt = _verify_workspace_receipt(
+                stored, _stored_tool_result(stored)["value"]
+            )
+            if (
+                isinstance(receipt, DraftWriteReceipt)
+                and receipt.verification == "verified"
+                and stored.execution_contract.implementation_revision
+                == WORKSPACE_MAIL_IMPLEMENTATION
+            ):
+                revision = DraftSnapshot.model_validate(
+                    (stored.result or {}).get("draft_revision")
+                )
+                compose = frozen.effect
+                assert isinstance(compose, FrozenCompose)
+                fields = {"to", "cc", "bcc", "subject"}
+                if (
+                    revision.sender.address != frozen.account
+                    or revision.model_dump(include=fields)
+                    != compose.content.model_dump(include=fields)
+                    or revision.files != compose.files
+                    or receipt.generated_quote
+                    != (revision.body_text != compose.content.body_text)
+                    or not compose.matches_observed_body(revision.body_text)
+                ):
+                    raise ValueError(
+                        "draft evidence differs from the verified revision"
+                    )
     if (stored.tool_name in ("agent.start", AGENT_DELEGATE_ID)) != (
         stored.current_execution_contract.agent_placement is not None
     ):
@@ -2629,6 +2676,18 @@ def _action_identity(
 def _stored_tool_result(stored: StoredAction) -> ToolResult:
     if stored.result is None:
         raise ActionPersistenceDefect("action lacks tool result")
+    if (
+        "draft_revision" in stored.result
+        and stored.execution_contract.implementation_revision
+        == WORKSPACE_MAIL_IMPLEMENTATION
+    ):
+        return _tool_result(
+            {
+                key: value
+                for key, value in stored.result.items()
+                if key != "draft_revision"
+            }
+        )
     if "tool_result" not in stored.result:
         return _tool_result(stored.result)
     if set(stored.result) != {"tool_result", "control"}:
@@ -3072,6 +3131,12 @@ def action_resolution_text(stored: StoredAction) -> str:
 def public_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
+    if (
+        "draft_revision" in stored.result
+        and stored.execution_contract.implementation_revision
+        == WORKSPACE_MAIL_IMPLEMENTATION
+    ):
+        return dict(_stored_tool_result(stored))
     if stored.status == "uncertain" and str(stored.tool_name) in GMAIL_WRITE_NAMES:
         return {
             key: value

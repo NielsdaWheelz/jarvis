@@ -2,6 +2,9 @@ import { el, button, link } from "./home-dom.js";
 import { draftPreview, openEditor } from "./mail-editor.js";
 import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
 
+import { inspectionAt, linkedText, mailRoute, messagePath, ordinaryPath, parseMessage, renderMarkdown, showTableControls } from "./chat-reader.js";
+import { bindInspection } from "./inspection.js";
+
 const $ = (id) => document.getElementById(id);
 function creationPath(messageId, created) {
   const kind = created.editable === true ? "draft" : "revision";
@@ -65,9 +68,7 @@ function save() {
   const files = draft.files.map(({ name, size, sha256 }) => ({ name, size, sha256 }));
   sessionStorage.setItem(draftKey, JSON.stringify({ ...draft, files }));
 }
-const isDetail = (path) => path.startsWith("/m/");
-const mailId = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const mailRoute = new RegExp("^/mail/(" + mailId + ")/(revision|draft)/(" + mailId + ")$");
+const isDetail = messagePath;
 let mailEditor = null;
 let shownIndex = history.state?.entryIndex ?? 0;
 let undoingTraversal = false;
@@ -357,7 +358,7 @@ function discuss(ref, title) {
 }
 async function request(path, { allowServerError = false, ...options } = {}) {
   const headers = new Headers(options.headers);
-  headers.set("X-Jarvis-Viewer-Contract", "drive-files");
+  headers.set("X-Jarvis-Viewer-Contract", "cited-sources-v1");
   const response = await fetch(path, { redirect: "manual", cache: "no-store", ...options, headers });
   if (response.type === "opaqueredirect" || [401, 403].includes(response.status))
     throw Object.assign(new Error("sign in to continue."), { login: true });
@@ -563,62 +564,6 @@ $("message").onkeydown = (e) => {
   if (!e.repeat) $("send").click();
 };
 
-function linkDestination(text, start) {
-  let href = "";
-  let depth = 0;
-  for (let i = start; i < text.length; i++) {
-    const c = text[i];
-    if (/[\s<>]/.test(c)) break;
-    if (c === ")" && depth === 0) return { href, end: i + 1 };
-    if (c === "\\" && /[()\\]/.test(text[i + 1] || "")) {
-      i++;
-      href += text[i];
-      continue;
-    }
-    if (c === "(") depth++;
-    if (c === ")") depth--;
-    href += c;
-  }
-  return null;
-}
-
-function prose(text) {
-  const p = el("p", undefined, "prose");
-  // Recognise links without interpreting the rest of a message as markup.
-  const pattern =
-    /\[([^\]\n]+)\]\((?=https?:\/\/|\/(?:[mftv]\/|files\/))|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?:\/\/|\/(?:[mftv]\/|files\/))[^\s<>]+/gi;
-  let end = 0;
-  for (let match; (match = pattern.exec(text)); ) {
-    const [token, label, attachment] = match;
-    let tail = "";
-    let href;
-    if (label) {
-      const destination = linkDestination(text, pattern.lastIndex);
-      if (!destination) continue;
-      href = destination.href;
-      pattern.lastIndex = destination.end;
-    } else if (attachment) {
-      href = "/f/" + attachment;
-    } else {
-      href = token;
-      tail = /[.,;:!?'"\]}]+$/.exec(href)?.[0] || "";
-      href = href.slice(0, href.length - tail.length);
-      if (href.endsWith(")") && href.split(")").length > href.split("(").length) {
-        href = href.slice(0, -1);
-        tail = ")" + tail;
-      }
-    }
-    const a = link(label || (attachment ? "original file" : href), href);
-    if (a.origin !== location.origin) {
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-    }
-    p.append(text.slice(end, match.index), a, tail);
-    end = pattern.lastIndex;
-  }
-  p.append(text.slice(end));
-  return p;
-}
 function draftRevisionLink(messageId, actionId) {
   return link(
     "open draft revision",
@@ -626,14 +571,30 @@ function draftRevisionLink(messageId, actionId) {
     "result draft-revision-link",
   );
 }
-function renderMessage(m) {
-  const node = el("article");
+function renderMessage(m, existing) {
+  const node = existing || el("article");
   node.id = "msg-" + m.id;
-  const stamp = el("div", undefined, "stamp");
-  stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis"), el("time", time(m.at)));
-  node.append(stamp, prose(m.text));
+  if (!existing) {
+    const stamp = el("div", undefined, "stamp");
+    stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis"), el("time", time(m.at)));
+    node.append(stamp);
+  }
+  if (node.messageText !== m.text) {
+    node.parsed = parseMessage(m.text);
+    node.messageText = m.text;
+    node.binding = undefined;
+  }
+  const binding = JSON.stringify([m.role, m.sources]);
+  if (node.binding !== binding) {
+    const reader = renderMarkdown(m, node.parsed);
+    if (node.reader) node.reader.replaceWith(reader);
+    else node.append(reader);
+    node.reader = reader;
+    node.binding = binding;
+  }
+  const controls = el("div");
   for (const f of m.files || [])
-    node.append(
+    controls.append(
       link(
         (f.name || "unnamed file") +
           " · " +
@@ -644,7 +605,7 @@ function renderMessage(m) {
     );
   if (m.ref) {
     const path = objectPath(m.ref);
-    node.append(
+    controls.append(
       path
         ? link("discussed · " + label(m.ref), path, "result")
         : el("small", "discussed · " + label(m.ref)),
@@ -654,7 +615,7 @@ function renderMessage(m) {
     const group = el("section", undefined, "proposal");
     group.append(
       el("strong", proposal.title),
-      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : prose(proposal.detail),
+      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : linkedText(proposal.detail),
       el("p", proposal.status_label || proposal.status.replaceAll("_", " "), "secondary"),
     );
     if (proposal.draft_revision_id) {
@@ -674,14 +635,14 @@ function renderMessage(m) {
     );
     reply.dataset.action = proposal.action_id;
     group.append(reply);
-    node.append(group);
+    controls.append(group);
   }
   if (m.draft_revision_error === "integrity")
-    node.append(el("p", "draft revision failed integrity checks.", "draft-evidence"));
+    controls.append(el("p", "draft revision failed integrity checks.", "draft-evidence"));
   if (m.draft_revision_id && !m.drafts?.some(d => d.editable !== true && d.create_action_id === m.draft_revision_id)) {
     const revision = draftRevisionLink(m.id, m.draft_revision_id);
     revision.classList.add("draft-evidence");
-    node.append(revision);
+    controls.append(revision);
   }
   for (const [i, created] of (m.drafts || []).entries()) {
     const subject = created.subject || "(no subject)";
@@ -689,10 +650,23 @@ function renderMessage(m) {
     const action = created.editable === true ? "open draft" : "open draft revision";
     const ordinal = m.drafts.slice(0, i + 1).filter(other => other.subject === created.subject).length;
     const name = action + " · " + subject + (numbered ? " · " + ordinal : "");
-    node.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
+    controls.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
   }
-  if (m.present && m.present.ref.kind !== "draft")
-    node.append(link("open " + label(m.present.ref), objectPath(m.present.ref), "result"));
+  if (m.present && !["draft", "source"].includes(m.present.ref.kind)) {
+    const path = objectPath(m.present.ref);
+    const alreadyLinked = [...node.reader.querySelectorAll("a"), ...controls.querySelectorAll("a")]
+      .some(anchor => anchor.getAttribute("href") === path);
+    if (path && !alreadyLinked) {
+      const ref = m.present.ref;
+      const filename = ref.kind === "file" && m.files?.find(file => file.id === ref.id)?.name;
+      const name = filename ? filename + (ref.page ? " · page " + ref.page : "") : label(ref);
+      controls.append(link("open " + name, path, "result"));
+    }
+  }
+  if (node.controls) node.controls.replaceWith(controls);
+  else node.append(controls);
+  node.controls = controls;
+
   node.dataset.version = JSON.stringify(m);
   return node;
 }
@@ -717,18 +691,24 @@ function merge(items) {
           ref.request_id === request_id && d.create_action_id === ref.create_action_id);
         if (created) presentations.set(request_id, creationPath(m.id, created));
         else presentations.delete(request_id);
+      } else if (ref.kind === "source") {
+        if (m.sources?.some(source => source.slot === ref.slot && source.state === "available"))
+          presentations.set(request_id, "/m/" + m.id + "/source/" + ref.slot);
+        else presentations.delete(request_id);
       } else presentations.set(request_id, objectPath(ref));
     }
     if (existing?.dataset.version === JSON.stringify(m)) continue;
-    const node = renderMessage(m);
+    const focused = existing?.contains(document.activeElement) ? document.activeElement : null;
+    const node = renderMessage(m, existing);
     if (m.id === selectedMessage) node.classList.add("selected");
     const fraction = (m.at.match(/\.(\d+)/)?.[1] || "").padEnd(6, "0");
     // Date's millisecond precision alone loses the order of simultaneous writes.
     node.dataset.order = new Date(m.at).toISOString().slice(0, 19) + fraction + m.id;
     if (existing) {
-      const focused = existing.contains(document.activeElement) ? document.activeElement : null;
-      existing.replaceWith(node);
-      if (focused?.dataset.action)
+      if (!focused || focused.isConnected) continue;
+      if (focused.dataset.readerAnchor)
+        node.querySelector('[data-reader-anchor="' + focused.dataset.readerAnchor + '"]')?.focus({ preventScroll: true });
+      else if (focused.dataset.action)
         node
           .querySelector('[data-action="' + focused.dataset.action + '"]')
           ?.focus({ preventScroll: true });
@@ -777,7 +757,7 @@ async function messages(ver) {
     initialized = true;
   }
   const rows = chunks.reverse().flat();
-  const returning = !isDetail(location.pathname) && history.state.revisionReturn;
+  const returning = !isDetail(location.pathname) && (history.state.revisionReturn || history.state.readerReturn);
   if (
     returning && !$("msg-" + returning.messageId) &&
     !rows.some((row) => row.id === returning.messageId)
@@ -785,7 +765,7 @@ async function messages(ver) {
     const origin = await read("/api/messages/" + returning.messageId);
     if (ver !== routeVersion) return;
     if (origin) rows.unshift(origin);
-    else changeState({ revisionReturn: null });
+    else changeState({ revisionReturn: null, readerReturn: null });
   }
   merge(rows);
   if (rows.length) latest = rows.at(-1).id;
@@ -795,6 +775,7 @@ async function messages(ver) {
     reloadReading = null;
   }
   if (!isDetail(location.pathname)) restoreRevisionReturn();
+  restoreReader();
 }
 $("older").onclick = async () => {
   const b = $("older");
@@ -836,6 +817,21 @@ function restoreRevisionReturn() {
   }
 }
 
+function restoreReader() {
+  const saved = history.state.readerReturn;
+  if (!saved) return;
+  const root = saved.table ? $("inspection") : $("msg-" + saved.messageId);
+  const pane = saved.table ? $("canvas") : $("chat");
+  const control = root?.querySelector('[data-reader-anchor="' + saved.anchor + '"]');
+  if (!control || !control.getClientRects().length || !pane.clientHeight) return;
+  changeState({ readerReturn: null });
+  const scroll = control.closest(".table-scroll");
+  if (scroll) scroll.scrollLeft = saved.left;
+  pane.scrollTop += control.getBoundingClientRect().top - pane.getBoundingClientRect().top - saved.offset;
+  const focused = document.activeElement;
+  if (focused === document.body || focused?.closest("#inspection") || focused?.dataset.readerAnchor)
+    control.focus({ preventScroll: true });
+}
 function navigate(path, { origin, canvasSelection = path, filesSelector, replace = false } = {}) {
   armed = null;
   if (undoingTraversal || !mayLeaveEditor(canvasSelection)) return;
@@ -875,6 +871,19 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
     ...(fromRevisionMessage ? { fromRevisionMessage } : {}),
     ...(filesSelector ? { filesSelector } : {}),
   };
+  const inspection = inspectionAt(path);
+  if (inspection && origin?.dataset.readerAnchor) {
+    const table = origin.closest("#inspection") ? history.state.canvasSelection : null;
+    const pane = table ? $("canvas") : $("chat");
+    const article = origin.closest("article");
+    changeState({ readerReturn: {
+      messageId: article ? article.id.slice(4) : inspection.message, table,
+      anchor: origin.dataset.readerAnchor,
+      offset: origin.getBoundingClientRect().top - pane.getBoundingClientRect().top,
+      left: origin.closest(".table-scroll")?.scrollLeft || 0,
+    } });
+    state.inspectionOrigin = { table };
+  }
   if (path.startsWith("/t/")) {
     state = { ...todoEntry(path.slice(3)), hasOrigin: true };
   } else if (driveRoute(path)) {
@@ -890,6 +899,7 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
       canvasAddress: fromRevision ? "/" : canvasAddress,
       reading: null,
       revisionReturn: null,
+      readerReturn: null,
     };
   }
   pushEntry(state, path);
@@ -898,6 +908,7 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
 function todoEntry(id) {
   return { canvasSelection: todosCanvas, todoTarget: id, openTodos: { [id]: [] } };
 }
+const inspection = bindInspection({ object: $("object"), request, time, restore: restoreReader, refresh });
 const files = bindFiles({ $, navigate, changeState, request, time, attach: discuss });
 $("todos-tab").onclick = () => navigate("/", { canvasSelection: todosCanvas });
 $("files-tab").onclick = () => navigate("/files");
@@ -924,7 +935,7 @@ document.addEventListener("click", (e) => {
     return;
   if (
     a.origin === location.origin &&
-    (/^\/(?:$|overview$|[mtv]\/)/.test(a.pathname) || driveRoute(a.href) || mailRoute.test(a.pathname))
+    !a.hash && (ordinaryPath(a.pathname + a.search) || inspectionAt(a.pathname + a.search))
   ) {
     e.preventDefault();
     navigate(a.pathname + a.search, { origin: a, replace: a.hasAttribute("data-file-page") });
@@ -960,6 +971,7 @@ function startRoute() {
     mailEditor.close();
     mailEditor = null;
   }
+  inspection.close();
   routeVersion++;
   failures.delete("canvas");
   failures.delete("detail");
@@ -1098,6 +1110,16 @@ async function canvasRead(ver) {
     return;
   }
   const url = new URL(path, location.origin);
+  const inspected = inspectionAt(path);
+  if (inspected) {
+    current = null;
+    displayed = path;
+    $("location").textContent = inspected.kind;
+    $("object-tools").hidden = true;
+    if (!mobile.matches || !history.state.panel) await inspection.show(path, inspected);
+    else inspection.close();
+    return;
+  }
   const mail = mailRoute.exec(url.pathname);
   if (mail) {
     await mailRead(ver, url.pathname, mail[1], mail[2], mail[3]);
@@ -1264,10 +1286,10 @@ function renderTodoBody(row, open) {
   const body = row.body;
   body.replaceChildren();
   if (record === null) {
-    body.append(prose("this todo is no longer available."));
+    body.append(linkedText("this todo is no longer available."));
   }
   if (item) {
-    if (item.content) body.append(prose(item.content));
+    if (item.content) body.append(linkedText(item.content));
     if (wake) body.append(el("p", wake));
     const discussTodo = button("discuss", () => discuss({ kind: "todo", id: row.id }, item.title));
     discussTodo.dataset.control = "discuss";
@@ -1432,7 +1454,7 @@ async function readTodoPart(row, part, force) {
 
 async function detailRead(ver) {
   const [, kind, id] = location.pathname.split("/");
-  if (kind === "m") {
+  if (kind === "m" && isDetail(location.pathname)) {
     const m = await read("/api/messages/" + id);
     if (ver !== routeVersion) return;
     if (!m) {
@@ -1449,6 +1471,7 @@ async function detailRead(ver) {
     if (restore && !initialized) reloadReading.appliedOffset = selectedMessageOffset();
     else reloadReading = null;
     restoreRevisionReturn();
+    restoreReader();
   }
 }
 
@@ -1541,17 +1564,23 @@ async function workspaceApproval(ver) {
   node.dataset.round = approval.id;
   node.hidden = false;
 }
+new ResizeObserver(() => {
+  showTableControls();
+  restoreReader();
+}).observe($("chat"));
 showFiles();
 startRoute();
 window.addEventListener("pagehide", () => {
+  inspection.close();
   rememberOverview();
   files.remember(document.activeElement);
   files.close();
   rememberReading();
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) armed = null;
+  if (document.hidden) { armed = null; inspection.close(); }
   else refresh();
 });
+window.addEventListener("pageshow", refresh);
 window.addEventListener("online", refresh);
 setInterval(refresh, 3000);

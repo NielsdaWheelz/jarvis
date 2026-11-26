@@ -101,6 +101,8 @@ kotlin {
 }
 
 dependencies {
+    implementation("org.commonmark:commonmark:0.33.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.33.0")
     implementation(platform("androidx.compose:compose-bom:2026.06.00"))
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.browser:browser:1.9.0")

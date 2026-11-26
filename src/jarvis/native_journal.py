@@ -89,6 +89,7 @@ from jarvis.approval_tools import (
     ApprovalRespondInput,
     ApprovalRespondResult,
 )
+from jarvis.citation_sources import bind_sources
 from jarvis.codex_config import NATIVE_ROUTES, PAID_ROUTES
 from jarvis.db import (
     action,
@@ -103,7 +104,7 @@ from jarvis.db import (
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT
 from jarvis.home_reads import draft_for_request, proposal_presented, reference_context
-from jarvis.home_refs import DraftPresentationRef
+from jarvis.home_refs import DraftPresentationRef, SourceRef
 from jarvis.mail_revisions import VerifiedWorkspaceDraft
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
@@ -1907,6 +1908,7 @@ async def _presentation_home(
     stopping: tuple[UUID, ...] = (),
     *,
     drive_subject: str | None = None,
+    source_bound: bool = False,
 ) -> dict[str, object] | None:
     if present is None:
         return None
@@ -1922,6 +1924,10 @@ async def _presentation_home(
     )
     if request is None:
         reason = "unproven_lineage"
+    elif isinstance(present.ref, SourceRef):
+        if source_bound:
+            return {"present": present.model_dump(mode="json")}
+        reason = "unavailable_source"
     elif await reference_context(
         connection,
         scope,
@@ -2408,13 +2414,39 @@ async def commit_product(
         )
         enrollment = None if workspace is None else workspace.enrollment()
         drive_subject = None if enrollment is None else enrollment.subject
+        sources = (
+            await bind_sources(
+                connection,
+                owner.scope_id,
+                attempt["id"],
+                set(statuses),
+                set(stopping),
+                final.sources,
+                enrollment,
+            )
+            if rendered.content is not None
+            else []
+        )
+        presentation = (
+            None if isinstance(final.response, Silent) else final.response.present
+        )
+        source_bound = False
+        if presentation is not None and isinstance(presentation.ref, SourceRef):
+            index = presentation.ref.slot - 1
+            source_bound = (
+                not restricted
+                and index < len(sources)
+                and sources[index]["state"] == "available"
+                and final.sources[index].request_id == presentation.request_id
+            )
         home = await _presentation_home(
             connection,
             owner.scope_id,
             attempt["id"],
-            None if isinstance(final.response, Silent) else final.response.present,
+            presentation,
             stopping,
             drive_subject=drive_subject,
+            source_bound=source_bound,
         )
         if catchup_result is not None:
             home = {**(home or {}), "recovery_catchup": catchup_result}
@@ -2504,6 +2536,8 @@ async def commit_product(
             )
             if link is not None:
                 home = {**(home or {}), "todo_result": link}
+        if rendered.content is not None:
+            home = {**(home or {}), "sources_v1": sources}
         if rendered.content is not None and not restricted:
             drafts = await _draft_result_home(
                 connection,

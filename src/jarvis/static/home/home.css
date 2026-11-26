@@ -565,9 +565,32 @@ body[data-panel="open"] #sidebar-close {
 #canvas:has(#draft-revision) { padding-bottom: env(safe-area-inset-bottom); }
 
 @media (max-width: 720px) {
-  #workspace:has(#draft-revision) > .bar {
+  #workspace > .bar {
+    height: auto;
+    min-height: 3.9rem;
     flex-wrap: wrap;
     gap: .35rem .6rem;
     padding: .4rem .65rem;
   }
 }
+
+.chat-markdown { min-width: 0; overflow-wrap: anywhere; }
+.chat-markdown :is(p, ul, ol, blockquote, pre, .chat-table) { margin-block: .45rem; }
+.chat-markdown :is(h1, h2, h3, h4, h5, h6) { margin: .85em 0 .3em; line-height: 1.2; }
+.chat-markdown h1 { font-size: 1.4em; }
+.chat-markdown h2 { font-size: 1.22em; }
+.chat-markdown h3 { font-size: 1.1em; }
+.chat-markdown :is(ul, ol) { padding-inline-start: 1.6em; }
+.chat-markdown blockquote { margin-inline: 0; border-inline-start: 2px solid var(--line); padding-inline-start: .7em; }
+.chat-markdown pre, .table-scroll { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.chat-markdown pre { white-space: pre; }
+.chat-markdown th, .chat-markdown td { text-align: start; vertical-align: top; padding: .4em .6em; border-block-end: 1px solid var(--line); max-width: 32ch; }
+.chat-markdown table { border-collapse: collapse; width: max-content; }
+.chat-table > a { display: inline-block; margin-block: .3em; }
+#workspace { min-width: 0; }
+#canvas:has(#inspection), #object:has(#inspection) { display: block; }
+#inspection { padding: clamp(1rem, 3vw, 2.5rem); max-width: 72rem; margin: auto; overflow-wrap: anywhere; }
+#inspection h1 { font-size: 1.5rem; }
+#inspection dl { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); gap: .3rem 1rem; }
+#inspection dd { margin: 0; white-space: pre-wrap; }
+.literal { white-space: pre-wrap; }

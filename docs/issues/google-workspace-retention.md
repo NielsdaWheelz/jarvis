@@ -1,5 +1,13 @@
 # can jarvis keep ordinary google history?
 
+[citation inspection 0124](../decisions/0124-citations-and-viewer-delivery.md)
+adds owner-only replay of retained observations and a bounded passage selector.
+include pages, pinned editions and reports derived from workspace reads,
+their notes git history, exported drive files and downstream copies. these can
+survive grant fences and withdrawal. cover their destinations, backups and
+retention before using real workspace material or synthetic fixtures on the
+owner's real account.
+
 open. follow-up pr for [connector design 0107](../decisions/0107-google-workspace.md). on november 24 the owner explicitly selected ordinary recording of google reads and answers, for past and future jarvis history. the connector pr may use synthetic examples. real-account use of the replacement waits for an evidenced answer. there is no authorization to change history, backups, model, subscription or cost.
 
 the [revision candidate](../decisions/0121-exact-chat-draft-revisions.md) adds

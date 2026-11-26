@@ -24,6 +24,13 @@ audience: product, engineering, design, operations, and future coding agents
 
 ## private web home
 
+[adr 0124](docs/decisions/0124-citations-and-viewer-delivery.md) specifies
+one-tap inspection of the recorded mail passage or calendar occurrence in a
+new reply, full-width reading of a chat table, and delivery of reusable work
+in the viewer. it amends 0091 and co-delivers the 0118 reading slice. old
+replies keep authored links. the updated service, web shell and signed app
+form one release. the installed contract governs until the stopped cut.
+
 [adr 0119](docs/decisions/0119-owner-gmail-draft-editor.md) adds the owner
 gmail editor on web and through android's browser. the human oauth client and
 editor receipt are separate from the agent connector and action ledger.

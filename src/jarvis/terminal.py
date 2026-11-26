@@ -15,7 +15,14 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from jarvis.action_requests import CanonicalUuid
-from jarvis.home_refs import DriveFileRef, FilePageRef, FileRef, ViewRef
+from jarvis.home_refs import (
+    DriveFileRef,
+    FilePageRef,
+    FileRef,
+    PageNumber,
+    SourceRef,
+    ViewRef,
+)
 
 type TerminalOutcome = Literal[
     "answered",
@@ -46,16 +53,30 @@ def _terminal_text(value: str) -> str:
     return value
 
 
+class Source(_StrictModel):
+    request_id: CanonicalUuid
+    kind: Literal["mail", "event"]
+    item: str
+    reads: list[CanonicalUuid]
+    passage: str | None
+
+
+class NativeDriveFileRef(DriveFileRef):
+    """Native output spells out null; the owner submission may omit the page."""
+
+    page: PageNumber | None = Field(...)
+
+
 class Presentation(_StrictModel):
     request_id: CanonicalUuid
-    ref: ViewRef | FilePageRef | FileRef | DriveFileRef
+    ref: ViewRef | FilePageRef | FileRef | NativeDriveFileRef | SourceRef
 
 
 class TodoResult(_StrictModel):
     todo_id: CanonicalUuid
     request_id: CanonicalUuid
     draft_ref: CanonicalUuid | None
-    file_ref: DriveFileRef | None = None
+    file_ref: NativeDriveFileRef | None
 
 
 class _Visible[KindT: str](_StrictModel):

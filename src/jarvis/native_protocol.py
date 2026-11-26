@@ -27,10 +27,11 @@ from llm_tools import (
 from pydantic import model_validator
 
 from jarvis import terminal
+from jarvis.home_refs import SourceRef
 from jarvis.workspace_checks import WorkspaceResult
 
-NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v6"
-NATIVE_OUTPUT_NAME = "jarvis_home_message_v3"
+NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v7"
+NATIVE_OUTPUT_NAME = "jarvis_home_message_v4"
 WORKSPACE_CHECK_PROFILE = ProfileId("workspace_check")
 FOREGROUND_RECOVERY_PROFILE = ProfileId("foreground_recovery")
 
@@ -129,16 +130,34 @@ def _read_only_native(
 
 
 class JarvisNativeMessage(terminal.JarvisNativeMessage):
+    sources: list[terminal.Source]
     workspace_result: WorkspaceResult | None
 
     @model_validator(mode="after")
     def progress_has_no_check_result(self) -> Self:
+        if (
+            isinstance(self.response, terminal.Progress | terminal.Silent)
+            and self.sources
+        ):
+            raise ValueError("progress and silence have no citations")
+        if isinstance(self.response, terminal.Progress) and isinstance(
+            self.response.present and self.response.present.ref, SourceRef
+        ):
+            raise ValueError("a source is presented only by a final")
         if isinstance(self.response, terminal.Progress) and self.workspace_result:
             raise ValueError("progress cannot settle a workspace occurrence")
         return self
 
 
 class JarvisTerminal(terminal.JarvisTerminal):
+    sources: list[terminal.Source]
+
+    @model_validator(mode="after")
+    def silent_has_no_sources(self) -> Self:
+        if isinstance(self.response, terminal.Silent) and self.sources:
+            raise ValueError("silence has no citations")
+        return self
+
     workspace_result: WorkspaceResult | None
 
     @classmethod

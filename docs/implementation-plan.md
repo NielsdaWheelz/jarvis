@@ -256,6 +256,14 @@ the stopped mail inventory and record the
 
 ## full answers in web chat
 
+[adr 0124](decisions/0124-citations-and-viewer-delivery.md) owns evidence
+inspection, full-width tables and work delivery. its reading prerequisite
+ships with this slice. use 0120 for verified downloadable files. use
+0122's contextual back and 0123's passive edition links on their matched
+cuts. 0119's production editor enrollment is tracked independently.
+the [installed and live check](issues/citation-viewer-live.md) records the
+remaining account, provider and signed phone work.
+
 [adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)
 records the qualified source and isolated stock candidate. it removes the old
 final-reply limit and preserves reading position on direct message links.

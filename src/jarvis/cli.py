@@ -819,6 +819,7 @@ async def _serve(
                         pages=DEFAULT_EXPORT,
                         phone=phone,
                         workspace_approvals=composition.workspace_approvals,
+                        source_enrollment=tokens.enrollment,
                         mail_editor=editor,
                         drive_reader=drive_reader,
                     )

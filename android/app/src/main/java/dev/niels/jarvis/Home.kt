@@ -1,8 +1,6 @@
 package dev.niels.jarvis
 
 import android.app.Activity
-import android.content.ActivityNotFoundException
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -43,12 +41,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -180,6 +172,8 @@ internal fun JarvisHome(
                             is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, newDraft) {
                                 chat = true
                             }
+                            is Route.Source -> SourcePane(route, api, refresh, authRevision, onNavigate, onBack)
+                            is Route.Table -> TablePane(route, api, reload, signIn, onNavigate, onBack)
                             Route.Files -> DriveList(null, api, reload, signIn, onNavigate, newDraft)
                             is Route.File -> OriginPane(route, api, reload, signIn, onResolve)
                             is Route.DriveFile -> FilePane(route, api, reload, signIn, onNavigate, newDraft)
@@ -289,7 +283,7 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
     val id = message.getString("id")
     val speaker = if (message.getString("role") == "owner") "you" else "jarvis"
     Text("$speaker · ${formattedTime(message.string("at"))}", style = MaterialTheme.typography.labelMedium)
-    Prose(message.getString("text"), navigate)
+    MessageMarkdown(message, navigate)
     for (file in message.objects("files")) {
         val status = if (file.optBoolean("unavailable")) "file unavailable" else originStatus(file)
         TextButton(onClick = { navigate(Route.File(file.getString("id"), null)) }) {
@@ -303,8 +297,7 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
         HorizontalDivider()
         Section(proposal.getString("title"))
         val revision = proposal.string("draft_revision_id")
-        if (revision != null) Text(proposal.getString("detail"))
-        else Prose(proposal.getString("detail"), navigate)
+        Text(proposal.getString("detail"))
         BodyStatus(proposal.string("status_label") ?: proposal.getString("status").replace('_', ' '))
         if (revision != null) {
             TextButton(onClick = { navigate(Route.Mail(id, revision, historical = true)) }) {
@@ -456,82 +449,3 @@ internal fun formattedTime(value: String?, timezone: String? = null): String {
 
 internal fun civilDate(value: String): String =
     LocalDate.parse(value).format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
-
-private val LinkStart = Regex(
-    """\[([^\]\n]+)]\((?=https?://|/(?:[mftv]/|files/))|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?://|/(?:[mftv]/|files/))[^\s<>]+""",
-    RegexOption.IGNORE_CASE,
-)
-
-@Composable
-internal fun Prose(text: String, navigate: (Route) -> Unit) {
-    val context = LocalContext.current
-    val color = MaterialTheme.colorScheme.primary
-    val annotated = buildAnnotatedString {
-        var end = 0
-        while (end < text.length) {
-            val match = LinkStart.find(text, end) ?: break
-            val label = match.groups[1]?.value
-            val original = match.groups[2]?.value
-            var next = match.range.last + 1
-            val href = when {
-                label != null -> {
-                    val parsed = labeledDestination(text, next)
-                    if (parsed == null) {
-                        append(text.substring(end, next))
-                        end = next
-                        continue
-                    }
-                    next = parsed.second
-                    parsed.first
-                }
-                original != null -> "/f/$original"
-                else -> match.value.trimEnd('.', ',', ';', ':', '!', '?', '\'', '"', ']', '}').let { candidate ->
-                    if (candidate.endsWith(')') && candidate.count { it == ')' } > candidate.count { it == '(' })
-                        candidate.dropLast(1) else candidate
-                }
-            }
-            val uri = Uri.parse(href)
-            val route = hrefRoute(href)
-            val external = route == null && uri.scheme in setOf("http", "https") &&
-                !uri.host.isNullOrBlank() && uri.userInfo == null
-            if (route == null && !external) {
-                append(text.substring(end, next))
-                end = next
-                continue
-            }
-            append(text.substring(end, match.range.first))
-            withLink(LinkAnnotation.Clickable(href, TextLinkStyles(style = SpanStyle(color = color, textDecoration = TextDecoration.Underline))) {
-                if (route != null) navigate(route)
-                else try {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                } catch (_: ActivityNotFoundException) {
-                    android.widget.Toast.makeText(context, "browser unavailable", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            }) { append(label ?: if (original != null) "original file" else href) }
-            if (label == null && original == null) append(match.value.substring(href.length))
-            end = next
-        }
-        append(text.substring(end))
-    }
-    Text(annotated)
-}
-
-private fun labeledDestination(text: String, start: Int): Pair<String, Int>? {
-    val href = StringBuilder()
-    var depth = 0
-    var index = start
-    while (index < text.length) {
-        val c = text[index++]
-        when {
-            c.isWhitespace() || c == '<' || c == '>' -> return null
-            c == ')' && depth == 0 -> return href.toString() to index
-            c == '\\' && index < text.length && text[index] in "()\\" -> href.append(text[index++])
-            else -> {
-                if (c == '(') depth++
-                if (c == ')') depth--
-                href.append(c)
-            }
-        }
-    }
-    return null
-}

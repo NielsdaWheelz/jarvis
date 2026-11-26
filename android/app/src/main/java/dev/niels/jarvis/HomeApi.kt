@@ -47,7 +47,7 @@ internal class HomeApi(context: Context) {
         val request = Request.Builder().url(url).method(method, payload)
         for ((name, value) in headers) request.header(name, value)
         request.header("Cache-Control", "no-store")
-        request.header("X-Jarvis-Viewer-Contract", "drive-files")
+        request.header("X-Jarvis-Viewer-Contract", "cited-sources-v1")
         if (method != "GET" && method != "HEAD") request.header("Origin", Routes.origin)
         var bearer = access.currentBearer() ?: throw SignInRequired()
         var response = execute(request.header("Authorization", "Bearer $bearer").build())

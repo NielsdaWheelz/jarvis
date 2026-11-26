@@ -105,6 +105,10 @@ jarvis row sits at the end of the transcript, after any progress rows.
 - the tail covers received, working, standby, retrying and paused.
 - owed is not a tail state. the reply that asks carries 0125's `needs a reply`.
 
+an existing tail keeps its words and freezes its elapsed time from a
+`you: null` presence read until the chat read ordered after it. a failed
+paired chat read applies the stale rule to the tail.
+
 when the reply arrives it takes the tail's place. the words fade over 160 ms
 while the prose fades in over 280 ms in the same grid cell. the elapsed time
 becomes the reply's time, and nothing above moves. if the owner's message
@@ -130,8 +134,8 @@ govern scrolling, with the tail counted as part of the bottom.
 
 - **silent work** prefixes its trigger: `from mail`, `from your todos`,
   `a result came back`, `recovering`.
-- **received:** `received`, or `received · after current work` when other work
-  runs first.
+- **received:** the label for `queued`. it reads `received · after current work`
+  when other work runs first.
 
 **send.** keep 0116's submission and recovery contract and the existing
 `refresh()` after acceptance.
@@ -263,7 +267,9 @@ non-empty.
 message that is either pending, or waiting on an approval where some waiting
 action is `queued` or `executing` and none is `awaiting_approval`.
 
-- that second case is an approved effect in flight. it reads `working`.
+- that second case reads `working` in the tail. until the executor enters,
+  the tail says `working` with no elapsed time. only process-local work arms
+  the header and its beat.
 - a denied action is `cancelled` and matches neither case.
 - the values are `queued`, `working`, `standby`, `retrying` and `paused`.
 - `ahead` counts pending inputs before it in the existing `pending_inputs`
@@ -386,6 +392,8 @@ green, then record cleanup separately.
    - send, receipt, tail and handoff, with no shift above the tail and no
      destination movement when the mark or a legend appears;
    - a reply between the presence and chat reads never strands the tail;
+   - the tail holds after an idle presence read, then hands off in place when
+     its paired chat read finds the reply;
    - an owner message queued behind a workspace check keeps its tail when the
      check's final lands;
    - a silent mail turn: grey mark and legend, no chat row, no announcement;

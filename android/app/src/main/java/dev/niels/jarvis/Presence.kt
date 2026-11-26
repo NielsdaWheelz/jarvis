@@ -376,9 +376,12 @@ internal class Presence {
                 pairedFailures = 0
             }
             val visit = history.visit
-            val revisit = refreshAll || readVisit != visit || (checked != null && checked.chat != pairedToken)
+            val revisit = refreshAll || readVisit != visit
+            val tokenChanged = checked != null && checked.chat != pairedToken
             refreshAll = false
-            val paired = history.refresh(revisit) { before -> readChatPage(api, notices, before, readMillis) }
+            val paired = history.refresh(revisit, recheckRetained = tokenChanged) { before ->
+                readChatPage(api, notices, before, readMillis)
+            }
             var arrivals = emptySet<String>()
             if (paired) {
                 readVisit = visit

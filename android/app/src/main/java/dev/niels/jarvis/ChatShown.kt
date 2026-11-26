@@ -182,11 +182,14 @@ internal class ChatHistory(private val shown: ChatShown) {
         !attending || (awayFrom?.let { message.stamp.at >= it } == true &&
             awayThrough?.let { message.stamp.at <= it } == true)
 
-    suspend fun refresh(revisit: Boolean, page: suspend (String?) -> ChatPage) = reads.withLock {
+    suspend fun refresh(revisit: Boolean, recheckRetained: Boolean, page: suspend (String?) -> ChatPage) = reads.withLock {
         applyRead {
-            val initial = !received || rows.isEmpty()
+            val knownProjection = received
+            val initial = !knownProjection || rows.isEmpty()
             val previous = rows
-            val oldEdge = if (revisit) previous.firstOrNull() else previous.lastOrNull()
+            val retainedEdge = previous.firstOrNull()?.stamp
+            val reloadRetained = revisit || recheckRetained
+            val scanEdge = if (reloadRetained) retainedEdge else previous.lastOrNull()?.stamp
             val head = page(null)
             val retained = mutableListOf<ChatPage>()
             val oldMarks = mutableListOf<ChatStamp>()
@@ -199,7 +202,7 @@ internal class ChatHistory(private val shown: ChatShown) {
                 val cursor = current.before ?: break
                 val first = current.messages.firstOrNull()?.stamp ?: throw IOException("invalid message page")
                 count = count && first.at > shown.start
-                keep = if (initial) retained.size < 3 && count else oldEdge != null && first > oldEdge.stamp
+                keep = if (initial) retained.size < 3 && count else scanEdge != null && first > scanEdge
                 if (!count && !keep) break
                 current = page(cursor)
             }
@@ -214,8 +217,12 @@ internal class ChatHistory(private val shown: ChatShown) {
             } else retained
 
             val updated = kept.asReversed().flatMap { it.messages }
-            if (initial || revisit) before = kept.last().before
-            rows = if (initial || revisit) updated else (rows + updated).associateBy { it.id }.values.sortedBy { it.stamp }
+            if (initial) before = kept.last().before
+            rows = when {
+                initial -> updated
+                reloadRetained -> updated.filter { retainedEdge == null || it.stamp >= retainedEdge }
+                else -> (previous + updated).associateBy { it.id }.values.sortedBy { it.stamp }
+            }
             rows.forEach { learnedAt(it.id) }
             val oldest = rows.firstOrNull()?.stamp
             if (initial || revisit) outside = oldMarks.filter { oldest != null && it < oldest }
@@ -226,9 +233,10 @@ internal class ChatHistory(private val shown: ChatShown) {
             }
             received = true
             val terminals = rows.filter { it.terminal }
-            val floor = previous.firstOrNull()?.stamp
             val known = previous.mapTo(mutableSetOf()) { it.id }
-            val arrivals = terminals.filter { floor != null && it.stamp >= floor && it.id !in known }
+            val arrivals = terminals.filter {
+                knownProjection && (retainedEdge == null || it.stamp >= retainedEdge) && it.id !in known
+            }
             ChatRead(terminals.map { it.id }, arrivals.mapTo(mutableSetOf()) { it.id })
         }
     }

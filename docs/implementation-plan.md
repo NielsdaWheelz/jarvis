@@ -293,6 +293,8 @@ ships with this slice. use 0120 for verified downloadable files. use
 cuts. 0119's production editor enrollment is tracked independently.
 the [installed and live check](issues/citation-viewer-live.md) records the
 remaining account, provider and signed phone work.
+the [controlled candidate record](decisions/0124-citations-and-viewer-delivery.md#implementation-evidence)
+binds the code, receipts, opus closure and fixture removal.
 
 the selected artifacts determine the release order. finish the stopped drive
 cut in #129 first, or repeat its migration, custody and client proof on the

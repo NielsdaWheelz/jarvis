@@ -1,6 +1,6 @@
 # 0124 · cited sources and work in the viewer
 
-design for implementation. amends [0091](0091-source-backed-reports.md) and the reader in [0118](0118-chat-reading-and-approvals.md). mail editing belongs to [0119](0119-owner-gmail-draft-editor.md), exact draft history to [0121](0121-exact-chat-draft-revisions.md) and file custody to [0120](0120-drive-files.md). use [0122’s contextual back](0122-chat-sidebar-and-phone-alerts.md) and [0123’s artifact library](0123-artifact-library.md) on their cuts. only deliberately published pages enter that library. a citation or expanded table stays with its message.
+source and controlled candidate qualified. installed acceptance is open. amends [0091](0091-source-backed-reports.md) and the reader in [0118](0118-chat-reading-and-approvals.md). mail editing belongs to [0119](0119-owner-gmail-draft-editor.md), exact draft history to [0121](0121-exact-chat-draft-revisions.md) and file custody to [0120](0120-drive-files.md). use [0122’s contextual back](0122-chat-sidebar-and-phone-alerts.md) and [0123’s artifact library](0123-artifact-library.md) on their cuts. only deliberately published pages enter that library. a citation or expanded table stays with its message.
 
 ## what the owner gets
 
@@ -88,3 +88,31 @@ keep file links named by the known filename/page. remove duplicate result links.
 2. on desktop and phone run the designers' linked journeys, a cold link, hidden/second tab, failed local read and disconnect while open. verify zero focus theft and an intact composer. compare both tables cell-for-cell and exercise links from the expanded table. use a one-line price answer and a six-item handover with a payment warning. include a ragged input with an extra field. authored tables must preserve that field under a named column or flag it in the answer. open the resulting deliverable independently and recover every finding, unit, source and caveat. a requested file must reopen with the verified format/content. use 0120's existing proof when integrated.
 3. obtain independent opus review of each final feature and its evidence. keep named evidence outside scratch, reopen and hash it, record cleanup separately, then delete only the temporary probes/fixtures. controlled runs can exercise races. they cannot prove the real account or signed handset. the owner selected **a separately authorized check on their account** with named synthetic mail/event fixtures, real subscribed main, desktop and signed phone. agree on setup, any event change and fixture cleanup at that time. no live data or production action is authorized by this design.
 4. rotate the main binding and advance the native output name from `jarvis_home_message_v3` to the next unused revision across every active provider and sealed-settlement path. on each selected route (personal codex, google neon, agy neon), verify the actual prepared instructions and schema fit, the tool return exposes the original ref, and a controlled end-to-end produces bound mail, bound event and empty-source finals. record unavailable routing as unqualified. inventory and settle incompatible in-flight and sealed products on their original release before switching. stage service, web and signed android together. require `x-jarvis-viewer-contract: cited-sources-v1` on message list/detail/submission and the new evidence endpoint. missing/stale gets 426 before any effect. use one selected contract value across 0120 integration, rotating it again if that later release changes the wire. close/reload/update before resuming under [0104](0104-maintenance-without-owner-pause.md). retire replaced reader/prompt branches with their matched cut. no parallel decoder, renderer, URL-guessing bridge or historical rewrite. preserve unrelated proposal, scheduled-check, receipt and draft behavior. report source, candidate and installed results separately.
+
+## implementation evidence
+
+candidate `4dfc7b2598b38bcf71f7668f21974ad5f5334b3c` composes 0122 and
+0123 through `0e0c1f7`. exact macbook rehearsals passed the static/build
+checks and 27 controlled integration assertions. chrome and the android
+emulator opened retained evidence through the real http routes and postgres.
+the browser followed the first chat delivery from a sandboxed pinned report.
+the previous native app received the update state. stale web submissions
+received 426 before execution. both readers matched all 20 gfm table cases.
+the largest binding fixture, 32 sources with eight 32,768-byte reads each,
+took about 0.13 seconds.
+
+the matched cut uses request v8, native output v5, main binding v31 and
+`cited-sources-v1`. every provider prepared the new contract within its
+existing limits and replayed its own synthetic seal format. putting the new
+policy and the verbatim recovery instructions in the developer channel kept
+the unrelated main wording intact. the native drive ref now requires a
+nullable page and todo results require a nullable file ref. codex requires
+every output key. owner file links retain their existing input contract.
+
+opus passed the controlled candidate at `f6d1972` and closed the unread-range
+and header-precedence findings at `4dfc7b2`. receipts and the retained evidence
+index are under `~/.local/state/jarvis/qualification/adr0124-implementation.dTElGg6R/`.
+the checks and fixture removals have separate receipts. temporary drivers and
+the debug emulator were removed after review. the
+[installed and live qualification](../issues/citation-viewer-live.md) remains
+open.

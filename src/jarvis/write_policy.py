@@ -7,13 +7,12 @@ from typing import Literal
 from llm_tools import ToolId
 
 from jarvis.agent_tools import (
-    AgentCancelWaitInput,
     AgentCloseInput,
+    AgentDelegateInput,
     AgentKeysInput,
     AgentSendInput,
     AgentStartInput,
     AgentStopInput,
-    AgentWaitInput,
 )
 from jarvis.attachment_tools import AttachmentDeleteInput, AttachmentRetainInput
 from jarvis.event_tools import EventsConfigureInput
@@ -51,8 +50,7 @@ def classify_write(
         ("agent.text", AgentSendInput),
         ("agent.stop", AgentStopInput),
         ("agent.close", AgentCloseInput),
-        ("agent.wait", AgentWaitInput),
-        ("agent.cancel_wait", AgentCancelWaitInput),
+        ("agent.delegate", AgentDelegateInput),
     }:
         return "automatic"
     if (name, type(value)) in {

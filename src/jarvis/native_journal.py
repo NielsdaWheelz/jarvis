@@ -2112,7 +2112,8 @@ async def commit_product(
                 and item["status"]
                 in {"queued", "awaiting_approval", "executing", "uncertain"}
                 and not (
-                    item["tool_name"] == "agent.wait"
+                    item["tool_name"] == "agent.delegate"
+                    and item["status"] == "queued"
                     and item["result"] is not None
                     and "registration_receipt" in item["result"]
                 )

@@ -32,8 +32,10 @@ publication wakes the original conversation once.
 
 drain unfinished worker actions and outbound wakes on the selected old release.
 verify the exact paired skid cli, gateways, worker pin and matching jarvis
-artifact. every profile on macbook, dev-server and arch must qualify before the
-switch. activate together. the catalog includes `agent.delegate` and explicit
+artifact. the owner approved macbook and the four qualified dev-server
+profiles for this switch. arch and dev-server `claude-work` remain deferred.
+verify an installed cross-host peer reply between the two selected hosts
+before activating jarvis. the catalog includes `agent.delegate` and explicit
 terminal inspection and controls. finalized earlier receipts stay opaque in the
 original action rows. retain a stopped restore point for pre-cut state and
 repair forward after new effects unless the recovery procedure accounts for

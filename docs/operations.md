@@ -868,8 +868,9 @@ historical evidence remains in adr 0049. its transport is retired; use the
 ## skid-only worker cutover
 
 [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) retains the
-historical worker transition. current v11 contracts are terminal-only. settled old
-worker rows remain opaque evidence; unfinished incompatible contracts block
+historical worker transition. [adr 0112](decisions/0112-managed-agent-delegation.md)
+owns managed assignments and explicit terminal controls. settled old worker
+rows remain opaque evidence. unfinished incompatible contracts block
 admission and require disposition under their original release.
 
 `JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_STATE_DIRECTORY` select the qualified

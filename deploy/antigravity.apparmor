@@ -10,8 +10,11 @@ profile jarvis-antigravity-localharness "@BINARY@" flags=(mediate_deleted,attach
   "/jarvis-sdk-disconnected@BINARY@" ix,
   /jarvis-sdk-disconnected/proc/self/exe ix,
   deny /jarvis-sdk-disconnected/** wl,
-  /usr/bin/bwrap ix,
-  /{,usr/}bin/{sh,bash,dash} px -> jarvis-antigravity-tool,
+  # Retain the launcher label under NoNewPrivileges and add the tool restrictions.
+  /usr/** px -> jarvis-antigravity-localharness//&jarvis-antigravity-tool,
+  /{bin,sbin,tmp}/** px -> jarvis-antigravity-localharness//&jarvis-antigravity-tool,
+  /var/lib/jarvis-notes/** px -> jarvis-antigravity-localharness//&jarvis-antigravity-tool,
+  "@RELEASE@/{deploy,.python,.venv/bin}/**" px -> jarvis-antigravity-localharness//&jarvis-antigravity-tool,
   capability,
   network,
   unix,

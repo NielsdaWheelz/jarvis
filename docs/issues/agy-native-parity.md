@@ -17,7 +17,7 @@ the sdk 0.1.24 passed the shell check in a matching detached noble rehearsal wit
 
 the sdk's direct host-tool fixture verified root-only execution using its typed pre-tool decision and runtime step id. the default self child inherited the tool declaration, and a named empty-tool child never saw it. the guard denied the self child even with the parent's identifiers in its model-proposed arguments. the restricted fixture published only its allowed read. exact replay handling, steering with racing receipts, and the installed callback and shell boundary remain open.
 
-the cli remains held at credential isolation. the sdk is a candidate for a separately chosen transport.
+the owner selected the official sdk for 0111 and chose next-turn follow-up delivery with immediate stop. exact callback replay, original receipt preservation and installed workspace isolation still gate release. the cli results describe the retired candidate.
 
 the installed stock host uses the distro bubblewrap apparmor profile for its user namespace. the agy tests found that the dev-server restricts unprivileged user namespaces and the bundled shell launcher returns `operation not permitted`. test the exact staged launcher before assigning cause or changing host policy. [installed kernel setup](../operations.md) · [vendor sandbox requirements](https://antigravity.google/docs/sandbox-mode?app=antigravity)
 

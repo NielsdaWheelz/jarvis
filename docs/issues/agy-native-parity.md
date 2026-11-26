@@ -103,3 +103,14 @@ the retained provider suite passed 1,016 checks and skipped one. two failures re
 the hardened noble unit passed restricted and full turns, read-only attachment access, ordinary git status/add/commit on a checkout owned by another uid, and crash cleanup followed by a fresh callback. the shell’s namespace and git configuration protections held. the sdk and stock units stopped independently, and the shared gateway stopped when unused. the installer checks the host’s required apparmor settings. the guest enabled the unconfined-transition restriction explicitly and the installed host still needs its own preflight. both detached checkouts were removed after proof.
 
 the owner chose synthetic verification for now. the paired paid trial still needs authorized same-project credential custody in an isolated candidate. verify optional developer request logging separately from data sharing. google defaults the logs on for recently created projects, and paid abuse monitoring has its own retention. synthetic tasks qualify observed harness behavior. real workspace-derived context still needs a permission determination. [developer request logs](https://aistudio.google.com/docs/logs-policy) · [paid terms](https://aistudio.google.com/docs/terms#data-use-paid) · [workspace permission](google-workspace-retention.md)
+
+## current release line
+
+on november 26, 2026 utc, synthetic checks on jarvis `aab04a3`, provider `05b9523` and kernel `89a14b1` passed 19 postgres 16.12 scenarios at the installed schema `0025`. the restricted antigravity retry stayed on its original route and grant across a paid refusal. stopped compatibility rejected an executable v4 origin. the final locked install used published git revisions and verified the pinned linux wheel digest. both macbook detached checkouts and the fixture postgres container were removed.
+
+| reopened evidence under `~/Documents/jarvis-agy-implementation-evidence/` | sha-256 |
+| --- | --- |
+| `jarvis-merge-0025-FgJc5D6o/result.txt` | `cf9f3228b4c52929802c9b0001590c34d8f2dcc86bb02d5797251ecec371f7a1` |
+| `release-frozen-aab04a3/qualification.txt` | `177b2faddac860b1451ca149bc4210488756ad5ccb1e6c1d33b4b918c37aea0a` |
+
+read-only production preflight found `kernel.apparmor_restrict_unprivileged_userns=1` and `kernel.apparmor_restrict_unprivileged_unconfined=0`. the installer requires both to be `1`. close this blocker with a passing installed containment check on the target host. the paid trial and permission for real workspace-derived data remain open.

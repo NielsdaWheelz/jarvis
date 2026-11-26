@@ -1612,6 +1612,8 @@ class PostgresNativeJournal:
         seal: AgentTerminal | None,
     ) -> None:
         """Quarantine the fault and preserve its original seal in one commit."""
+        if self.neon_lease is not None:
+            self.neon_lease.request_disarm()
         async with self.database.begin() as connection:
             row = await _locked_attempt(
                 connection,
@@ -1654,6 +1656,8 @@ class PostgresNativeJournal:
             )
 
     async def fence(self, attempt_id: str, reason: str) -> None:
+        if self.neon_lease is not None:
+            self.neon_lease.request_disarm()
         async with self.database.begin() as connection:
             row = await _locked_attempt(
                 connection,

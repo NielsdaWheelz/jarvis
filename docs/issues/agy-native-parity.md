@@ -72,3 +72,18 @@ the sdk probes used the published wheel and local fixtures. the attempt homes an
 | `feature-a-VMB1fd/opus-sdk-resume.txt` | `5e3cf5b4610df526757bd17fafd2f493013db76d3737a2e2a2010f0047eb76d7` |
 
 close when the pinned harness proves fresh children sharing a protected attempt, inherited effort, root-only receipts, restricted workspace authority, zero transport retries and one upstream entry per authorized request. then run the amended synthetic gate. fixture evidence establishes local client behavior. live google model behavior, billing and installed containment remain unqualified. [cli acp](https://antigravity.google/docs/ide/extensions/acp/) · [cli subagents](https://antigravity.google/docs/subagents/) · [sdk retry controls](https://github.com/google-antigravity/antigravity-sdk-python/blob/97c5c53d0741c601ea8c2401497cad3b5ee8dc98/skills/google-antigravity-sdk/examples/getting_started/customizing_retries.md)
+
+## release qualification
+
+the owner approved the local sdk, fresh children, queued follow-ups and the offline shell in adr 0111. the packaged sdk passed the exact signed callback through both private sockets and the shared gateway with synthetic responses. a linux rehearsal used local git and wrote the workspace while the actual sdk trajectory database remained unreadable to the shell. closure removed the database. the postgres 16.12 rehearsal at schema `0024` passed 15 opening and recovery cases, including quota refusal, queued follow-up, and paid disarm at stop. these probes made no paid calls.
+
+| reopened evidence under `~/Documents/jarvis-agy-implementation-evidence/` | manifest sha-256 |
+| --- | --- |
+| `neon-sdk-ingress-T8xYq6/SHA256SUMS` | `af97ffa7428fce4105db4978f6de5b51a40fca1a946f6cd158f246c83e71a562` |
+| `feature-a-sdk-turn-1xYOz7/SHA256SUMS` | `f0c05bb30405334b5ae43ce1025d993fb9abbaa357146a9c25ea803bb703ad8a` |
+| `feature-b-postgres-9Whn5j6T/SHA256SUMS` | `4ea47ef4024b31d5380348d01c3a010746c453743aa06ebbb8ee03d67bba8890` |
+| `kernel-sdk.hzuKdk/SHA256SUMS` | `cfb4ef24d0cfdac8b4217e3a8cc9a2623a1377c6f96e4f451bc82ad1ddd7847b` |
+| `sdk-child-event.bJ5qeo/SHA256SUMS` | `177d95f5a085082b1055866cf595299cb456ec28c2b0d69e9fcba65b634f8801` |
+| `agy-sdk-rollover-3bKBXaaG/SHA256SUMS` | `09ba8f56b4cfa7bdccd92329dbdaacb9ce9b4806e4f9c9a8176d1334c5cba182` |
+
+the owner chose synthetic verification for now. the paired paid trial still needs authorized same-project credential custody in an isolated candidate. verify optional developer request logging separately from data sharing. google defaults the logs on for recently created projects, and paid abuse monitoring has its own retention. synthetic tasks qualify observed harness behavior. real workspace-derived context still needs a permission determination. [developer request logs](https://aistudio.google.com/docs/logs-policy) · [paid terms](https://aistudio.google.com/docs/terms#data-use-paid) · [workspace permission](google-workspace-retention.md)

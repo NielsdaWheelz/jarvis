@@ -45,6 +45,7 @@ from llm_tools import (
 from provider_runtime.agent_runtime import (
     AgentAccepted,
     AgentAttempt,
+    AgentChildObserved,
     AgentControlReceipt,
     AgentFailure,
     AgentMessage,
@@ -514,14 +515,17 @@ class PostgresNativeJournal:
             sdk = self.antigravity
             try:
                 if route == "agy_neon":
+                    sdk_text = submitted_request.get("text")
                     if (
                         sdk is None
                         or sdk.turn.session_ref.native_session_id != root
                         or sdk.turn.native_turn_id != submitted_request.get("turn")
+                        or not isinstance(sdk_text, str)
                     ):
                         raise NativeDefect(
                             "Antigravity paid authorization changed its prepared turn"
                         )
+                    encoded = sdk_text.encode("utf-8")
                     self.neon_lease = await self.neon_control.arm_sdk(
                         attempt_id=request.attempt_id,
                         owner_epoch=str(request.permit.owner_token),
@@ -529,6 +533,8 @@ class PostgresNativeJournal:
                         generation=request.attempt_id,
                         turn_id=sdk.turn.native_turn_id,
                         bearer=sdk.bearer,
+                        input_bytes=len(encoded),
+                        input_sha256=sha256(encoded).hexdigest(),
                         on_delivery=lambda turn_id: self._record_neon_delivery(
                             request, turn_id
                         ),
@@ -542,7 +548,7 @@ class PostgresNativeJournal:
                         on_delivery=lambda turn_id: self._record_neon_delivery(
                             request, turn_id
                         ),
-                        on_child=lambda child: self._record_neon_child(request, child),
+                        on_child=lambda child: self.record_neon_child(request, child),
                     )
             except (OSError, NeonControlError) as error:
                 raise NeonOpeningUnavailable(
@@ -661,9 +667,15 @@ class PostgresNativeJournal:
                 )
         return lease.first_sample_refusal
 
-    async def _record_neon_child(
-        self, request: NativeRequest, child: NeonChildFacts
+    async def record_neon_child(
+        self, request: NativeRequest, child: NeonChildFacts | AgentChildObserved
     ) -> None:
+        if isinstance(child, AgentChildObserved):
+            if self.antigravity is None or child.turn != self.antigravity.turn:
+                raise NativeDefect("Antigravity child changed its prepared root turn")
+            child_id, parent_id = child.child_id, child.parent_id
+        else:
+            child_id, parent_id = child.thread_id, child.parent_thread_id
         await self.owner.require_current(request.permit)
         async with self.database.begin() as connection:
             row = await _locked_attempt(
@@ -677,12 +689,12 @@ class PostgresNativeJournal:
                 raise NativeDefect("paid child preceded the durable delivery boundary")
             children: dict[str, object] = local.get("neon_children", {})
             facts = {
-                "parent_thread_id": child.parent_thread_id,
+                "parent_thread_id": parent_id,
                 "requested_model": self.definition.provider.model_key,
                 "model_version": child.model_version,
                 "effort": child.effort,
             }
-            previous = children.get(child.thread_id)
+            previous = children.get(child_id)
             if previous == facts:
                 return
             if previous is not None:
@@ -693,7 +705,7 @@ class PostgresNativeJournal:
                 .values(
                     local_outcome={
                         **local,
-                        "neon_children": {**children, child.thread_id: facts},
+                        "neon_children": {**children, child_id: facts},
                     }
                 )
             )

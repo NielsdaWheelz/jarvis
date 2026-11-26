@@ -1,6 +1,6 @@
 # adr 0111 · native antigravity for paid neon
 
-**sdk selected · november 26, 2026 utc.** target a single jarvis deployment. [adr 0110](0110-neon-quota-recovery.md) supplies the installed two-route baseline at `70522de`, database `0024`. this proposal changes paid main admission and adds one native backend. implementation and production activation are separate decisions. [installed cut](../issues/neon-combined-cutover.md)
+**sdk selected · november 26, 2026 utc.** target a single jarvis deployment. [adr 0110](0110-neon-quota-recovery.md) supplies the installed two-route baseline at `70522de`, database `0024`. this proposal changes paid main admission and adds one native backend. implementation and production activation are separate decisions. [qualification](../issues/agy-native-parity.md#release-qualification)
 
 ## outcome and owner decisions
 
@@ -10,7 +10,7 @@
 | 2 | `agy_neon` | official antigravity sdk, `gemini-4-neon/high` | confirmed personal exhaustion, shared prepaid capacity, qualified agy opening |
 | 3 | `google_neon` | existing stock codex, `gemini-4-neon/high` | same paid rule, agy safely unavailable for this opening |
 
-the owner selected google’s local antigravity sdk for jarvis and chose its default turn boundary for follow-ups. agy wins ties against stock neon in the paired trial. bring concrete regressions or missing main capabilities back individually before adoption. both paid routes use the existing project, manual funding and data boundary. a primary outage, ambiguous allowance or elapsed reset timer does not permit new paid work. preserve 0110’s personal grace rule and original-route continuation exception.
+the owner selected google’s local antigravity sdk for jarvis and chose its default turn boundary for follow-ups. agy wins ties against stock neon in the paired trial. the owner chose synthetic verification for this delivery. the paid trial and production activation remain open. bring concrete regressions or missing main capabilities back individually before adoption. both paid routes use the existing project, manual funding and data boundary. a primary outage, ambiguous allowance or elapsed reset timer does not permit new paid work. preserve 0110’s personal grace rule and original-route continuation exception.
 
 the owner chose fresh native agy children. each starts from the parent’s task brief and inherits neon/high through agy’s default delegation. the parent includes the facts and constraints the child needs, with receipt references where relevant. the child uses its authorized workspace and tools. qualify the inherited effort on the actual requests. copying the active parent session and carrying its tool history into a new child are outside the agy contract.
 
@@ -33,6 +33,8 @@ register the frozen host tool plan through the SDK's direct callbacks. use the p
 **owner and files.** `llm-agent-kernel/src/llm_agent_kernel/{definitions,provider,native,native_contract}.py` owns fit dispatch and the existing `run_native` supervisor. jarvis `kernel.py`, `definitions.py`, `native_protocol.py`, `native_runtime.py`, `native_journal.py`, `messages.py`, `native_failure_notice.py` and runtime composition in `cli.py` own policy and durable settlement. replace model-only role selection and partial provider rebinding with the whole selected backend binding. derive the workspace-check's tighter authority for that backend before acquisition. retain the exact check tool allowlist.
 
 **opening algorithm.** extend the existing `choose_route(role, pinned?) → SelectedRoute | DeferredRoute` with route-local exclusions for this opening pass. keep serial admission. a pinned group considers its original route only. for a fresh paid group, check shared project evidence once, then consider agy and stock in order within that same group. distinguish a route-local pre-submission failure, definite input misfit, shared block, and possible submission. test each eligible route at most once per pass. a failed agy acquire cannot exclude the fresh group. use one frozen prefix, time, ordered inputs and receipt cut. reuse trailing-input peeling and workspace isolation. if the oldest indivisible input is too large for agy, test stock before parking it. a transiently unreachable larger route keeps work pending until fit can be established. ordinary sdk follow-ups and oversized stock steers stay pending for ordinary admission. qualify each route’s actual request bytes, token window, output reserve and rollover; agy documents up to 512k, stock targets 1,048,576. [model limits](https://antigravity.google/docs/models#gemini-4-neon)
+
+the pinned sdk clipped the gemini user message at approximately 192,000 utf-8 bytes while still acknowledging the full local text. admit up to 190,000 utf-8 bytes after rendering. the gateway checks the first model request’s wrapped user text against the prepared length and sha-256 before entry. a mismatch fences the credential with zero upstream entries. normal continuation and native compaction use the same armed attempt.
 
 | evidence | transition |
 |---|---|

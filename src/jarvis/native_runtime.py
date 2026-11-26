@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
@@ -54,6 +55,7 @@ from provider_runtime.agent_runtime import (
     AgentRuntimeError,
     AgentSubmissionRejected,
     AgentTerminal,
+    InvalidAgentRequest,
     NativeTerminalEvidence,
     OutputSchemaMismatch,
     decode_agent_output,
@@ -492,17 +494,22 @@ class NativeRunner:
                 )
                 while True:
                     definition = with_main_provider(template, selected.provider)
-                    inputs, projected, size = await fit_native_inputs(
-                        self.owner,
-                        self.store,
-                        definition,
-                        pending,
-                        as_of,
-                        prefix=source,
-                        exclude_ids=(),
-                        connection=connection,
-                    )
-                    if size.fits:
+                    try:
+                        projection = await fit_native_inputs(
+                            self.owner,
+                            self.store,
+                            definition,
+                            pending,
+                            as_of,
+                            prefix=source,
+                            exclude_ids=(),
+                            connection=connection,
+                        )
+                    except InvalidAgentRequest:
+                        if selected.route != "agy_neon":
+                            raise
+                        projection = None
+                    if projection is not None and projection[2].fits:
                         await self.owner.require_current(permit)
                         if cancellation.cancelled or await self.store.paused(
                             self.owner.scope_id
@@ -520,17 +527,19 @@ class NativeRunner:
                     if isinstance(next_route, DeferredRoute):
                         return None
                     selected = next_route
-            if not size.fits:
-                actual, limit, unit = size.actual_chars, size.max_chars, "characters"
-                if actual <= limit:
-                    actual, limit, unit = size.wire_bytes, size.max_bytes, "wire bytes"
-                reason = f"the opening needed {actual} {unit}, limit {limit}"
+            overflow = None if projection is None else projection[2].overflow
+            if projection is None or overflow is not None:
+                reason = "antigravity cannot carry this input intact"
+                if overflow is not None:
+                    actual, limit, unit = overflow
+                    reason = f"the opening needed {actual} {unit}, limit {limit}"
                 parked = await park_oversized_input(self.owner, pending[0].id, reason)
                 if parked:
                     self.notify_delivery()
                 return NativeRunOutcome("progressed" if parked else "blocked")
             if self._session is None:
                 return None
+            inputs, projected, _ = projection
             request = NativeRequest(
                 attempt_id,
                 permit,
@@ -684,6 +693,11 @@ class NativeRunner:
                     messages=self,
                     cancellation=cancellation,
                     on_stock_tool=None if observations is None else observations.offer,
+                    on_child=(
+                        None
+                        if antigravity is None
+                        else partial(journal.record_neon_child, request)
+                    ),
                 )
             except DeploymentOwnershipDefect:
                 raise

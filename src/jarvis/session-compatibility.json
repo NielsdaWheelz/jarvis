@@ -8,6 +8,7 @@
     "context_window": "512k",
     "effort": "high",
     "executable_sha256": "110d5e035156c0b2e686fb829bee5c60370178bdc7ad73424f9cac29face7a89",
+    "input_utf8_bytes": 190000,
     "model": "gemini-4-neon",
     "model_version": "gemini-4-neon",
     "sdk_version": "0.1.24",
@@ -17,9 +18,9 @@
   },
   "application_session_contract_revision": "jarvis-native-antigravity-neon-v1",
   "dependencies": {
-    "llm-agent-kernel": "a205a340fb4574c42deaf092ea5e5bc22895e893",
+    "llm-agent-kernel": "2970547852dcfe34a1d2741343722529e0b5f0d2",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "bf43cc47c6be2b1923e2e62ff4e6cf562c74589b",
+    "provider-runtime": "2d48251e96229a96a7b9bc37fc17714888532702",
     "universal-memory": "6cfdf262e3c342ae4701b0587bf7994c03437459"
   },
   "google_neon": {

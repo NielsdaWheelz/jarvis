@@ -115,8 +115,9 @@ from jarvis.owner_gmail import OwnerGmail
 from jarvis.owner_gmail_state import (
     enroll_editor_epoch,
     invalidate_editor_epoch,
+    owner_drive_reader,
     owner_gmail_directory,
-    owner_gmail_tokens,
+    owner_workspace_tokens,
     read_editor_stamp,
 )
 from jarvis.ownership import (
@@ -153,7 +154,6 @@ from jarvis.settings import (
 from jarvis.state import PausedState
 from jarvis.tool_composition import (
     ToolComposition,
-    build_attachment_store,
     build_tool_composition,
     google_tokens,
 )
@@ -281,15 +281,15 @@ def _shared_cognition_directory(path: Path, group: str) -> None:
         )
 
 
-def _attachment_cache_layout(
+def _file_scratch_layout(
     settings: IsolatedRoleSettings | CutoverSettings, host: CodexHostConfig
 ) -> None:
-    path = settings.attachment_cache_directory
+    path = settings.file_scratch_directory
     try:
         metadata = path.stat()
         group_id = grp.getgrnam(host.client_group).gr_gid
     except (KeyError, OSError) as exc:
-        raise StartupDefect("attachment cache is unavailable") from exc
+        raise StartupDefect("native file scratch is unavailable") from exc
     if (
         not stat.S_ISDIR(metadata.st_mode)
         or stat.S_IMODE(metadata.st_mode) != 0o750
@@ -302,7 +302,7 @@ def _attachment_cache_layout(
         or Path(host.notes_repository).is_relative_to(path)
     ):
         raise StartupDefect(
-            "attachment cache must be app-owned mode 0750 in the native client group, "
+            "native file scratch must be app-owned mode 0750 in the client group, "
             "separate from private state and the notes checkout"
         )
 
@@ -312,7 +312,7 @@ def _validate_runtime_layout(
 ) -> None:
     _private_directory(settings.runtime_state_directory, "runtime state directory")
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
-    _attachment_cache_layout(settings, host)
+    _file_scratch_layout(settings, host)
     try:
         host.verify_notes_repository()
     except ValueError as exc:
@@ -359,7 +359,9 @@ async def recover_startup_actions(
     paused: PausedState,
 ) -> int:
     inactive = await paused.is_paused()
-    return await action_recovery.recover(allow_queued_execution=not inactive)
+    recovered = await action_recovery.recover(allow_queued_execution=not inactive)
+    await action_recovery.recover_staged_files()
+    return recovered
 
 
 class _HomeListener(uvicorn.Server):
@@ -583,8 +585,11 @@ async def _serve(
                         database,
                         OwnerGmail(
                             google_api_http,
-                            owner_gmail_tokens(
-                                settings, editor_directory, google_oauth_http
+                            owner_workspace_tokens(
+                                settings,
+                                editor_directory,
+                                google_oauth_http,
+                                product="gmail",
                             ),
                             tokens.enrollment,
                         ),
@@ -592,6 +597,13 @@ async def _serve(
                     )
                     await editor.startup()
                     clients.push_async_callback(editor.drain)
+                    drive_reader = owner_drive_reader(
+                        settings,
+                        editor_directory,
+                        tokens,
+                        google_oauth_http,
+                        google_api_http,
+                    )
                     workspace = WorkspaceHost(
                         owner,
                         owner_zone=ZoneInfo(settings.owner_timezone),
@@ -644,7 +656,7 @@ async def _serve(
                         await historical_mail(actions),
                         settings.runtime_state_directory / CUT_RECEIPT,
                     )
-                    await composition.attachments.reset_cache()
+                    await composition.attachments.reset_scratch()
                     await composition.mail_files.sweep(
                         await actions.active_mail_stages()
                     )
@@ -694,6 +706,8 @@ async def _serve(
                         events=events,
                         attachments=composition.attachments,
                         mail_files=composition.mail_files,
+                        workspace_writes=composition.workspace_writes,
+                        workspace_grant=tokens.enrollment,
                         plan=definitions.plans["main"],
                         source_conversation_id=settings.owner_scope,
                         delegation_changed=agents.delegations.notify_changed,
@@ -802,11 +816,11 @@ async def _serve(
                         work=work,
                         attachments=composition.attachments,
                         submit=service.submit,
-                        spool=settings.runtime_state_directory / "uploads",
                         pages=DEFAULT_EXPORT,
                         phone=phone,
                         workspace_approvals=composition.workspace_approvals,
                         mail_editor=editor,
+                        drive_reader=drive_reader,
                     )
                     await run_service(service, app, settings.home_socket_path, shutdown)
             finally:
@@ -818,26 +832,6 @@ async def _serve(
         await engine.dispose()
 
 
-async def reconcile_attachment(
-    settings: Settings, attachment_id: UUID, *, after_manual_cleanup: bool
-) -> dict[str, object]:
-    """Observe a stopped original; manual cleanup never proves its old action."""
-    _attachment_cache_layout(settings, settings.codex_host_config)
-    engine = create_engine(settings.database_url.get_secret_value())
-    try:
-        async with deployment_ownership(engine) as database:
-            store = build_attachment_store(
-                settings=settings,
-                database=database,
-                google=None,
-            )
-            return await store.reconcile(
-                attachment_id, after_manual_cleanup=after_manual_cleanup
-            )
-    finally:
-        await engine.dispose()
-
-
 async def workspace_operator(settings: Settings, arguments: argparse.Namespace) -> None:
     engine = create_engine(settings.database_url.get_secret_value())
     try:
@@ -845,13 +839,18 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
             deployment_ownership(engine) as database,
             httpx.AsyncClient(trust_env=False, follow_redirects=False) as http,
         ):
-            if arguments.command.startswith("owner-gmail-"):
+            if arguments.command.startswith(("owner-gmail-", "owner-drive-")):
+                product: Literal["gmail", "drive"] = (
+                    "drive" if arguments.command.startswith("owner-drive-") else "gmail"
+                )
                 directory = owner_gmail_directory(settings.owner_gmail_state_directory)
                 restore = arguments.command == "owner-gmail-invalidate-restore"
                 if restore:
                     invalidate_editor_epoch(directory)
-                human = owner_gmail_tokens(settings, directory, http)
-                if arguments.command == "owner-gmail-enroll":
+                human = owner_workspace_tokens(
+                    settings, directory, http, product=product
+                )
+                if arguments.command.endswith("-enroll"):
                     await require_native_data(
                         database, conversation_id=settings.owner_scope
                     )
@@ -867,15 +866,16 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
                         confirm=lambda text: input(f"{text}\ntype yes: ") == "yes",
                         show_url=print,
                     )
-                    enroll_editor_epoch(directory, enrollment.subject)
-                    print("connected the owner gmail editor.")
+                    if product == "gmail":
+                        enroll_editor_epoch(directory, enrollment.subject)
+                    print(f"connected the owner {product} client.")
                 else:
                     if (current := human.enrollment()) is not None:
                         await human.disconnect(current.grant_id)
                     print(
                         "invalidated the editor epoch for restore."
                         if restore
-                        else "disconnected the owner gmail editor."
+                        else f"disconnected the owner {product} client."
                     )
                 return
             await require_native_data(database, conversation_id=settings.owner_scope)
@@ -895,6 +895,7 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
                     arguments.client,
                     expected_email=arguments.email,
                     pending_label_id=arguments.label,
+                    drive=arguments.drive,
                     confirm=lambda text: input(f"{text}\ntype yes: ") == "yes",
                     show_url=print,
                 )
@@ -1816,17 +1817,13 @@ def _parser() -> argparse.ArgumentParser:
         "cutover-native",
         help="inventory stopped obligations before common-main cutover",
     )
-    attachment = commands.add_parser(
-        "attachment-reconcile", help="observe one stopped original and its cache"
-    )
-    attachment.add_argument("id", type=UUID)
-    attachment.add_argument("--after-manual-cleanup", action="store_true")
     enrollment = commands.add_parser(
         "workspace-enroll", help="enroll a workspace grant while stopped"
     )
     enrollment.add_argument("--client", required=True, type=Path)
     enrollment.add_argument("--email", required=True)
     enrollment.add_argument("--label")
+    enrollment.add_argument("--drive", action="store_true")
     commands.add_parser(
         "workspace-disconnect",
         help="invalidate the local workspace grant while stopped",
@@ -1836,6 +1833,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands.add_parser(
         "owner-gmail-disconnect", help="disconnect the stopped owner gmail editor"
+    )
+    commands.add_parser(
+        "owner-drive-enroll", help="connect the stopped owner drive reader"
+    )
+    commands.add_parser(
+        "owner-drive-disconnect", help="disconnect the stopped owner drive reader"
     )
     commands.add_parser(
         "owner-gmail-invalidate-restore",
@@ -2000,6 +2003,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif arguments.command in {
             "owner-gmail-enroll",
             "owner-gmail-disconnect",
+            "owner-drive-enroll",
+            "owner-drive-disconnect",
             "owner-gmail-invalidate-restore",
             "resume-recovery-quota-wait",
             "workspace-enroll",
@@ -2048,15 +2053,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"incompatible={incompatible} in_flight={in_flight}"
                 )
             return 0 if check.passed else 1
-        elif arguments.command == "attachment-reconcile":
-            result = asyncio.run(
-                reconcile_attachment(
-                    settings,
-                    arguments.id,
-                    after_manual_cleanup=arguments.after_manual_cleanup,
-                )
-            )
-            print(json.dumps(result, sort_keys=True))
         else:  # pragma: no cover
             raise AssertionError("unknown command")
     except (AgentRuntimeError, AgentRuntimeDefect) as exc:

@@ -33,6 +33,8 @@ from universal_memory.policy import (
 )
 from universal_memory.schema import MEMORY_TABLES
 
+from jarvis.drive_cut import DRIVE_CUSTODY_SCHEMA
+
 ASSISTANT_MEMORY_READS = 1
 SERVICE_MEMORY_READS = READ_POOL_SIZE - ASSISTANT_MEMORY_READS
 
@@ -44,7 +46,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0026"
+APPLICATION_SCHEMA_REVISION = DRIVE_CUSTODY_SCHEMA
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -789,8 +791,6 @@ attachment = Table(
     Column("id", UUID(as_uuid=True), primary_key=True),
     Column("source", JSONB, nullable=False),
     Column("source_key", Text, nullable=False),
-    Column("r2_account", Text, nullable=False),
-    Column("bucket", Text, nullable=False),
     Column(
         "origin_message_id",
         UUID(as_uuid=True),
@@ -809,7 +809,7 @@ attachment = Table(
     Column("size_bytes", BigInteger),
     Column("sha256", Text),
     Column("state", Text, nullable=False),
-    Column("put_entered_at", DateTime(timezone=True)),
+    Column("prior_put_entered_at", DateTime(timezone=True)),
     Column("stored_at", DateTime(timezone=True)),
     Column("deleted_at", DateTime(timezone=True)),
     Column(
@@ -817,22 +817,27 @@ attachment = Table(
         UUID(as_uuid=True),
         ForeignKey("action.id", ondelete="RESTRICT"),
     ),
+    Column("drive_subject", Text),
+    Column("drive_file_id", Text),
+    Column(
+        "filing_action_id",
+        UUID(as_uuid=True),
+        ForeignKey("action.id", ondelete="RESTRICT"),
+        unique=True,
+    ),
+    Column("verified_at", DateTime(timezone=True)),
+    Column("disposition", Text),
     Column("error", Text),
     Column("created_at", DateTime(timezone=True), nullable=False),
     CheckConstraint("jarvis_attachment_source_valid(source)", name="source"),
     CheckConstraint(
         "source_key = jarvis_attachment_source_key(source)", name="source_key"
     ),
-    CheckConstraint("length(r2_account) > 0", name="account"),
-    CheckConstraint("length(bucket) > 0", name="bucket"),
     CheckConstraint(
         "media_type IS NULL OR octet_length(media_type) <= 255", name="media_type"
     ),
     CheckConstraint(
         "advertised_size IS NULL OR advertised_size >= 0", name="advertised_size"
-    ),
-    CheckConstraint(
-        "state IN ('pending','ready','failed','deleting','deleted')", name="state"
     ),
     CheckConstraint(
         "error IS NULL OR error IN ('NotFound','TooLarge','ProviderResponseTooLarge',"
@@ -852,43 +857,46 @@ attachment = Table(
         "104857600 AND sha256 ~ '^[0-9a-f]{64}$')) IS TRUE",
         name="bytes",
     ),
-    CheckConstraint("put_entered_at IS NULL OR size_bytes IS NOT NULL", name="put"),
     CheckConstraint(
-        "(state IN ('ready','deleting','deleted')) = (stored_at IS NOT NULL) "
-        "AND (stored_at IS NULL OR put_entered_at IS NOT NULL)",
-        name="stored",
-    ),
-    CheckConstraint("(state = 'deleted') = (deleted_at IS NOT NULL)", name="deleted"),
-    CheckConstraint(
-        "(state IN ('deleting','deleted')) = (delete_action_id IS NOT NULL)",
-        name="delete_lineage",
+        "(drive_subject IS NULL AND drive_file_id IS NULL) OR "
+        "(length(drive_subject) <= 255 AND drive_subject ~ '^[A-Za-z0-9_-]+$' "
+        "AND length(drive_file_id) <= 255 "
+        "AND drive_file_id ~ '^[A-Za-z0-9_-]+$') IS TRUE",
+        name="drive_pair",
     ),
     CheckConstraint(
-        "(state = 'pending' AND (error IS NULL OR "
-        "error IN ('CaptureUnresolved','StorageConflict'))) OR "
-        "(state IN ('ready','deleted') AND error IS NULL) OR "
-        "(state = 'deleting' AND (error IS NULL OR error IN "
-        "('StorageConflict','DeleteUnresolved','CacheCleanupFailed',"
-        "'Unavailable'))) OR "
-        "(state = 'failed' AND error IS NOT NULL AND error IN ('NotFound','TooLarge',"
-        "'ProviderResponseTooLarge','SourceChanged','Unavailable'))",
-        name="outcome",
+        """
+        CASE state
+         WHEN 'staged' THEN filing_action_id IS NULL AND drive_file_id IS NULL
+            AND verified_at IS NULL AND disposition IS NULL
+         WHEN 'filing' THEN filing_action_id IS NOT NULL AND drive_file_id IS NULL
+            AND verified_at IS NULL AND disposition IS NULL
+         WHEN 'uncertain' THEN filing_action_id IS NOT NULL AND drive_file_id IS NULL
+            AND verified_at IS NULL AND disposition IS NULL
+         WHEN 'created' THEN filing_action_id IS NOT NULL AND drive_file_id IS NOT NULL
+            AND verified_at IS NULL AND disposition IS NULL
+         WHEN 'filed' THEN drive_file_id IS NOT NULL
+            AND (filing_action_id IS NOT NULL OR stored_at IS NOT NULL)
+            AND verified_at IS NOT NULL AND disposition IS NULL
+         WHEN 'unavailable' THEN verified_at IS NULL AND disposition IN
+            ('historical_deleted','historical_failed','abandoned','abandoned_uncertain')
+         ELSE false END IS TRUE
+        """,
+        name="state",
     ),
 )
 Index(
     "uq_attachment_active_source",
     attachment.c.source_key,
     unique=True,
-    postgresql_where=attachment.c.state.in_(("pending", "ready", "deleting")),
+    postgresql_where=attachment.c.state != "unavailable",
 )
 Index(
-    "ix_attachment_ingress_pending",
+    "ix_attachment_unfiled",
     attachment.c.created_at,
     attachment.c.id,
-    postgresql_where=(
-        attachment.c.capture_action_id.is_(None)
-        & (attachment.c.state == "pending")
-        & attachment.c.error.is_(None)
+    postgresql_where=attachment.c.state.in_(
+        ("staged", "filing", "uncertain", "created")
     ),
 )
 

@@ -49,7 +49,9 @@ _DRAFT_WRITES = frozenset(
 _HOST_SOURCES = {
     "action": "operation update",
     "recovery_catchup": "mail catch-up",
-    "attachment": "attachment update",
+    "submission": "upload custody",
+    "drive": "drive file update",
+    "docs": "google docs update",
     "email_event": "mail notice",
     "event_status": "event source update",
     "work_wake": "scheduled check",
@@ -81,7 +83,7 @@ _OPENINGS = {
         "the model didn't finish this turn."
     ),
 }
-_LINK_START = re.compile(r"https?://|attachment:|/[mftv]/", re.IGNORECASE)
+_LINK_START = re.compile(r"https?://|attachment:|/files/|/[mftv]/", re.IGNORECASE)
 # Full-width colon and slash preserve a visible, non-link label.
 _LITERAL_LINK = str.maketrans(":/", "\uff1a\uff0f")
 

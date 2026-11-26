@@ -18,6 +18,7 @@ from jarvis.delegation import Delegations
 from jarvis.event_polling import EventPoller
 from jarvis.fcm import FcmSender
 from jarvis.home_notices import deliver_pending
+from jarvis.home_pages import DEFAULT_EXPORT
 from jarvis.memory_service import MemoryService
 from jarvis.messages import IngressUnavailable, MessageStore
 from jarvis.native_runtime import NativeRunOutcome
@@ -79,8 +80,6 @@ class JarvisService:
     ) -> None:
         self._settings = settings
         self._attachments = attachments
-        self._attachment_work = asyncio.Event()
-        self._attachment_task: asyncio.Task[None] | None = None
         self._memory = memory
         self._work_timer = work_timer
         self._event_poller = event_poller
@@ -141,15 +140,14 @@ class JarvisService:
                 ref,
                 uploads,
                 scope=self._settings.owner_scope,
-                r2_account=self._settings.attachment_r2_account_id,
-                bucket=self._settings.attachment_r2_bucket,
+                spool=self._settings.runtime_state_directory / "uploads",
+                pages=DEFAULT_EXPORT,
                 workspace_occurrence=workspace_occurrence,
             )
             if not result.inserted:
                 return result.message.id, False
             if result.message.control_kind == "pause" and self._active_cancellation:
                 self._active_cancellation.cancel()
-        self._attachment_work.set()
         self.request_work()
         self.request_delivery()
         self._delegations.notify_changed()
@@ -169,11 +167,6 @@ class JarvisService:
     async def run_worker(self) -> None:
         """Run until shutdown, draining serial work and pending delivery."""
 
-        self._attachment_work.set()
-        self._attachment_task = asyncio.create_task(
-            self._capture_attachments(), name="jarvis-attachment-capture"
-        )
-        self._attachment_task.add_done_callback(self._timer_stopped)
         self._work_timer.notify_changed()
         self._work_timer_task = asyncio.create_task(
             self._run_work_timer(), name="jarvis-work-timer"
@@ -229,7 +222,6 @@ class JarvisService:
                 self._delegation_task,
                 self._delivery_task,
                 self._dream_timer_task,
-                self._attachment_task,
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             self._delegation_task = None
@@ -238,24 +230,10 @@ class JarvisService:
             self._event_poll_task = None
             self._work_timer_task = None
             self._dream_timer_task = None
-            self._attachment_task = None
             await self._runner.close()
             for result in results:
                 if isinstance(result, Exception):
                     raise result
-
-    async def _capture_attachments(self) -> None:
-        while not self._shutdown.is_set():
-            try:
-                await asyncio.wait_for(self._attachment_work.wait(), timeout=30)
-            except TimeoutError:
-                pass
-            self._attachment_work.clear()
-            if (
-                not self._shutdown.is_set()
-                and await self._attachments.capture_pending()
-            ):
-                self.request_work()
 
     def _timer_stopped(self, task: asyncio.Task[None]) -> None:
         if not task.cancelled():
@@ -292,8 +270,6 @@ class JarvisService:
         self._shutdown.set()
         self._set_native_wake(None)
         self._event_poller.notify_changed()
-        self._attachments.stop_captures()
-        self._attachment_work.set()
         self._work.set()
         if self._active_cancellation is not None:
             self._active_cancellation.cancel()

@@ -14,7 +14,7 @@ from jarvis.agent_tools import (
     AgentStartInput,
     AgentStopInput,
 )
-from jarvis.attachment_tools import AttachmentDeleteInput, AttachmentRetainInput
+from jarvis.attachment_tools import SubmissionInput
 from jarvis.event_tools import EventsConfigureInput
 from jarvis.work_tools import WorkCreateInput, WorkDeleteInput, WorkUpdateInput
 from jarvis.workspace_write_models import (
@@ -22,6 +22,10 @@ from jarvis.workspace_write_models import (
     CreateEvent,
     DeleteEvent,
     DiscardDraft,
+    DocsUpdate,
+    DriveCopy,
+    DriveCreate,
+    DriveRevise,
     PrepareReplacement,
     UpdateEvent,
 )
@@ -40,7 +44,7 @@ def classify_write(
         ("events.configure", EventsConfigureInput),
         ("gmail.create_draft", CreateDraft),
         ("gmail.prepare_replacement", PrepareReplacement),
-        ("attachment.retain", AttachmentRetainInput),
+        ("submission.abandon", SubmissionInput),
         ("work.create", WorkCreateInput),
         ("work.update", WorkUpdateInput),
         ("work.delete", WorkDeleteInput),
@@ -54,8 +58,11 @@ def classify_write(
     }:
         return "automatic"
     if (name, type(value)) in {
-        ("attachment.delete", AttachmentDeleteInput),
         ("gmail.discard_draft", DiscardDraft),
+        ("drive.create", DriveCreate),
+        ("drive.copy", DriveCopy),
+        ("drive.revise", DriveRevise),
+        ("docs.update", DocsUpdate),
         ("calendar.create_event", CreateEvent),
         ("calendar.update_event", UpdateEvent),
         ("calendar.delete_event", DeleteEvent),

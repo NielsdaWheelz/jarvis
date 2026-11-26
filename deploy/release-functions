@@ -107,7 +107,7 @@ deployment_runtime_check() {
     --property=NoNewPrivileges=true
     "${CODEX_SOCKET_PROPERTIES[@]}"
     "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
-    "--property=ReadWritePaths=/var/lib/jarvis /run/jarvis-codex-cognition /var/cache/jarvis/attachments"
+    "--property=ReadWritePaths=/var/lib/jarvis /run/jarvis-codex-cognition /var/cache/jarvis/files"
     "--property=WorkingDirectory=$release"
     --property=EnvironmentFile=/etc/jarvis/database-runtime.env
     --property=EnvironmentFile=/etc/jarvis/jarvis.env

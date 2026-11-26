@@ -20,6 +20,8 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
+internal class DriveFailure(val code: String, val retryAfter: String?) : IOException(code)
+
 internal class SignInRequired : IOException("sign in to continue")
 
 internal class HomeApi(context: Context) {
@@ -45,6 +47,7 @@ internal class HomeApi(context: Context) {
         val request = Request.Builder().url(url).method(method, payload)
         for ((name, value) in headers) request.header(name, value)
         request.header("Cache-Control", "no-store")
+        request.header("X-Jarvis-Viewer-Contract", "drive-files")
         if (method != "GET" && method != "HEAD") request.header("Origin", Routes.origin)
         var bearer = access.currentBearer() ?: throw SignInRequired()
         var response = execute(request.header("Authorization", "Bearer $bearer").build())
@@ -63,7 +66,8 @@ internal class HomeApi(context: Context) {
     }
 
     private suspend fun execute(request: Request): Response = suspendCancellableCoroutine { continuation ->
-        val call = client.newCall(request)
+        val transport = if (request.method == "GET" || request.method == "HEAD") reads else client
+        val call = transport.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) = continuation.resumeWithException(e)
@@ -83,6 +87,24 @@ internal class HomeApi(context: Context) {
         }
     }
 
+    suspend fun drive(path: String): JSONObject = withContext(Dispatchers.IO) {
+        request(path).use { response ->
+            response.checkDrive()
+            response.json()
+        }
+    }
+
+    suspend fun pendingUploads(): List<JSONObject> = withContext(Dispatchers.IO) {
+        request("/api/drive/pending").use { response ->
+            response.checkDrive()
+            try {
+                JSONArray(response.body?.string() ?: throw IOException("missing response")).objects()
+            } catch (error: JSONException) {
+                throw IOException("invalid response", error)
+            }
+        }
+    }
+
     private companion object {
         val origin = Routes.origin.toHttpUrl()
         val client = OkHttpClient.Builder()
@@ -91,6 +113,15 @@ internal class HomeApi(context: Context) {
             .readTimeout(45, TimeUnit.SECONDS)
             .writeTimeout(45, TimeUnit.SECONDS)
             .build()
+        // A stale pooled connection can be retried only for an idempotent read.
+        val reads = client.newBuilder().retryOnConnectionFailure(true).build()
+    }
+}
+
+internal fun Response.checkDrive() {
+    if (!isSuccessful) {
+        val code = try { json().string("detail") } catch (_: IOException) { null }
+        throw DriveFailure(code ?: "drive_unavailable", header("Retry-After"))
     }
 }
 
@@ -133,6 +164,13 @@ internal sealed interface DiscussionRef {
         override val label = if (page == null) "original file" else "page $page"
     }
 
+    data class DriveFile(val subject: String, val id: String, val page: Long?) : DiscussionRef {
+        override fun json() = JSONObject().put("kind", "drive_file").put("subject", subject)
+            .put("id", id).apply { page?.let { put("page", it) } }
+        override fun route() = Route.DriveFile(subject, id, page)
+        override val label = if (page == null) "drive file" else "page $page"
+    }
+
     data class Canvas(val slug: String, val revision: String) : DiscussionRef {
         override fun json() = JSONObject().put("kind", "view").put("slug", slug).put("rev", revision)
         override fun route() = Route.Canvas(slug, revision)
@@ -144,6 +182,7 @@ internal sealed interface DiscussionRef {
             "todo" -> Todo(value.getString("id"))
             "proposal" -> Proposal(value.getString("message_id"), value.getString("action_id"))
             "file" -> File(value.getString("id"), (value.opt("page") as? Number)?.toLong())
+            "drive_file" -> DriveFile(value.getString("subject"), value.getString("id"), (value.opt("page") as? Number)?.toLong())
             "view" -> Canvas(value.getString("slug"), value.getString("rev"))
             else -> null
         }

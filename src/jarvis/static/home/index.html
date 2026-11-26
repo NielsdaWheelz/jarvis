@@ -13,12 +13,15 @@
       <header class="bar">
         <a class="wordmark" href="/" aria-label="jarvis home">jarvis</a>
         <button id="todos-tab" type="button" aria-pressed="false">todos</button>
+        <button id="files-tab" type="button" aria-pressed="false">files</button>
+        <button id="files-return" type="button" hidden>back</button>
         <button id="todo-return" type="button" hidden>back</button>
         <span id="location"></span>
         <button id="sidebar-open" type="button" aria-controls="sidebar">chat</button>
       </header>
       <section id="canvas" aria-label="workspace">
         <div id="object"></div>
+        <section id="drive" aria-label="files" hidden></section>
         <section id="overview" aria-label="todos" hidden>
           <h1 tabindex="-1">todos</h1>
           <div id="todo-list"></div>

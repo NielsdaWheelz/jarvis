@@ -80,10 +80,7 @@ function review(value, historical = false) {
     const files = el("ol");
     for (const file of value.files) {
       const item = el("li", nameFile(file, value.files));
-      if (historical) {
-        if (file.original_id) item.append(" ", link("open original", "/f/" + file.original_id));
-        else item.append(" · historical file bytes unavailable");
-      }
+      if (historical) item.append(" · historical file bytes unavailable");
       files.append(item);
     }
     box.append(el("h3", "attachments"), files);

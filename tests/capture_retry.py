@@ -8,6 +8,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -116,8 +117,7 @@ async def check(url: str) -> None:
                     None,
                     (),
                     scope=owner.scope_id,
-                    r2_account="fixture",
-                    bucket="fixture",
+                    spool=Path("/nonexistent"),
                 )
 
             original = await submit()

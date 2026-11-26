@@ -18,7 +18,6 @@ from starlette.concurrency import run_in_threadpool
 
 from jarvis.action_requests import action_request_spec
 from jarvis.actions import ActionPersistenceDefect, StoredAction, recorded_action
-from jarvis.attachment_tools import ATTACHMENT_DELETE_SPEC
 from jarvis.db import action, attachment, message, work
 from jarvis.home_pages import HomePages
 from jarvis.mail_revisions import (
@@ -34,6 +33,10 @@ from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_DELETE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
+    DOCS_UPDATE_SPEC,
+    DRIVE_COPY_SPEC,
+    DRIVE_CREATE_SPEC,
+    DRIVE_REVISE_SPEC,
     GMAIL_DISCARD_DRAFT_SPEC,
     WORKSPACE_IMPLEMENTATION,
     WORKSPACE_MAIL_IMPLEMENTATION,
@@ -84,7 +87,8 @@ SELECT m.id, m.role, m.source,
        COALESCE((
            SELECT jsonb_agg(jsonb_build_object(
                'id', f.id, 'name', item->>'name', 'state', f.state,
-               'media_type', f.media_type, 'unavailable', f.error IS NOT NULL)
+               'media_type', f.media_type, 'unavailable', f.state = 'unavailable',
+               'disposition', f.disposition)
              ORDER BY slot)
            FROM jsonb_array_elements(m.trace->'attachment_manifest')
                WITH ORDINALITY AS files(item,slot)
@@ -167,10 +171,11 @@ async def todo_results(
     at, previous = _cursor(before) if before is not None else (None, None)
     result = await connection.execute(
         text("""
-            SELECT r.message_id, r.at, r.label FROM work w
+            SELECT r.message_id, r.at, r.label, r.file_ref FROM work w
             LEFT JOIN LATERAL (
                 SELECT m.id AS message_id, m.created_at AS at,
-                       m.home #>> '{todo_result,label}' AS label
+                       m.home #>> '{todo_result,label}' AS label,
+                       m.home #> '{todo_result,file_ref}' AS file_ref
                 FROM message m
                 WHERE m.source_conversation_id = :scope
                   AND m.role = 'assistant'
@@ -286,7 +291,7 @@ WITH page AS (
 _PROPOSALS = (
     _PROPOSAL_PAIRS
     + """
-SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,f.filename,
+SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,
   codec.binding,
   CASE WHEN codec.binding IS NOT NULL AND a.tool_name!='gmail.send_draft'
     THEN a.arguments->'arguments' END AS args,
@@ -308,9 +313,6 @@ CROSS JOIN LATERAL (
 ) codec
 JOIN message origin ON origin.id=a.origin_message_id
   AND origin.source_conversation_id=:scope
-LEFT JOIN attachment f ON codec.binding = 'attachment'
-  AND a.tool_name='attachment.delete'
-  AND f.id::text=a.arguments #>> '{arguments,id}'
 LEFT JOIN LATERAL (
     SELECT i.reply_receipt #> '{result,value}' AS value FROM native_invocation i
     WHERE i.action_id=a.id AND i.tool_id='approval.respond'
@@ -401,13 +403,14 @@ def _proposal_contracts() -> str:
         CALENDAR_UPDATE_EVENT_SPEC,
         CALENDAR_DELETE_EVENT_SPEC,
         GMAIL_DISCARD_DRAFT_SPEC,
-        ATTACHMENT_DELETE_SPEC,
+        DRIVE_CREATE_SPEC,
+        DRIVE_COPY_SPEC,
+        DRIVE_REVISE_SPEC,
+        DOCS_UPDATE_SPEC,
     )
     for spec in specs:
         revision = action_request_spec(spec).tool_contract_revision
-        versions.setdefault(str(spec.id), {})[revision] = (
-            "attachment" if spec is ATTACHMENT_DELETE_SPEC else "workspace"
-        )
+        versions.setdefault(str(spec.id), {})[revision] = "workspace"
     return json.dumps(versions)
 
 
@@ -468,9 +471,6 @@ def _proposal(row: RowMapping) -> Record:
             if args["notify_attendees"]
             else "without attendee notifications"
         )
-    elif tool == "attachment.delete":
-        title = "delete original · " + (row["filename"] or "unnamed file")
-        detail.append(args["id"])
     else:
         raise ValueError(f"unrecognized proposal tool: {tool}")
     if row["reason"]:
@@ -487,6 +487,22 @@ def _workspace_proposal(tool: str, effect: Record) -> tuple[str, list[str]]:
         if replacement := effect["replacement"]:
             detail.append(f"verified replacement draft · {replacement['draft_id']}")
         return f"discard draft · {old['subject'] or 'untitled'}", detail
+
+    if tool.startswith(("drive.", "docs.")):
+        audience = cast(Record, effect["audience"])
+        detail = [f"destination · {audience['target']}"]
+        if audience["state"] == "unknown":
+            detail.append("jarvis could not establish who can see this destination")
+        else:
+            for entry in cast(list[Record], audience["identities"]):
+                label = entry.get("address") or entry.get("domain") or entry.get("type")
+                if label:
+                    detail.append(
+                        f"access · {label} ({entry.get('role') or 'unknown'})"
+                    )
+        title = effect.get("name") or effect.get("id")
+        operation = tool.split(".", 1)[1]
+        return f"{operation} · {title}", detail
 
     prior_observation = cast(Record, effect["prior"] or {})
     before = cast(Record, prior_observation.get("fields", {}))
@@ -655,22 +671,22 @@ async def mail_revision(
         ):
             raise ActionPersistenceDefect("revision origin differs")
         if row["kind"] == "discard":
-            match = await _discard_revision(connection, scope, stored)
-            if match is None:
-                return unavailable_revision()
-            return await _attach_original_links(connection, scope, *match)
+            return (
+                await _discard_revision(connection, scope, stored)
+                or unavailable_revision()
+            )
         reading = inspect_revision(stored, saved=row["kind"] == "saved")
         reading["editable"] = editor_epoch is not None and row["epoch"] == str(
             editor_epoch
         )
-        return await _attach_original_links(connection, scope, stored, reading)
+        return reading
     except (ActionPersistenceDefect, ValueError):
         return integrity_failure()
 
 
 async def _discard_revision(
     connection: AsyncConnection, scope: str, stored: StoredAction
-) -> tuple[StoredAction, Record] | None:
+) -> Record | None:
     frozen = FrozenWorkspaceWrite.model_validate(
         stored.execution_contract.as_json().get("workspace")
     )
@@ -709,46 +725,7 @@ async def _discard_revision(
     if source is None:
         return None
     reading = inspect_revision(source, saved=True)
-    return (source, reading) if reading["status"] == "complete" else None
-
-
-async def _attach_original_links(
-    connection: AsyncConnection, scope: str, stored: StoredAction, reading: Record
-) -> Record:
-    files = reading["files"]
-    if not files:
-        return reading
-    arguments = stored.arguments.get("arguments")
-    if not isinstance(arguments, dict):
-        return reading
-    selectors = cast(Record, arguments).get("files")
-    if not isinstance(selectors, list):
-        return reading
-    selectors = cast(list[object], selectors)
-    if len(selectors) != len(files):
-        return reading
-    for selector, file in zip(selectors, files, strict=True):
-        if not isinstance(selector, dict):
-            continue
-        ref = cast(Record, selector)
-        if ref.get("kind") != "original" or not isinstance(ref.get("id"), str):
-            continue
-        original_id = await connection.scalar(
-            select(attachment.c.id)
-            .join(message, message.c.id == attachment.c.origin_message_id)
-            .where(
-                message.c.source_conversation_id == scope,
-                attachment.c.id == UUID(ref["id"]),
-                attachment.c.state == "ready",
-                attachment.c.error.is_(None),
-                attachment.c.filename == file["filename"],
-                attachment.c.size_bytes == file["size_bytes"],
-                attachment.c.sha256 == file["sha256"],
-            )
-        )
-        if original_id is not None:
-            file["original_id"] = str(original_id)
-    return reading
+    return reading if reading["status"] == "complete" else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -806,7 +783,12 @@ async def eligible_draft(
 
 
 async def reference_context(
-    connection: AsyncConnection, scope: str, ref: Record, pages: Path
+    connection: AsyncConnection,
+    scope: str,
+    ref: Record,
+    pages: Path,
+    *,
+    drive_subject: str | None = None,
 ) -> Record | None:
     kind = ref["kind"]
     if kind == "proposal":
@@ -819,6 +801,8 @@ async def reference_context(
     if kind == "view":
         exists = await run_in_threadpool(HomePages(pages).view, ref["slug"], ref["rev"])
         return {"ref": ref} if exists is not None else None
+    if kind == "drive_file":
+        return {"ref": ref} if ref["subject"] == drive_subject else None
     identifier = UUID(ref["id"])
     if kind == "file":
         query = (
@@ -826,7 +810,6 @@ async def reference_context(
             .join(message, message.c.id == attachment.c.origin_message_id)
             .where(
                 attachment.c.id == identifier,
-                attachment.c.state == "ready",
                 message.c.source_conversation_id == scope,
             )
         )

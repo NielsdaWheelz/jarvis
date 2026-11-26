@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.db import (
     action,
-    attachment,
     control_sequence,
     message,
     native_attempt,
@@ -485,8 +484,7 @@ class MessageStore:
         uploads: tuple[WebUpload, ...],
         *,
         scope: str,
-        r2_account: str,
-        bucket: str,
+        spool: Path,
         pages: Path = DEFAULT_EXPORT,
         workspace_occurrence: UUID | None = None,
     ) -> InboundInsert:
@@ -565,8 +563,15 @@ class MessageStore:
                     validated = HOME_REF_ADAPTER.validate_python(ref)
                 except ValueError as exc:
                     raise InvalidReference("invalid reference") from exc
+                enrollment = (
+                    None if self._workspace is None else self._workspace.enrollment()
+                )
                 context = await reference_context(
-                    connection, scope, validated.model_dump(mode="json"), pages
+                    connection,
+                    scope,
+                    validated.model_dump(mode="json"),
+                    pages,
+                    drive_subject=None if enrollment is None else enrollment.subject,
                 )
                 if context is None:
                     raise InvalidReference("that reference is no longer available")
@@ -587,8 +592,7 @@ class MessageStore:
                     connection,
                     result.message.id,
                     uploads,
-                    r2_account=r2_account,
-                    bucket=bucket,
+                    spool=spool,
                 )
             control = text.strip().lower()
             if ref is None and not uploads and control in {"pause", "resume"}:
@@ -787,14 +791,6 @@ class MessageStore:
                 native_retry_pin.is_distinct_from(route)
                 for route in exclude_retry_routes
             ),
-            ~select(attachment.c.id)
-            .where(
-                attachment.c.origin_message_id == message.c.id,
-                attachment.c.capture_action_id.is_(None),
-                attachment.c.state == "pending",
-                attachment.c.error.is_(None),
-            )
-            .exists(),
         )
         async with self._engine.connect() as connection:
             rows = (

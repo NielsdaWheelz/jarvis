@@ -5,12 +5,9 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import cast
 from uuid import UUID
 
-import boto3  # pyright: ignore[reportMissingTypeStubs]
 import httpx
-from botocore.config import Config  # pyright: ignore[reportMissingTypeStubs]
 from llm_tools import (
     BraveSearchProvider,
     SafeWebReader,
@@ -27,7 +24,6 @@ from llm_tools import (
     web_search_source_operation,
 )
 from llm_tools.schema import JsonObject
-from sqlalchemy import text
 
 from jarvis.action_requests import bind_action_requests
 from jarvis.actions import ActionStore
@@ -36,8 +32,8 @@ from jarvis.agent_control import AgentController
 from jarvis.agent_tools import agent_family
 from jarvis.approval_tools import approval_family
 from jarvis.attachment_sources import AttachmentSources
-from jarvis.attachment_tools import attachment_family
-from jarvis.attachments import AttachmentStore, S3Client
+from jarvis.attachment_tools import submission_family
+from jarvis.attachments import AttachmentStore
 from jarvis.connectors import GoogleTokenManager, MapsReadConnector
 from jarvis.event_polling import EventPoller
 from jarvis.event_tools import events_family
@@ -46,12 +42,7 @@ from jarvis.gmail_arrivals import GmailArrivalSource
 from jarvis.mail_files import MailFiles
 from jarvis.memory_service import MemoryService
 from jarvis.memory_tools import memory_family
-from jarvis.ownership import Database
-from jarvis.read_tools import (
-    ATTACHMENT_CONNECT_SECONDS,
-    ATTACHMENT_SOCKET_SECONDS,
-    maps_family,
-)
+from jarvis.read_tools import maps_family
 from jarvis.receipt_tools import receipt_family
 from jarvis.settings import Settings
 from jarvis.work import WorkStore
@@ -66,7 +57,12 @@ from jarvis.workspace_reads import (
 )
 from jarvis.workspace_write_models import DraftEditorStamp
 from jarvis.workspace_writes import WorkspaceWrites
-from jarvis.write_tools import calendar_write_family, gmail_write_family
+from jarvis.write_tools import (
+    calendar_write_family,
+    docs_write_family,
+    drive_write_family,
+    gmail_write_family,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,23 +110,31 @@ def build_tool_composition(
             raise WorkspaceError("grant_unavailable")
         await quota.debit(tool, background=background)
 
+    attachments = AttachmentStore(
+        owner.database,
+        settings.owner_scope,
+        spool_directory=settings.runtime_state_directory / "uploads",
+        scratch_directory=settings.file_scratch_directory,
+    )
     workspace = WorkspaceMcpClient(
-        google_api_http, credential=tokens.credential, debit=debit, approvals=approvals
+        google_api_http,
+        credential=tokens.credential,
+        debit=debit,
+        approvals=approvals,
+        transfer_scratch=attachments.transfer_scratch,
     )
     tokens.on_grant_loss = workspace.invalidate
+    tokens.on_drive_loss = workspace.invalidate_drive
     google_read = WorkspaceReads(
         workspace,
         account=None if enrollment is None else enrollment.account,
         grant_id=None if enrollment is None else enrollment.grant_id,
         access=workspace_access,
-    )
-    attachments = build_attachment_store(
-        settings=settings,
-        database=actions.engine,
-        google=google_read,
+        subject=None if enrollment is None else enrollment.subject,
+        drive_materialize=attachments.materialize,
     )
     mail_files = MailFiles(
-        attachments,
+        google_read,
         settings.host_secrets,
         stage_root=settings.runtime_state_directory.parent / "mail-stage",
     )
@@ -146,10 +150,19 @@ def build_tool_composition(
             return editor_stamp
         return None
 
-    workspace_writes = WorkspaceWrites(workspace, mail_files, editor_stamp=draft_stamp)
-    gmail_reads, calendar_reads = workspace_read_families(google_read)
+    workspace_writes = WorkspaceWrites(
+        workspace,
+        mail_files,
+        drive_sources=AttachmentSources(attachments, google_read),
+        editor_stamp=draft_stamp,
+    )
+    gmail_reads, calendar_reads, drive_reads, docs_reads = workspace_read_families(
+        google_read
+    )
     gmail_writes = gmail_write_family(workspace_writes)
     calendar_writes = calendar_write_family(workspace_writes)
+    drive_writes = drive_write_family(workspace_writes)
+    docs_writes = docs_write_family(workspace_writes)
     maps = MapsReadConnector(
         client=maps_http,
         api_key=settings.maps_api_key.get_secret_value(),
@@ -174,6 +187,8 @@ def build_tool_composition(
                 for reads, writes in (
                     (gmail_reads, gmail_writes),
                     (calendar_reads, calendar_writes),
+                    (drive_reads, drive_writes),
+                    (docs_reads, docs_writes),
                 )
             ),
             maps_family(maps),
@@ -190,7 +205,7 @@ def build_tool_composition(
             receipt_family(owner),
             _bind_write_policy(work_family(work)),
             _bind_write_policy(events_family(events)),
-            _bind_write_policy(attachment_family(attachments)),
+            _bind_write_policy(submission_family(attachments)),
         )
     )
     if any(
@@ -237,45 +252,6 @@ def google_tokens(settings: Settings, http: httpx.AsyncClient) -> GoogleTokenMan
     )
 
 
-def build_attachment_store(
-    *,
-    settings: Settings,
-    database: Database,
-    google: WorkspaceReads | None,
-) -> AttachmentStore:
-    async def require_owner() -> None:
-        async with database.connect() as connection:
-            await connection.execute(text("SELECT 1"))
-
-    s3 = cast(
-        S3Client,
-        boto3.client(  # pyright: ignore[reportUnknownMemberType]
-            "s3",
-            endpoint_url=f"https://{settings.attachment_r2_account_id}.r2.cloudflarestorage.com",
-            region_name="auto",
-            aws_access_key_id=settings.attachment_r2_access_key_id.get_secret_value(),
-            aws_secret_access_key=settings.attachment_r2_secret_access_key.get_secret_value(),
-            config=Config(
-                retries={"total_max_attempts": 1},
-                request_checksum_calculation="when_required",
-                connect_timeout=ATTACHMENT_CONNECT_SECONDS,
-                read_timeout=ATTACHMENT_SOCKET_SECONDS,
-            ),
-        ),
-    )
-    return AttachmentStore(
-        database,
-        settings.owner_scope,
-        r2_account=settings.attachment_r2_account_id,
-        bucket=settings.attachment_r2_bucket,
-        cache_directory=settings.attachment_cache_directory,
-        spool_directory=settings.runtime_state_directory / "uploads",
-        s3_client=s3,
-        sources=AttachmentSources(google=google),
-        mutation_admitted=require_owner,
-    )
-
-
 def _bind_write_policy(family: ToolFamily) -> ToolFamily:
     bindings: list[ToolBinding[object, object, object]] = []
     for binding in family.bindings:
@@ -303,7 +279,6 @@ def _bind_write_policy(family: ToolFamily) -> ToolFamily:
 
 __all__ = [
     "ToolComposition",
-    "build_attachment_store",
     "build_tool_composition",
     "google_tokens",
 ]

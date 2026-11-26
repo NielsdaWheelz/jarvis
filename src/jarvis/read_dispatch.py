@@ -36,7 +36,7 @@ from universal_memory.tools import MEMORY_READ_IDS, MEMORY_SAVE_NOTE_SPEC, SaveN
 
 from jarvis._secrets import contains_secret
 from jarvis.agent_tools import AGENT_READ_IDS
-from jarvis.attachment_tools import ATTACHMENT_READ_IDS
+from jarvis.attachment_tools import SUBMISSION_READ_IDS
 from jarvis.event_tools import EVENT_READ_IDS
 from jarvis.native_protocol import FOREGROUND_RECOVERY_PROFILE
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
@@ -190,7 +190,7 @@ class ReadToolDispatcher:
                 *WORK_READ_IDS,
                 RECEIPT_READ_ID,
                 *EVENT_READ_IDS,
-                *ATTACHMENT_READ_IDS,
+                *SUBMISSION_READ_IDS,
             )
             or binding.spec.effect is not ToolEffect.Read
         ):

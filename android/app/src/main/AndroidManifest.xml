@@ -25,6 +25,8 @@
                 <data android:pathPrefix="/m/" />
                 <data android:pathPrefix="/t/" />
                 <data android:pathPrefix="/f/" />
+                <data android:path="/files" />
+                <data android:pathPrefix="/files/" />
                 <data android:pathPrefix="/v/" />
             </intent-filter>
         </activity>

@@ -6,7 +6,7 @@ import json
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
@@ -38,8 +38,13 @@ from jarvis.workspace_checks import (
     completed_workspace_reads,
 )
 from jarvis.workspace_enrollment import WorkspaceEnrollment
-from jarvis.workspace_mcp import WorkspaceError
-from jarvis.workspace_reads import Token, WorkspaceReadAccess
+from jarvis.workspace_mcp import DRIVE_SCOPE, WorkspaceError
+from jarvis.workspace_reads import (
+    DriveCursor,
+    Token,
+    WorkspaceReadAccess,
+    workspace_cursor_scope,
+)
 from jarvis.workspace_write_models import CalendarWriteReceipt
 
 # Scope-bearing wire selectors. The adapter owns parsing, presentation and paging.
@@ -58,6 +63,16 @@ _READ_CALLS: dict[str, tuple[str, dict[str, str]]] = {
         "get_event",
         {"calendarId": "calendar_id", "eventId": "event_id"},
     ),
+    "drive.search": ("search_files", {"query": "query"}),
+    "drive.recent": ("list_recent_files", {}),
+    "drive.get": ("get_file_metadata", {"fileId": "id"}),
+    "drive.permissions": ("get_file_permissions", {"fileId": "id"}),
+    "drive.read": ("read_file_content", {"fileId": "id"}),
+    "drive.download": (
+        "download_file_content",
+        {"fileId": "id", "exportMimeType": "export_type"},
+    ),
+    "docs.read": ("read_doc", {"documentId": "id"}),
 }
 WORKSPACE_READ_IDS = frozenset(map(ToolId, _READ_CALLS))
 _access = ContextVar[WorkspaceReadAccess | None]("workspace_read", default=None)
@@ -351,6 +366,9 @@ class WorkspaceHost:
         ):
             raise WorkspaceError("workspace_read_not_authorized")
         attempt_id = UUID(lineage.attempt_id)
+        drive = tool.startswith(("drive.", "docs."))
+        if drive and DRIVE_SCOPE not in grant.scopes:
+            raise WorkspaceError("scope_missing")
 
         async def authorize(connection: AsyncConnection) -> bool:
             await lock_conversation(connection, self.owner.scope_id)
@@ -393,9 +411,15 @@ class WorkspaceHost:
                     )
                 )
             ).one_or_none()
+            latest = self.enrollment()
+            if latest is None or latest.grant_id != grant.grant_id:
+                raise WorkspaceError("grant_unavailable")
+            if drive and DRIVE_SCOPE not in latest.scopes:
+                raise WorkspaceError("scope_missing")
             if (
                 attempt is None
-                or self.enrollment() != grant
+                or replace(latest, scopes=latest.scopes - {DRIVE_SCOPE})
+                != replace(grant, scopes=grant.scopes - {DRIVE_SCOPE})
                 or await connection.scalar(latest_control(self.owner.scope_id))
                 not in {"resume", "stop"}
             ):
@@ -500,13 +524,15 @@ class WorkspaceHost:
         target = {key: arguments.get(field) for key, field in target_fields.items()}
         token = None
         if arguments.get("cursor") is not None:
-            selection = {k: v for k, v in arguments.items() if k != "cursor"}
-            scope = sha256(
-                canonical_json_bytes(
-                    [grant.account, str(grant.grant_id), tool, selection]
-                )
-            ).hexdigest()
-            token = Token.open(arguments["cursor"], scope).token
+            scope = workspace_cursor_scope(
+                grant.subject if drive else grant.account,
+                grant.grant_id,
+                tool,
+                arguments,
+            )
+            token = (
+                (DriveCursor if drive else Token).open(arguments["cursor"], scope).token
+            )
         source_digest = sha256(
             canonical_json_bytes([str(grant.grant_id), tool, target, token])
         ).hexdigest()
@@ -518,13 +544,17 @@ class WorkspaceHost:
             operation: str,
             wire: dict[str, object],
         ) -> None:
+            download_metadata = (
+                tool == "drive.download" and operation == "get_file_metadata"
+            )
+            requested = {"fileId": target["fileId"]} if download_metadata else target
             if (
                 public != tool
                 or selectors != arguments
                 or product != tool.partition(".")[0]
-                or operation != operation_name
+                or (operation != operation_name and not download_metadata)
                 or wire.get("pageToken") != token
-                or any(wire.get(key) != value for key, value in target.items())
+                or any(wire.get(key) != value for key, value in requested.items())
                 or wire.get("includeTrash") is True
             ):
                 raise WorkspaceError("workspace_read_outside_check")

@@ -48,7 +48,8 @@ esac
 scp -q -o BatchMode=yes -o ForwardAgent=no "$archive" "$target:$remote_archive"
 
 {
-cat "$repo_dir/deploy/release-functions"
+printf 'NATIVE_HOST_UNITS=(%s)\n' "$(git -C "$repo_dir" show "$commit:deploy/native-host-units" | tr '\n' ' ')"
+git -C "$repo_dir" show "$commit:deploy/release-functions"
 cat <<'REMOTE'
 set -euo pipefail
 commit="$1"
@@ -139,6 +140,9 @@ sudo -n -u "$builder_user" env UV_PYTHON_INSTALL_DIR="$release/.python" \
   --python "$python_version" --managed-python --no-python-downloads --link-mode copy
 sudo -n chown -R root:root "$release"
 sudo -n chmod -R a+rX,go-w "$release"
+sdk_binary="$release/.venv/lib/python3.12/site-packages/google/antigravity/bin/localharness"
+[[ -f "$sdk_binary" && ! -L "$sdk_binary" ]]
+sudo -n chmod 0700 "$sdk_binary"
 verify_release
 sudo -n python3 - \
   "$release/RELEASE.json" "$commit" "$tree" "$lock_sha256" <<'PY'

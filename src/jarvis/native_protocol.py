@@ -3,7 +3,12 @@
 from dataclasses import replace
 from typing import Self
 
-from llm_agent_kernel import CODEX_NATIVE_OPTIONS, CONTAINMENT_POLICY, NativeDefinition
+from llm_agent_kernel import (
+    CODEX_NATIVE_OPTIONS,
+    CONTAINMENT_POLICY,
+    NativeDefinition,
+    ProviderConfiguration,
+)
 from llm_tools import (
     CapabilityProfile,
     FrozenToolPlan,
@@ -24,7 +29,7 @@ from pydantic import model_validator
 from jarvis import terminal
 from jarvis.workspace_checks import WorkspaceResult
 
-NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v5"
+NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v6"
 NATIVE_OUTPUT_NAME = "jarvis_home_message_v3"
 WORKSPACE_CHECK_PROFILE = ProfileId("workspace_check")
 FOREGROUND_RECOVERY_PROFILE = ProfileId("foreground_recovery")
@@ -109,6 +114,8 @@ def _read_only_native(
     plan = ToolPlan(profile.id, Native()).freeze(catalog, profile)
     if not plan.is_tightening_of(main_plan.profile):
         raise ValueError("read-only plan exceeds main authority")
+    if not isinstance(main.provider, ProviderConfiguration):
+        raise ValueError("read-only plan requires the stock main template")
     provider = replace(
         main.provider,
         cwd=None,

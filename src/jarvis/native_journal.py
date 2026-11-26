@@ -43,7 +43,9 @@ from llm_tools import (
     canonical_json_bytes,
 )
 from provider_runtime.agent_runtime import (
+    AgentAccepted,
     AgentAttempt,
+    AgentChildObserved,
     AgentControlReceipt,
     AgentFailure,
     AgentMessage,
@@ -54,6 +56,7 @@ from provider_runtime.agent_runtime import (
     AgentTerminal,
     AgentTerminalFailure,
     AgentTurnRef,
+    AntigravityLease,
     FrozenJsonDict,
     JsonObject,
     JsonSchemaAgentOutput,
@@ -86,7 +89,7 @@ from jarvis.approval_tools import (
     ApprovalRespondInput,
     ApprovalRespondResult,
 )
-from jarvis.codex_config import NATIVE_ROUTES
+from jarvis.codex_config import NATIVE_ROUTES, PAID_ROUTES
 from jarvis.db import (
     action,
     message,
@@ -154,6 +157,18 @@ _ACTIVE_REQUEST = native_attempt.c.request["schema_version"].as_string() == (
     NATIVE_REQUEST_SCHEMA
 )
 _ACTIVE_ROUTE = case((_ACTIVE_REQUEST, native_attempt.c.request["route"].as_string()))
+
+
+def _neon_capacity(
+    status: str, retry_after: float | None, now: datetime
+) -> dict[str, object]:
+    return {
+        "status": status,
+        "requires_billing_probe": status == "prepaid_depleted",
+        "check_after": (
+            now + max(NEON_REFILL_INTERVAL, timedelta(seconds=retry_after or 0))
+        ).isoformat(),
+    }
 
 
 def _contains_nul(value: object) -> bool:
@@ -328,9 +343,29 @@ def _recovery_grant(grant: WorkspaceEnrollment | None) -> dict[str, str] | None:
     )
 
 
-def _route_request_fingerprint(request: NativeRequest, route: str) -> str:
+def _provider_binding(definition: NativeDefinition) -> dict[str, str]:
+    provider = definition.provider
+    return {
+        "backend": provider.backend,
+        "transport": provider.transport,
+        "model": provider.model_key,
+        "effort": provider.reasoning,
+    }
+
+
+def _route_request_fingerprint(
+    request: NativeRequest, document: dict[str, object]
+) -> str:
     return sha256(
-        canonical_json_bytes({"request": request.fingerprint, "route": route})
+        canonical_json_bytes(
+            {
+                "request": request.fingerprint,
+                "route": document["route"],
+                "provider": document["provider"],
+                "definition_fingerprint": document["definition_fingerprint"],
+                "provider_attempt": document["provider_attempt"],
+            }
+        )
     ).hexdigest()
 
 
@@ -344,6 +379,7 @@ class PostgresNativeJournal:
         owner: JarvisOwner,
         memory: MemoryService,
         neon_control: NeonControl | None = None,
+        antigravity: AntigravityLease | None = None,
         workspace_grant: WorkspaceEnrollment | None = None,
     ) -> None:
         self.database = database
@@ -352,8 +388,10 @@ class PostgresNativeJournal:
         self.owner = owner
         self.memory = memory
         self.neon_control = neon_control
+        self.antigravity = antigravity
         self.workspace_grant = workspace_grant
         self.neon_lease: NeonLease | None = None
+        self.sdk_upstream_entries: int | None = None
 
     async def recover(self, attempt_id: str) -> NativeRecovery | None:
         async with self.database.connect() as connection:
@@ -391,6 +429,7 @@ class PostgresNativeJournal:
             value.get("schema_version") != NATIVE_REQUEST_SCHEMA
             or value.get("route") != self.definition.provider.auth.profile_key
             or value["route"] not in NATIVE_ROUTES
+            or value.get("provider") != _provider_binding(self.definition)
             or value["definition_fingerprint"]
             != self.definition.session_fingerprint(self.plan)
             or value["plan_revision"] != self.plan.plan_revision
@@ -414,10 +453,7 @@ class PostgresNativeJournal:
             if value["through_checkpoint"] is None
             else Checkpoint(value["through_checkpoint"]),
         )
-        if (
-            _route_request_fingerprint(request, value["route"])
-            != row["request_fingerprint"]
-        ):
+        if _route_request_fingerprint(request, value) != row["request_fingerprint"]:
             raise NativeDefect("native recovery request bytes changed")
         return request
 
@@ -443,6 +479,7 @@ class PostgresNativeJournal:
         document: dict[str, Any] = {
             "schema_version": NATIVE_REQUEST_SCHEMA,
             "route": route,
+            "provider": _provider_binding(self.definition),
             "output": {
                 "name": self.definition.output.name,
                 "schema": thaw_json_value(self.definition.output.schema),
@@ -464,24 +501,58 @@ class PostgresNativeJournal:
             "through_checkpoint": request.through_checkpoint,
         }
         canonical_json_bytes(document)
-        if route == "google_neon":
+        if route in PAID_ROUTES:
             params = submitted_request.get("params")
             root = (
-                params.get("threadId") if isinstance(params, FrozenJsonDict) else None
+                submitted_request.get("root")
+                if route == "agy_neon"
+                else (
+                    params.get("threadId")
+                    if isinstance(params, FrozenJsonDict)
+                    else None
+                )
             )
             if self.neon_control is None or not isinstance(root, str) or not root:
                 raise NativeDefect("paid native request lacks its control lease")
+            document["native_root"] = root
+            sdk = self.antigravity
             try:
-                self.neon_lease = await self.neon_control.arm(
-                    attempt_id=request.attempt_id,
-                    owner_epoch=str(request.permit.owner_token),
-                    root_thread_id=root,
-                    generation=request.attempt_id,
-                    on_delivery=lambda turn_id: self._record_neon_delivery(
-                        request, turn_id
-                    ),
-                    on_child=lambda child: self._record_neon_child(request, child),
-                )
+                if route == "agy_neon":
+                    sdk_text = submitted_request.get("text")
+                    if (
+                        sdk is None
+                        or sdk.turn.session_ref.native_session_id != root
+                        or sdk.turn.native_turn_id != submitted_request.get("turn")
+                        or not isinstance(sdk_text, str)
+                    ):
+                        raise NativeDefect(
+                            "Antigravity paid authorization changed its prepared turn"
+                        )
+                    encoded = sdk_text.encode("utf-8")
+                    self.neon_lease = await self.neon_control.arm_sdk(
+                        attempt_id=request.attempt_id,
+                        owner_epoch=str(request.permit.owner_token),
+                        root_thread_id=root,
+                        generation=request.attempt_id,
+                        turn_id=sdk.turn.native_turn_id,
+                        bearer=sdk.bearer,
+                        input_bytes=len(encoded),
+                        input_sha256=sha256(encoded).hexdigest(),
+                        on_delivery=lambda turn_id: self._record_neon_delivery(
+                            request, turn_id
+                        ),
+                    )
+                else:
+                    self.neon_lease = await self.neon_control.arm(
+                        attempt_id=request.attempt_id,
+                        owner_epoch=str(request.permit.owner_token),
+                        root_thread_id=root,
+                        generation=request.attempt_id,
+                        on_delivery=lambda turn_id: self._record_neon_delivery(
+                            request, turn_id
+                        ),
+                        on_child=lambda child: self.record_neon_child(request, child),
+                    )
             except (OSError, NeonControlError) as error:
                 raise NeonOpeningUnavailable(
                     "paid native control unavailable"
@@ -592,7 +663,7 @@ class PostgresNativeJournal:
                     stock_observations_pending=(
                         memory_is_admitted(connection) and self.memory.jarvis_admitted
                     ),
-                    request_fingerprint=_route_request_fingerprint(request, route),
+                    request_fingerprint=_route_request_fingerprint(request, document),
                     request=document,
                     armed_at=datetime.now(UTC),
                     recovery_pending=True,
@@ -614,11 +685,43 @@ class PostgresNativeJournal:
                 type(error).__name__,
             )
             return None
+        self.sdk_upstream_entries = lease.sdk_upstream_entries
+        capacity = lease.capacity
+        if capacity is not None:
+            await self.owner.require_current(
+                self.owner.permit("jarvis-product:" + attempt_id)
+            )
+            async with self.database.begin() as connection:
+                row = await _locked_attempt(
+                    connection,
+                    self.owner,
+                    attempt_id,
+                    native_attempt.c.local_outcome,
+                    live=False,
+                )
+                await connection.execute(
+                    update(native_attempt)
+                    .where(native_attempt.c.id == row["id"])
+                    .values(
+                        local_outcome={
+                            **(row["local_outcome"] or {}),
+                            "neon_capacity": _neon_capacity(
+                                capacity.status, capacity.retry_after, datetime.now(UTC)
+                            ),
+                        }
+                    )
+                )
         return lease.first_sample_refusal
 
-    async def _record_neon_child(
-        self, request: NativeRequest, child: NeonChildFacts
+    async def record_neon_child(
+        self, request: NativeRequest, child: NeonChildFacts | AgentChildObserved
     ) -> None:
+        if isinstance(child, AgentChildObserved):
+            if self.antigravity is None or child.turn != self.antigravity.turn:
+                raise NativeDefect("Antigravity child changed its prepared root turn")
+            child_id, parent_id = child.child_id, child.parent_id
+        else:
+            child_id, parent_id = child.thread_id, child.parent_thread_id
         await self.owner.require_current(request.permit)
         async with self.database.begin() as connection:
             row = await _locked_attempt(
@@ -632,12 +735,12 @@ class PostgresNativeJournal:
                 raise NativeDefect("paid child preceded the durable delivery boundary")
             children: dict[str, object] = local.get("neon_children", {})
             facts = {
-                "parent_thread_id": child.parent_thread_id,
+                "parent_thread_id": parent_id,
                 "requested_model": self.definition.provider.model_key,
                 "model_version": child.model_version,
                 "effort": child.effort,
             }
-            previous = children.get(child.thread_id)
+            previous = children.get(child_id)
             if previous == facts:
                 return
             if previous is not None:
@@ -648,7 +751,7 @@ class PostgresNativeJournal:
                 .values(
                     local_outcome={
                         **local,
-                        "neon_children": {**children, child.thread_id: facts},
+                        "neon_children": {**children, child_id: facts},
                     }
                 )
             )
@@ -680,6 +783,9 @@ class PostgresNativeJournal:
         if (
             native_turn.session_ref.profile_key
             != self.definition.provider.auth.profile_key
+            or native_turn.session_ref.backend != self.definition.provider.backend
+            or native_turn.session_ref.transport != self.definition.provider.transport
+            or (self.antigravity is not None and self.antigravity.turn != native_turn)
         ):
             raise NativeDefect("native turn binding changed the prepared account")
         binding = _turn_binding(native_turn)
@@ -689,14 +795,23 @@ class PostgresNativeJournal:
                 self.owner,
                 attempt_id,
                 native_attempt.c.native_binding,
+                native_attempt.c.submission_evidence,
+                native_attempt.c.request["provider_attempt"].label("provider_attempt"),
                 live=False,
+            )
+            accepted = _evidence(
+                AgentAccepted(AgentAttempt(**row["provider_attempt"]), native_turn)
             )
             if row["native_binding"] is not None and row["native_binding"] != binding:
                 raise NativeDefect("native turn binding changed")
+            if row["submission_evidence"] not in (None, accepted):
+                raise NativeDefect(
+                    "native turn contradicts its original submission evidence"
+                )
             await connection.execute(
                 update(native_attempt)
                 .where(native_attempt.c.id == row["id"])
-                .values(native_binding=binding)
+                .values(native_binding=binding, submission_evidence=accepted)
             )
 
     async def record_invocation(
@@ -1507,6 +1622,13 @@ class PostgresNativeJournal:
                         or not isinstance(ref, AgentTurnRef)
                         or ref.session_ref.profile_key
                         != self.definition.provider.auth.profile_key
+                        or ref.session_ref.backend != self.definition.provider.backend
+                        or ref.session_ref.transport
+                        != self.definition.provider.transport
+                        or (
+                            self.antigravity is not None
+                            and self.antigravity.turn != ref
+                        )
                     ):
                         raise NativeDefect(
                             "native terminal changed the prepared attempt or account"
@@ -1560,6 +1682,8 @@ class PostgresNativeJournal:
         seal: AgentTerminal | None,
     ) -> None:
         """Quarantine the fault and preserve its original seal in one commit."""
+        if self.neon_lease is not None:
+            self.neon_lease.request_disarm()
         async with self.database.begin() as connection:
             row = await _locked_attempt(
                 connection,
@@ -1602,6 +1726,8 @@ class PostgresNativeJournal:
             )
 
     async def fence(self, attempt_id: str, reason: str) -> None:
+        if self.neon_lease is not None:
+            self.neon_lease.request_disarm()
         async with self.database.begin() as connection:
             row = await _locked_attempt(
                 connection,
@@ -2704,7 +2830,7 @@ async def _fail_inputs(
     parked: dict[UUID, RowMapping] = {}
     retry_at = (
         (await connection.execute(select(func.now()))).scalar_one()
-        + timedelta(seconds=30)
+        + timedelta(seconds=0 if reason == "agy_before_activity" else 30)
         if continuation is not None
         else None
     )
@@ -2784,6 +2910,84 @@ async def _fail_inputs(
     )
 
 
+async def settle_undispatched_antigravity(
+    owner: JarvisOwner, request: NativeRequest
+) -> bool:
+    """Consume the retry for a joined host and zero upstream entries."""
+    identifier = UUID(request.attempt_id)
+    await owner.require_current(owner.permit("jarvis-product:" + request.attempt_id))
+    async with owner.database.begin() as connection:
+        row = await _locked_attempt(
+            connection,
+            owner,
+            request.attempt_id,
+            _ACTIVE_ROUTE.label("route"),
+            native_attempt.c.recovery_pending,
+            native_attempt.c.local_outcome,
+            native_attempt.c.submission_evidence["type"]
+            .as_string()
+            .label("submission"),
+            live=False,
+        )
+        local: dict[str, Any] = row["local_outcome"] or {}
+        if (
+            row["route"] != "agy_neon"
+            or row["owner_epoch"] != str(owner.token)
+            or row["settled"]
+            or not row["recovery_pending"]
+            or row["fenced_at"] is None
+            or row["terminal_at"] is not None
+            or row["submission"] != "AgentNotSubmitted"
+            or local.get("neon_may_have_delivered") is not None
+            or local.get("neon_children")
+            or local.get("control_receipts")
+            or await connection.scalar(
+                select(native_invocation.c.id)
+                .where(native_invocation.c.attempt_id == identifier)
+                .limit(1)
+            )
+            or await connection.scalar(
+                select(native_input_delivery.c.attempt_id)
+                .where(
+                    native_input_delivery.c.attempt_id == identifier,
+                    or_(
+                        native_input_delivery.c.mode == "steer", proven_native_delivery
+                    ),
+                )
+                .limit(1)
+            )
+        ):
+            return False
+        _, inputs = await _product_inputs(
+            connection, owner, request.attempt_id, fallback_input_ids=request.input_ids
+        )
+        if set(inputs) != set(map(UUID, request.input_ids)) or not all(
+            not _fault_retry_used(value) for value in inputs.values()
+        ):
+            return False
+        await _fail_inputs(
+            connection,
+            owner,
+            inputs,
+            "agy_before_activity",
+            attempt_id=request.attempt_id,
+            route="agy_neon",
+            continuation="full",
+        )
+        await connection.execute(
+            update(native_attempt)
+            .where(native_attempt.c.id == identifier)
+            .values(
+                recovery_pending=False,
+                local_outcome={
+                    **local,
+                    "sdk_no_entry": {"joined": True, "upstream_entries": 0},
+                },
+            )
+        )
+        return True
+
+
 async def _hold_restricted_result(
     connection: AsyncConnection,
     owner: JarvisOwner,
@@ -2819,9 +3023,7 @@ async def defer_first_sample_refusal(
             _ACTIVE_ROUTE.label("route"),
             native_attempt.c.local_outcome,
             native_attempt.c.native_binding,
-            native_attempt.c.request["submitted_request"]["params"]["threadId"]
-            .as_string()
-            .label("root"),
+            native_attempt.c.request["native_root"].as_string().label("root"),
             native_attempt.c.submission_evidence["type"]
             .as_string()
             .label("submission"),
@@ -2831,7 +3033,7 @@ async def defer_first_sample_refusal(
         local: dict[str, Any] = row["local_outcome"] or {}
         binding: dict[str, Any] = row["native_binding"] or {}
         if (
-            row["route"] != "google_neon"
+            row["route"] not in PAID_ROUTES
             or row["owner_epoch"] != str(owner.token)
             or row["settled"]
             or row["fenced_at"] is None
@@ -2841,6 +3043,7 @@ async def defer_first_sample_refusal(
             or binding.get("session_ref", {}).get("native_session_id") != row["root"]
             or local.get("neon_may_have_delivered") is not None
             or local.get("neon_refusal") is not None
+            or local.get("neon_children")
             or local.get("fence_reason") in {"owner_stop", "cancelled"}
             or await connection.scalar(
                 select(native_invocation.c.id)
@@ -2876,7 +3079,7 @@ async def defer_first_sample_refusal(
                 connection,
                 item,
                 attempt_id=attempt_id,
-                route="google_neon",
+                route=row["route"],
                 selection="pinned"
                 if previous.get("selection") == "pinned"
                 else "fresh",
@@ -2892,17 +3095,9 @@ async def defer_first_sample_refusal(
             "local_outcome": {
                 **local,
                 "neon_refusal": asdict(refusal),
-                "neon_capacity": {
-                    "status": refusal.reason,
-                    "requires_billing_probe": refusal.reason == "prepaid_depleted",
-                    "check_after": (
-                        observed
-                        + max(
-                            NEON_REFILL_INTERVAL,
-                            timedelta(seconds=refusal.retry_after or 0),
-                        )
-                    ).isoformat(),
-                },
+                "neon_capacity": _neon_capacity(
+                    refusal.reason, refusal.retry_after, observed
+                ),
             },
             "recovery_pending": False,
         }
@@ -3047,7 +3242,8 @@ async def consume_fenced_losses(
                     reason = "the model protocol needs repair"
                 elif pending["fence_reason"] == "native_protocol_fault":
                     reason = "the model protocol needs repair"
-                    continuation = "read_only"
+                    if pending["route"] != "agy_neon":
+                        continuation = "read_only"
                 elif evidence.get("type") == "AgentSubmissionRejected":
                     submitted = (
                         await connection.execute(
@@ -3079,12 +3275,15 @@ async def consume_fenced_losses(
                     ):
                         reason = "codex_quota_before_activity"
                         continuation = "capacity"
+                    elif pending["route"] == "agy_neon":
+                        reason = "native_effects_uncertain"
                     else:
                         reason = "the model request was not submitted"
                         continuation = "full"
                 else:
                     reason = "native_effects_uncertain"
-                    continuation = "read_only"
+                    if pending["route"] != "agy_neon":
+                        continuation = "read_only"
                 await _fail_inputs(
                     connection,
                     owner,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -799,10 +799,15 @@ class MessageStore:
         source_conversation_id: str,
         *,
         exclude_ids: tuple[UUID, ...] = (),
+        connection: AsyncConnection | None = None,
     ) -> int:
-        async with self._engine.connect() as connection:
+        async with (
+            self._engine.connect()
+            if connection is None
+            else nullcontext(connection) as snapshot
+        ):
             return int(
-                await connection.scalar(
+                await snapshot.scalar(
                     select(func.count())
                     .select_from(message)
                     .where(

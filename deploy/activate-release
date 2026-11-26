@@ -149,6 +149,10 @@ schema_of() {
   "$1/.venv/bin/python" -c 'from jarvis.db import APPLICATION_SCHEMA_REVISION; print(APPLICATION_SCHEMA_REVISION)'
 }
 
+native_contract_of() {
+  "$1/.venv/bin/python" -c 'from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA; print(NATIVE_REQUEST_SCHEMA)'
+}
+
 persist() {
   local input="$1" path="$2"
   install -m 0600 -- "$input" "$path.tmp"
@@ -288,14 +292,8 @@ if [[ -f "$stored_mapping" ]]; then
 elif [[ "$incoming_mapping" != none ]]; then
   mapping_source="$incoming_mapping"
 fi
-"$release/.venv/bin/python" - "$mapping_source" <<'PYCODE'
-import sys
-from pathlib import Path
-
-from jarvis.codex_config import CodexHostConfig
-
-CodexHostConfig.load(Path(sys.argv[1]))
-PYCODE
+JARVIS_CODEX_HOST_CONFIG_PATH="$mapping_source" \
+  "$release/.venv/bin/python" "$release/deploy/codex-host" verify-agy
 mapping_digest="$(sha256sum "$mapping_source" | cut -d' ' -f1)"
 digest="$mapping_digest"
 stored_reader="$held/reader-$change.json"
@@ -424,6 +422,45 @@ elif [[ "$phase" == held && "$repair_of" == none ]] &&
   fi
   refuse "change $change blocked by stopped compatibility checks"
 fi
+source_native_contract="$(native_contract_of "$source_release")"
+target_native_contract="$(native_contract_of "$release")"
+if [[ "$source_schema" == "$target_schema" && "$source_native_contract" != "$target_native_contract" ]]; then
+  native_inventory="$held/native-inventory-$change.json"
+  if [[ "$phase" == held && ! -f "$native_inventory" ]]; then
+    deployment_runtime_check "$source_release" 0 "$source_release/.venv/bin/jarvis" cutover-native
+    inventory_source="$(deployment_runtime_check "$source_release" 0 "$source_release/.venv/bin/python" -c '
+from jarvis.settings import CutoverSettings
+
+print(CutoverSettings.from_env().runtime_state_directory / "one-main-cutover.json")
+')"
+    persist "$inventory_source" "$native_inventory"
+  fi
+  [[ -f "$native_inventory" ]] || refuse "held $change. original native inventory is missing"
+  if [[ "$phase" == held ]]; then
+    deployment_runtime_check "$release" 0 "$release/.venv/bin/python" - <<'PYCODE'
+import asyncio
+
+from jarvis.db import create_engine
+from jarvis.native_cutover import require_native_data
+from jarvis.ownership import deployment_ownership
+from jarvis.settings import PausedSettings
+
+
+async def check():
+    settings = PausedSettings.from_env()
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            await require_native_data(database, conversation_id=settings.owner_scope)
+    finally:
+        await engine.dispose()
+
+
+asyncio.run(check())
+PYCODE
+  fi
+fi
+
 if [[ "$phase" == held && -f "$scratch/source-check.json" ]]; then
   "$custody" applying "$change" --evidence "$scratch/source-check.json"
 else
@@ -435,8 +472,8 @@ if [[ "$repair_of" != none ]]; then
   check_maintenance "$release" "$scratch/authority.json" "$scratch/repair-check.json"
   "$custody" applying "$change" --evidence "$scratch/repair-check.json"
 fi
-install_selection
 if [[ "$agent_client" != none ]]; then
+  install_selection
   "$release/deploy/install-agent-client" "$change" "${agent_client_args[@]}"
 fi
 [[ "$(sha256sum "$mapping" | cut -d' ' -f1)" == "$mapping_digest" ]] ||
@@ -454,6 +491,7 @@ fi
 if [[ -f "$backup_config" ]]; then
   "$release/.venv/bin/python" "$release/deploy/qualified-reader" current "$release" >/dev/null
 fi
+if [[ "$agent_client" == none ]]; then install_selection; fi
 "$custody" commit "$change" --evidence "$scratch/target-check.json"
 "$custody" start "$change"
 prune_releases

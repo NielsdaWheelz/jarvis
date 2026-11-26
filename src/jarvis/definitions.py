@@ -17,6 +17,7 @@ from llm_agent_kernel import (
     NATIVE_BASE_INSTRUCTION,
     AgentDefinition,
     AgentRole,
+    AntigravityProviderConfiguration,
     DefinitionId,
     KernelLimits,
     NativeDefinition,
@@ -47,7 +48,13 @@ from llm_tools import (
     canonical_json_bytes,
     render_prompt,
 )
-from provider_runtime.agent_runtime import JsonSchemaAgentOutput
+from provider_runtime.agent_runtime import (
+    AGY_CAPABILITY_REVISION,
+    AGY_WORKSPACE_POLICY,
+    JsonSchemaAgentOutput,
+    PermissionPolicy,
+    TextContent,
+)
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model
 from pydantic_core import PydanticCustomError
 from universal_memory import DreamResult, MemoryError
@@ -80,9 +87,9 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "0865b8ff5ad7b257c474ff8da542ffcc9645e397",
+    "llm-agent-kernel": "89a14b14c2e8e157d8657f58c2534569d83b93d7",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "7c01859e5836ea9cd548730b5273cc62341005ff",
+    "provider-runtime": "05b9523d75668e07ee5cb13d50562ade490eab3f",
     "universal-memory": "dcd1fc514677079ce3d513195ceedee8f3b4af28",
 }
 # llm-tools requires positive byte/call ceilings even for an empty catalog;
@@ -760,13 +767,33 @@ class _NeonContract(BaseModel):
     catalog_revision: _Identifier
 
 
+class _AntigravityContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    backend: Literal["antigravity"]
+    transport: Literal["antigravity_sdk"]
+    model: Literal["gemini-4-neon"]
+    model_version: Literal["gemini-4-neon"]
+    effort: Literal["high"]
+    sdk_version: Literal["0.1.24"]
+    wheel_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    executable_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    capability_revision: _Identifier
+    child_context: Literal["fresh"]
+    child_effort: Literal["inherit"]
+    child_depth: Literal[2]
+    shell_network: Literal["disabled"]
+    context_window: Literal["512k"]
+    input_utf8_bytes: Literal[190000]
+
+
 class _SessionManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["jarvis-session-compatibility.v5"]
+    schema_version: Literal["jarvis-session-compatibility.v6"]
     application_session_contract_revision: _Identifier
     dependencies: dict[str, str]
     roles: dict[str, _RoleContract]
     google_neon: _NeonContract
+    agy_neon: _AntigravityContract
 
 
 @cache
@@ -777,16 +804,22 @@ def load_session_manifest() -> _SessionManifest:
         raise ValueError("session compatibility manifest must declare all three roles")
     if manifest.dependencies != EXPECTED_GIT_PINS:
         raise ValueError("session compatibility dependency pins do not match code")
+    if manifest.agy_neon.capability_revision != AGY_CAPABILITY_REVISION:
+        raise ValueError("Antigravity capability does not match the provider pin")
     return manifest
 
 
-def _role_revision(role_id: str, provider: ProviderConfiguration) -> str:
+def _role_revision(
+    role_id: str, provider: ProviderConfiguration | AntigravityProviderConfiguration
+) -> str:
     manifest = load_session_manifest()
-    role = (
-        manifest.google_neon
-        if role_id == "main" and provider.model_key == manifest.google_neon.model
-        else manifest.roles[role_id]
-    )
+    profile = provider.auth.profile_key
+    if role_id == "main" and profile == "agy_neon":
+        role = manifest.agy_neon
+    elif role_id == "main" and profile == "google_neon":
+        role = manifest.google_neon
+    else:
+        role = manifest.roles[role_id]
     if (provider.model_key, provider.reasoning) != (role.model, role.effort):
         raise ValueError(f"{role_id} requires its release model and effort")
     value = {
@@ -803,17 +836,40 @@ def _role_revision(role_id: str, provider: ProviderConfiguration) -> str:
 
 
 def with_main_provider(
-    definition: NativeDefinition, binding: ProviderConfiguration
+    definition: NativeDefinition,
+    binding: ProviderConfiguration | AntigravityProviderConfiguration,
 ) -> NativeDefinition:
-    """Bind a selected host to main without changing its effective tool authority."""
-    provider = replace(
-        definition.provider,
-        auth=binding.auth,
-        model_key=binding.model_key,
-        reasoning=binding.reasoning,
-        agent_definition_revision=binding.agent_definition_revision,
-        row_fingerprint=binding.row_fingerprint,
-    )
+    """Bind the exact selected host and derive its scoped native authority."""
+    template = definition.provider
+    if isinstance(binding, AntigravityProviderConfiguration):
+        workspace = template.policy.filesystem == "workspace_write"
+        provider = replace(
+            binding,
+            cwd=template.cwd,
+            additional_dirs=template.additional_dirs,
+            system=template.system,
+            developer=(
+                *template.developer,
+                TextContent(
+                    "Send any public progress as the defined progress JSON, then "
+                    "continue the actual work. The last public response is final."
+                ),
+            ),
+            policy=AGY_WORKSPACE_POLICY if workspace else PermissionPolicy(),
+            workspace_tools=workspace,
+        )
+    else:
+        if not isinstance(template, ProviderConfiguration):
+            raise ValueError("main template requires its stock containment options")
+        provider = replace(
+            binding,
+            cwd=template.cwd,
+            additional_dirs=template.additional_dirs,
+            system=template.system,
+            developer=template.developer,
+            policy=template.policy,
+            native=template.native,
+        )
     return replace(
         definition,
         provider=provider,

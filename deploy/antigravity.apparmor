@@ -1,0 +1,44 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+# The sandbox re-executes the bundled binary across a private mount.
+# Use a separate name prefix so disconnected objects cannot alias normal paths.
+profile jarvis-antigravity-localharness "@BINARY@" flags=(mediate_deleted,attach_disconnected,attach_disconnected.path=/jarvis-sdk-disconnected) {
+  /** rwklm,
+  "@BINARY@" ix,
+  /proc/self/exe ix,
+  "/jarvis-sdk-disconnected@BINARY@" ix,
+  /jarvis-sdk-disconnected/proc/self/exe ix,
+  deny /jarvis-sdk-disconnected/** wl,
+  # Retain the launcher label under NoNewPrivileges and add the tool restrictions.
+  /usr/** px -> jarvis-antigravity-localharness//&jarvis-antigravity-tool,
+  /{bin,sbin,tmp}/** px -> jarvis-antigravity-localharness//&jarvis-antigravity-tool,
+  /var/lib/jarvis-notes/** px -> jarvis-antigravity-localharness//&jarvis-antigravity-tool,
+  "@RELEASE@/{deploy,.python,.venv/bin}/**" px -> jarvis-antigravity-localharness//&jarvis-antigravity-tool,
+  capability,
+  network,
+  unix,
+  signal,
+  ptrace,
+  mount,
+  umount,
+  pivot_root,
+  userns,
+  deny /var/lib/jarvis-notes/.git/ wl,
+  deny /var/lib/jarvis-notes/.git/{commondir,config.worktree} wl,
+}
+
+profile jarvis-antigravity-tool flags=(mediate_deleted,attach_disconnected,attach_disconnected.path=/jarvis-sdk-tool-disconnected) {
+  / r,
+  /{bin,dev,etc,home,lib,lib64,opt,proc,run,sbin,sys,tmp,usr,var}/{,**} rwklmix,
+  # Only the vendor's inherited tool terminal is usable off the mounted tree.
+  owner /jarvis-sdk-tool-disconnected/dev/pts/[0-9]* rw,
+  network,
+  unix,
+  signal,
+  ptrace (tracedby) peer=jarvis-antigravity-localharness,
+  deny capability,
+  deny userns,
+  deny /var/lib/jarvis-notes/.git/ wl,
+  deny /var/lib/jarvis-notes/.git/{commondir,config.worktree} wl,
+}

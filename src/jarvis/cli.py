@@ -80,12 +80,12 @@ from jarvis.home_http import create_home_app
 from jarvis.home_notices import deliver_workspace_match
 from jarvis.home_pages import DEFAULT_EXPORT, NOTES_ROOT
 from jarvis.kernel import (
-    DeferredRoute,
     RouteSelector,
     build_agent_runtime,
     build_kernel_runtime,
     main_provider_configuration,
     resolve_neon_provider,
+    resolve_paid_provider,
     resolve_role_providers,
 )
 from jarvis.memory_config import MEMORY_IDENTITIES, MemoryConfig
@@ -589,6 +589,7 @@ async def _serve(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=host.endpoints,
                         neon_origin=host.google_neon.adapter_origin,
+                        antigravity_endpoint=host.agy_neon.socket,
                     )
                     composition, definitions, agents = await _compose_main(
                         owner=owner,
@@ -622,13 +623,14 @@ async def _serve(
 
                     neon_control = NeonControl(NEON_CONTROL_SOCKET)
 
-                    async def paid_route() -> ProviderConfiguration | DeferredRoute:
-                        deferred = await neon_paid_ready(owner, neon_control)
-                        if deferred is not None:
-                            return deferred
-                        return await resolve_neon_provider(agent_runtime)
-
-                    routes = RouteSelector(agent_runtime, host, paid_route=paid_route)
+                    routes = RouteSelector(
+                        agent_runtime,
+                        host,
+                        paid_ready=lambda: neon_paid_ready(owner, neon_control),
+                        paid_provider=lambda route: resolve_paid_provider(
+                            agent_runtime, route
+                        ),
+                    )
 
                     compactor = MemoryWorker(
                         definitions=definitions.compactor,
@@ -676,6 +678,7 @@ async def _serve(
                     runner = NativeRunner(
                         settings=settings,
                         store=store,
+                        opening_reads=engine,
                         owner=owner,
                         kernel_runtime=kernel_runtime,
                         route_selector=routes,
@@ -1102,6 +1105,7 @@ async def check_activation(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=selected_host.endpoints,
                         neon_origin=selected_host.google_neon.adapter_origin,
+                        antigravity_endpoint=selected_host.agy_neon.socket,
                     )
                     resources.push_async_callback(agent_runtime.close)
                     memory = await resources.enter_async_context(

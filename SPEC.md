@@ -6,6 +6,10 @@ date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
 
+## proposed native antigravity route
+
+[design 0111](docs/decisions/0111-native-antigravity-neon.md) specifies a full api-funded main through the official antigravity sdk between personal codex and stock codex-neon after confirmed personal exhaustion. agy starts native children with a fresh task brief and keeps its native shell offline. the two paid harnesses share the existing project and data boundary. the installed routing contract governs until a separately authorized hard cut.
+
 ## direct google quota recovery target
 
 [adr 0110](docs/decisions/0110-neon-quota-recovery.md) governs the candidate cut to direct paid gemini for all new main events after confirmed personal included-quota exhaustion. inferred shared summaries and dreaming wait for personal capacity. recovery checks original effects before retry, with a separate one-time release for proven historical quota holds. the installed contract applies until a separately authorized cut.

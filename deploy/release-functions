@@ -2,15 +2,20 @@
 # caller holds /opt/jarvis/.deploy.lock as root.
 # shellcheck disable=SC2034
 CODEX_PROFILES=(personal google_neon)
-CODEX_HOST_UNITS=(
-  jarvis-codex-contained.service
-  jarvis-codex-contained-neon.service
-)
+# The streamed release installer supplies this same release asset before stdin.
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  NATIVE_HOST_UNITS=()
+  while IFS= read -r unit_name; do NATIVE_HOST_UNITS+=("$unit_name"); done \
+    <"${BASH_SOURCE[0]%/*}/native-host-units"
+fi
+CODEX_HOST_UNITS=("${NATIVE_HOST_UNITS[@]:0:2}")
+AGY_HOST_UNIT="${NATIVE_HOST_UNITS[2]}"
+NEON_GATEWAY_UNIT="${NATIVE_HOST_UNITS[3]}"
 # shellcheck disable=SC2034
 CODEX_SOCKET_ROOTS=(/run/jarvis-contained /run/jarvis-contained-neon)
 CODEX_SOCKET_PROPERTIES=(
   --property=BindsTo=jarvis-codex-contained.service
-  "--property=After=${CODEX_HOST_UNITS[*]}"
+  "--property=After=${NATIVE_HOST_UNITS[*]}"
   --property=BindReadOnlyPaths=/run/jarvis-contained/exec/app-server.sock:/run/jarvis-contained/app-server.sock
   --property=BindReadOnlyPaths=-/run/jarvis-contained-neon/exec/app-server.sock:/run/jarvis-contained-neon/app-server.sock
 )
@@ -27,6 +32,38 @@ verify_native_account() {
     "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
     --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
     "$release/.venv/bin/python" "$release/deploy/codex-host" verify "$profile" </dev/null
+}
+
+verify_agy_endpoint() {
+  local release="$1"
+  systemd-run --quiet --wait --pipe --collect \
+    --property=Type=oneshot --property=User=jarvis --property=Group=jarvis-agy-control \
+    --property=ProtectHome=true --property=ProtectSystem=strict \
+    --property=PrivateTmp=true --property=NoNewPrivileges=true \
+    --property=RestrictAddressFamilies=AF_UNIX \
+    "$release/.venv/bin/python" - <<'PYCODE'
+import asyncio
+from pathlib import Path
+
+from jarvis.codex_config import CodexHostConfig
+from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
+
+
+async def check():
+    mapping = CodexHostConfig.load(Path("/etc/jarvis/codex-host.json"))
+    async with AgentRuntime(
+        AgentRuntimeConfig(Path("/tmp"), antigravity_endpoint=mapping.agy_neon.socket)
+    ) as runtime:
+        try:
+            async with asyncio.timeout(10):
+                while not await runtime.antigravity_ready():
+                    await asyncio.sleep(0.2)
+        except TimeoutError:
+            raise SystemExit("contained Antigravity host is unavailable") from None
+
+
+asyncio.run(check())
+PYCODE
 }
 
 require_no_cutover_hold() {
@@ -122,7 +159,7 @@ PYCODE
 
 prune_releases() {
   local candidate="${1:-}" selected='' release main_pid
-  local host_unit host_path host_state host_pid host_control_pid host_executable host_release
+  local host_unit host_path host_state host_pid host_control_pid host_executable host_release entrypoint
   require_no_cutover_hold || return 1
   if [[ -n "$candidate" && ! "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
     printf 'invalid staged release commit\n' >&2
@@ -159,7 +196,7 @@ prune_releases() {
     fi
   fi
 
-  for host_unit in "${CODEX_HOST_UNITS[@]}" jarvis-neon-adapter.service; do
+  for host_unit in "${NATIVE_HOST_UNITS[@]}"; do
     host_state="$(systemctl show --property=ActiveState --value "$host_unit")" || return 1
     host_pid="$(systemctl show --property=MainPID --value "$host_unit")" || return 1
     host_control_pid="$(systemctl show --property=ControlPID --value "$host_unit")" || return 1
@@ -177,11 +214,13 @@ if value["type"] != "a(sasbttttuii)" or len(value["data"]) != 1:
     raise SystemExit("contained host has an unsupported loaded ExecStart")
 print(value["data"][0][0])
 ')" || return 1
-    if [[ ! "$host_executable" =~ ^/opt/jarvis/releases/[0-9a-f]{40}/\.venv/bin/python$ ]]; then
+    entrypoint=python
+    if [[ "$host_unit" == "$AGY_HOST_UNIT" ]]; then entrypoint=provider-runtime-antigravity-host; fi
+    if [[ ! "$host_executable" =~ ^/opt/jarvis/releases/[0-9a-f]{40}/\.venv/bin/$entrypoint$ ]]; then
       printf 'contained host does not select an installed release; refusing cleanup\n' >&2
       return 1
     fi
-    host_release="${host_executable%/.venv/bin/python}"
+    host_release="${host_executable%/.venv/bin/*}"
     if [[ "$host_release" != "$selected" && "${host_release##*/}" != "$candidate" ]]; then
       printf 'contained host still selects an unretained release; refusing cleanup\n' >&2
       return 1

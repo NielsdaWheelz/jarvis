@@ -13,8 +13,10 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from jarvis.config import decode_config_json
 
 CODEX_MAX_MESSAGE_BYTES = 65536
-type NativeRoute = Literal["personal", "google_neon"]
-NATIVE_ROUTES = ("personal", "google_neon")
+type PaidRoute = Literal["agy_neon", "google_neon"]
+type NativeRoute = Literal["personal"] | PaidRoute
+PAID_ROUTES: tuple[PaidRoute, PaidRoute] = ("agy_neon", "google_neon")
+NATIVE_ROUTES = ("personal", *PAID_ROUTES)
 NEON_CONTROL_SOCKET = Path("/run/jarvis-neon-adapter/control.sock")
 NEON_ADAPTER_USER = "jarvis-neon-adapter"
 
@@ -67,10 +69,21 @@ class NeonHost(_Closed):
         return Path(self.endpoint[7:])
 
 
-class CodexHostConfig(_Closed):
-    """Root-owned mapping of the two contained cognition hosts."""
+class AntigravityHost(_Closed):
+    endpoint: str
+    host_user: str
+    host_home: str
+    binary: str
 
-    schema_version: Literal[7]
+    @property
+    def socket(self) -> Path:
+        return Path(self.endpoint[7:])
+
+
+class CodexHostConfig(_Closed):
+    """Root-owned mapping of the contained cognition hosts."""
+
+    schema_version: Literal[8]
     development_user: str
     jarvis_user: str
     client_group: str
@@ -79,6 +92,7 @@ class CodexHostConfig(_Closed):
     notes_repository: str
     personal: CodexAccount
     google_neon: NeonHost
+    agy_neon: AntigravityHost
 
     @property
     def endpoints(self) -> dict[str, Path]:
@@ -91,23 +105,27 @@ class CodexHostConfig(_Closed):
     def _validate_layout(self) -> CodexHostConfig:
         personal = self.personal
         neon = self.google_neon
+        agy = self.agy_neon
         canonical_absolute_path(self.binary)
+        canonical_absolute_path(agy.binary)
         shared_paths = (
             Path(canonical_absolute_path(self.notes_repository)),
             Path(canonical_absolute_path(self.cognition_cwd_parent)),
         )
         personal_home = Path(canonical_absolute_path(personal.account_home))
         neon_home = Path(canonical_absolute_path(neon.host_home))
+        agy_home = Path(canonical_absolute_path(agy.host_home))
         for home, others in (
-            (personal_home, (*shared_paths, neon_home)),
-            (neon_home, shared_paths),
+            (personal_home, (*shared_paths, neon_home, agy_home)),
+            (neon_home, (*shared_paths, agy_home)),
+            (agy_home, shared_paths),
         ):
             if any(
                 home.is_relative_to(other) or other.is_relative_to(home)
                 for other in others
             ):
                 raise ValueError("Codex home overlaps another home or workspace")
-        for endpoint in (personal.endpoint, neon.endpoint):
+        for endpoint in (personal.endpoint, neon.endpoint, agy.endpoint):
             if not endpoint.startswith("unix:///"):
                 raise ValueError("Codex host endpoint must be a Unix socket")
             canonical_absolute_path(endpoint[7:])
@@ -122,19 +140,20 @@ class CodexHostConfig(_Closed):
         ):
             raise ValueError("invalid opaque personal Codex enrollment identity")
         if (
-            personal.socket == neon.socket
+            len({personal.socket, neon.socket, agy.socket}) != 3
             or len(
                 {
                     self.jarvis_user,
                     personal.host_user,
                     neon.host_user,
+                    agy.host_user,
                     NEON_ADAPTER_USER,
                 }
             )
-            != 4
+            != 5
             or any(
                 not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user)
-                for user in (personal.host_user, neon.host_user)
+                for user in (personal.host_user, neon.host_user, agy.host_user)
             )
         ):
             raise ValueError("contained host users and endpoints must be distinct")

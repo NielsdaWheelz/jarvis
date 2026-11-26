@@ -28,12 +28,8 @@ AGENT_STATE = Path("/run/jarvis-skid-state")
 LEGACY_HOLD = SYSTEMD / "jarvis-cutover.hold"
 ASSISTANT = "jarvis.service"
 MEMORY = "jarvis-memory.service"
-NATIVE = "jarvis-codex-contained.service"
-NATIVE_HOSTS = (
-    NATIVE,
-    "jarvis-codex-contained-neon.service",
-    "jarvis-neon-adapter.service",
-)
+NATIVE_HOSTS = tuple(Path(__file__).with_name("native-host-units").read_text().splitlines())
+NATIVE = NATIVE_HOSTS[0]
 BACKUP = "jarvis-backup.service"
 UNITS = (ASSISTANT, MEMORY, NATIVE, BACKUP)
 OPERATIONS = ("release", "private-state", "backup", "backup-reader")

@@ -1,9 +1,26 @@
 {
-  "application_session_contract_revision": "jarvis-neon-quota-recovery-v1",
+  "agy_neon": {
+    "backend": "antigravity",
+    "capability_revision": "antigravity-sdk-neon-v1",
+    "child_context": "fresh",
+    "child_depth": 2,
+    "child_effort": "inherit",
+    "context_window": "512k",
+    "effort": "high",
+    "executable_sha256": "110d5e035156c0b2e686fb829bee5c60370178bdc7ad73424f9cac29face7a89",
+    "input_utf8_bytes": 190000,
+    "model": "gemini-4-neon",
+    "model_version": "gemini-4-neon",
+    "sdk_version": "0.1.24",
+    "shell_network": "disabled",
+    "transport": "antigravity_sdk",
+    "wheel_sha256": "678c5c56a4efa8d94b90df808a93b339cf3ead498b01898272d5833c8c9ad13f"
+  },
+  "application_session_contract_revision": "jarvis-native-antigravity-neon-v1",
   "dependencies": {
-    "llm-agent-kernel": "0865b8ff5ad7b257c474ff8da542ffcc9645e397",
+    "llm-agent-kernel": "89a14b14c2e8e157d8657f58c2534569d83b93d7",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "7c01859e5836ea9cd548730b5273cc62341005ff",
+    "provider-runtime": "05b9523d75668e07ee5cb13d50562ade490eab3f",
     "universal-memory": "dcd1fc514677079ce3d513195ceedee8f3b4af28"
   },
   "google_neon": {
@@ -35,5 +52,5 @@
       "revision": "jarvis-main-google-workspace-v27"
     }
   },
-  "schema_version": "jarvis-session-compatibility.v5"
+  "schema_version": "jarvis-session-compatibility.v6"
 }

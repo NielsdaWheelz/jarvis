@@ -520,9 +520,10 @@ private fun Conversation(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             HorizontalDivider(Modifier.weight(1f), color = color)
                             Text(label, Modifier.padding(start = 8.dp).semantics { heading() }, style = MaterialTheme.typography.labelMedium, color = color)
-                            TextButton(enabled = through != null && history.newTotal > 0, onClick = {
-                                if (through != null) history.clear(through)
-                            }) { Text("clear") }
+                            TextButton(
+                                enabled = through != null && history.pendingClear == null && history.newTotal > 0,
+                                onClick = { if (through != null) history.clear(through) },
+                            ) { Text("clear") }
                         }
                     }
                     else -> byId[id]?.let { message ->

@@ -238,6 +238,7 @@ internal class ChatHistory(private val shown: ChatShown) {
     }
 
     fun clear(through: ChatStamp) {
+        if (pendingClear != null) return
         val count = newAbove + rows.count { it.stamp <= through && isNew(it) }
         pendingClear = Clear(through, count, SystemClock.elapsedRealtime() + 5_000)
     }

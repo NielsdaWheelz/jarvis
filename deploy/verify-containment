@@ -128,14 +128,16 @@ for ((i=0; i<host_count; i++)); do
   if ((i == 0)); then
     [[ "$(systemctl show -p ProtectKernelTunables --value "$unit")" == yes ]]
     [[ "$(systemctl show -p ProtectKernelLogs --value "$unit")" == yes ]]
+    [[ "$(systemctl show -p RestrictAddressFamilies --value "$unit")" == 'AF_INET AF_INET6 AF_UNIX' ]]
   else
     [[ "$(systemctl show -p ProtectKernelTunables --value "$unit")" == no ]]
     [[ "$(systemctl show -p ProtectKernelLogs --value "$unit")" == no ]]
     [[ "$(systemctl show -p SystemCallFilter --value "$unit")" == '~syslog:EPERM' ]]
     [[ "$(systemctl show -p PrivateDevices --value "$unit")" == yes ]]
-    sys_mount_options="$(nsenter --target "$host_pid" --mount \
-      findmnt --target /sys --noheadings --output VFS-OPTIONS)"
-    [[ ",$sys_mount_options," == *,ro,* ]]
+    [[ "$(systemctl show -p RestrictAddressFamilies --value "$unit")" == 'AF_INET AF_INET6 AF_NETLINK AF_UNIX' ]]
+    [[ " $(systemctl show -p BindReadOnlyPaths --value "$unit") " == *' /sys:/sys:rbind '* ]]
+    nsenter --target "$host_pid" --mount --root "$release/.venv/bin/python" -c \
+      'import os; raise SystemExit(not bool(os.statvfs("/sys").f_flag & os.ST_RDONLY))'
   fi
   host_user="$(systemctl show -p User --value "$unit")"
   pids+=("$host_pid")

@@ -34,11 +34,9 @@ from jarvis.write_tools import (
     GMAIL_WRITE_POLICY,
     GmailComposeContract,
     GmailContent,
-    GmailCreateDraftInput,
     GmailCurrentDraft,
     GmailReplyTo,
     GmailSnapshot,
-    GmailUpdateDraftInput,
     Mailbox,
 )
 
@@ -105,10 +103,10 @@ def verified_draft(stored: StoredAction) -> VerifiedDraft | None:
         return None
     try:
         draft = GmailCurrentDraft.model_validate(value)
-        content = (
-            GmailCreateDraftInput.model_validate(stored.payload).content
-            if stored.tool_name == "gmail.create_draft"
-            else GmailUpdateDraftInput.model_validate(stored.payload).replacement
+        content = GmailContent.model_validate(
+            stored.payload.get(
+                "content" if stored.tool_name == "gmail.create_draft" else "replacement"
+            )
         )
         snapshot = compose_snapshot(
             content,

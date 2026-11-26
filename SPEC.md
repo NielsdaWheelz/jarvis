@@ -18,6 +18,10 @@ audience: product, engineering, design, operations, and future coding agents
 
 [design 0107](docs/decisions/0107-google-workspace.md) specifies the fixture-first connector pr, including incoming mail, fresh search and reads, draft management and calendar event creation, reading, updating and deletion. gmail marks incoming mail with a dedicated label. jarvis checks its count every five minutes on standard and reserves the last 1,000 daily gmail units for owner requests. [live qualification](docs/issues/gmail-mcp-arrivals.md) covers backlog, missed mail and quota handling. the owner wants ordinary recording of google reads and answers and a separate [permission review](docs/issues/google-workspace-retention.md) before real use. existing installed contracts govern until an authorized cut.
 
+## drive files target
+
+[adr 0120](docs/decisions/0120-drive-files.md) makes the owner's google drive the durable store for personal files. new submissions can wait locally for filing, and links open the current drive file. the human reader uses an independent read-only grant. the interactive publisher and database recovery keep their existing custody. the installed attachment contract applies until the stopped cut passes and receives authorization.
+
 ## private web home
 
 [adr 0087](docs/decisions/0087-private-web-home.md) specifies the successor to

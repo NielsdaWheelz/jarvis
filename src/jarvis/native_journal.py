@@ -77,7 +77,6 @@ from sqlalchemy.sql.selectable import CTE
 
 from jarvis.actions import (
     ActionPersistenceDefect,
-    attachment_uncertainty_receipt,
     current_workspace_owner_delivery,
     recorded_action_result,
     require_locked_action,
@@ -1101,24 +1100,6 @@ class PostgresNativeJournal:
                 else:
                     identifier = UUID(reference)
                     recorded = await recorded_action_result(connection, identifier)
-                    if recorded is None:
-                        stored = await require_locked_action(connection, identifier)
-                        if (
-                            row["action_id"] != identifier
-                            or row["tool_id"] != stored.tool_name
-                        ):
-                            raise NativeDefect(
-                                "attachment receipt changed invocation lineage"
-                            )
-                        recorded = await attachment_uncertainty_receipt(
-                            connection, stored
-                        )
-                        if recorded == result.result:
-                            # Current action evidence can advance later; this callback
-                            # keeps its exact original failure and host reference.
-                            value.update(
-                                type="local_result", result=recorded, host_ref=reference
-                            )
                     if (
                         row["tool_id"] in WRITE_TOOL_IDS
                         and result.result["type"] == "Failure"
@@ -1914,6 +1895,8 @@ async def _presentation_home(
     attempt_id: UUID,
     present: Presentation | None,
     stopping: tuple[UUID, ...] = (),
+    *,
+    drive_subject: str | None = None,
 ) -> dict[str, object] | None:
     if present is None:
         return None
@@ -1930,7 +1913,11 @@ async def _presentation_home(
     if request is None:
         reason = "unproven_lineage"
     elif await reference_context(
-        connection, scope, present.ref.model_dump(mode="json"), DEFAULT_EXPORT
+        connection,
+        scope,
+        present.ref.model_dump(mode="json"),
+        DEFAULT_EXPORT,
+        drive_subject=drive_subject,
     ):
         return {"present": present.model_dump(mode="json")}
     else:
@@ -1948,6 +1935,8 @@ async def _todo_result_home(
     response: Answered | Partial,
     named: tuple[UUID, ...],
     stopping: tuple[UUID, ...],
+    *,
+    drive_subject: str | None,
 ) -> dict[str, object] | None:
     target = response.todo_result
     if target is None or not named:
@@ -2006,6 +1995,8 @@ async def _todo_result_home(
             return None
 
     related: dict[str, object] = {"draft_ref": None}
+    if target.file_ref is not None and target.file_ref.subject == drive_subject:
+        related["file_ref"] = target.file_ref.model_dump(mode="json")
     if target.draft_ref is not None:
         try:
             saved = await draft_for_request(
@@ -2322,12 +2313,15 @@ async def commit_product(
         stopping = tuple(
             key for key, item in statuses.items() if item.disposition == "stop"
         )
+        enrollment = None if workspace is None else workspace.enrollment()
+        drive_subject = None if enrollment is None else enrollment.subject
         home = await _presentation_home(
             connection,
             owner.scope_id,
             attempt["id"],
             None if isinstance(final.response, Silent) else final.response.present,
             stopping,
+            drive_subject=drive_subject,
         )
         if catchup_result is not None:
             home = {**(home or {}), "recovery_catchup": catchup_result}
@@ -2413,6 +2407,7 @@ async def commit_product(
                 final.response,
                 tuple(statuses),
                 stopping,
+                drive_subject=drive_subject,
             )
             if link is not None:
                 home = {**(home or {}), "todo_result": link}

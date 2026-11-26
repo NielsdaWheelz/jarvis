@@ -17,7 +17,6 @@ from starlette.concurrency import run_in_threadpool
 
 from jarvis.action_requests import action_request_spec
 from jarvis.actions import ActionPersistenceDefect, recorded_action
-from jarvis.attachment_tools import ATTACHMENT_DELETE_SPEC
 from jarvis.db import action, attachment, message, work
 from jarvis.gmail_drafts import VerifiedDraft, verified_draft
 from jarvis.home_pages import HomePages
@@ -26,6 +25,10 @@ from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_DELETE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
+    DOCS_UPDATE_SPEC,
+    DRIVE_COPY_SPEC,
+    DRIVE_CREATE_SPEC,
+    DRIVE_REVISE_SPEC,
     GMAIL_DISCARD_DRAFT_SPEC,
     GmailSnapshot,
 )
@@ -45,7 +48,8 @@ SELECT m.id, m.role, m.source,
        COALESCE((
            SELECT jsonb_agg(jsonb_build_object(
                'id', f.id, 'name', item->>'name', 'state', f.state,
-               'media_type', f.media_type, 'unavailable', f.error IS NOT NULL)
+               'media_type', f.media_type, 'unavailable', f.state = 'unavailable',
+               'disposition', f.disposition)
              ORDER BY slot)
            FROM jsonb_array_elements(m.trace->'attachment_manifest')
                WITH ORDINALITY AS files(item,slot)
@@ -96,10 +100,11 @@ async def todo_results(
     at, previous = _cursor(before) if before is not None else (None, None)
     result = await connection.execute(
         text("""
-            SELECT r.message_id, r.at, r.label FROM work w
+            SELECT r.message_id, r.at, r.label, r.file_ref FROM work w
             LEFT JOIN LATERAL (
                 SELECT m.id AS message_id, m.created_at AS at,
-                       m.home #>> '{todo_result,label}' AS label
+                       m.home #>> '{todo_result,label}' AS label,
+                       m.home #> '{todo_result,file_ref}' AS file_ref
                 FROM message m
                 WHERE m.source_conversation_id = :scope
                   AND m.role = 'assistant'
@@ -279,7 +284,7 @@ WITH page AS (
           WHERE ask.source_conversation_id=:scope AND ask.source='native_final'
             AND ask.home->'proposal_ids' ? i.action_id::text)
 )
-SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,f.filename,
+SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,
   codec.binding,
   CASE WHEN codec.binding IS NOT NULL AND a.tool_name!='gmail.send_draft'
     THEN a.arguments->'arguments' END AS args,
@@ -305,9 +310,6 @@ CROSS JOIN LATERAL (
 ) codec
 JOIN message origin ON origin.id=a.origin_message_id
   AND origin.source_conversation_id=:scope
-LEFT JOIN attachment f ON codec.binding = 'attachment'
-  AND a.tool_name='attachment.delete'
-  AND f.id::text=a.arguments #>> '{arguments,id}'
 LEFT JOIN LATERAL (
     SELECT i.reply_receipt #> '{result,value}' AS value FROM native_invocation i
     WHERE i.action_id=a.id AND i.tool_id='approval.respond'
@@ -365,13 +367,14 @@ def _proposal_contracts() -> str:
         CALENDAR_UPDATE_EVENT_SPEC,
         CALENDAR_DELETE_EVENT_SPEC,
         GMAIL_DISCARD_DRAFT_SPEC,
-        ATTACHMENT_DELETE_SPEC,
+        DRIVE_CREATE_SPEC,
+        DRIVE_COPY_SPEC,
+        DRIVE_REVISE_SPEC,
+        DOCS_UPDATE_SPEC,
     )
     for spec in specs:
         revision = action_request_spec(spec).tool_contract_revision
-        versions.setdefault(str(spec.id), {})[revision] = (
-            "attachment" if spec is ATTACHMENT_DELETE_SPEC else "workspace"
-        )
+        versions.setdefault(str(spec.id), {})[revision] = "workspace"
     return json.dumps(versions)
 
 
@@ -430,9 +433,6 @@ def _proposal(row: RowMapping) -> Record:
             if args["notify_attendees"]
             else "without attendee notifications"
         )
-    elif tool == "attachment.delete":
-        title = "delete original · " + (row["filename"] or "unnamed file")
-        detail.append(args["id"])
     else:
         raise ValueError(f"unrecognized proposal tool: {tool}")
     if row["reason"]:
@@ -449,6 +449,22 @@ def _workspace_proposal(tool: str, effect: Record) -> tuple[str, list[str]]:
         if replacement := effect["replacement"]:
             detail.append(f"verified replacement draft · {replacement['draft_id']}")
         return f"discard draft · {old['subject'] or 'untitled'}", detail
+
+    if tool.startswith(("drive.", "docs.")):
+        audience = cast(Record, effect["audience"])
+        detail = [f"destination · {audience['target']}"]
+        if audience["state"] == "unknown":
+            detail.append("jarvis could not establish who can see this destination")
+        else:
+            for entry in cast(list[Record], audience["identities"]):
+                label = entry.get("address") or entry.get("domain") or entry.get("type")
+                if label:
+                    detail.append(
+                        f"access · {label} ({entry.get('role') or 'unknown'})"
+                    )
+        title = effect.get("name") or effect.get("id")
+        operation = tool.split(".", 1)[1]
+        return f"{operation} · {title}", detail
 
     prior_observation = cast(Record, effect["prior"] or {})
     before = cast(Record, prior_observation.get("fields", {}))
@@ -584,7 +600,12 @@ async def _proposals(
 
 
 async def reference_context(
-    connection: AsyncConnection, scope: str, ref: Record, pages: Path
+    connection: AsyncConnection,
+    scope: str,
+    ref: Record,
+    pages: Path,
+    *,
+    drive_subject: str | None = None,
 ) -> Record | None:
     kind = ref["kind"]
     if kind == "proposal":
@@ -597,6 +618,8 @@ async def reference_context(
     if kind == "view":
         exists = await run_in_threadpool(HomePages(pages).view, ref["slug"], ref["rev"])
         return {"ref": ref} if exists is not None else None
+    if kind == "drive_file":
+        return {"ref": ref} if ref["subject"] == drive_subject else None
     identifier = UUID(ref["id"])
     if kind == "file":
         query = (
@@ -604,7 +627,6 @@ async def reference_context(
             .join(message, message.c.id == attachment.c.origin_message_id)
             .where(
                 attachment.c.id == identifier,
-                attachment.c.state == "ready",
                 message.c.source_conversation_id == scope,
             )
         )

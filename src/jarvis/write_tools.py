@@ -1,4 +1,4 @@
-"""Closed Gmail draft and Calendar write contracts."""
+"""Closed Google Workspace write contracts and tool bindings."""
 
 from __future__ import annotations
 
@@ -35,12 +35,9 @@ from jarvis.mail_files import (
     FileUnavailable,
     MailFile,
     MailLimit,
-    NativeFileRef,
-    NewMailFile,
-    OriginalFileRef,
-    OriginalNeedsOpen,
     Sha256,
 )
+from jarvis.read_tools import ATTACHMENT_OPERATION_SECONDS
 from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS
 from jarvis.workspace_write_models import (
     CalendarWriteReceipt,
@@ -49,7 +46,12 @@ from jarvis.workspace_write_models import (
     DeleteEvent,
     DiscardDraft,
     DiscardReceipt,
+    DocsUpdate,
     DraftWriteReceipt,
+    DriveCopy,
+    DriveCreate,
+    DriveRevise,
+    DriveWriteReceipt,
     PrepareReplacement,
     UpdateEvent,
 )
@@ -184,28 +186,6 @@ class GmailContent(_GmailEnvelope):
 type GmailId = Annotated[str, Field(min_length=1, max_length=1_024)]
 type MailPartNumber = Annotated[int, Field(strict=True, ge=1)]
 type RfcMessageId = Annotated[str, Field(min_length=3, max_length=998)]
-
-
-class ExistingMailPart(_StrictModel):
-    kind: Literal["existing"]
-    existing_part: MailPartNumber
-
-
-type UpdateMailFile = Annotated[
-    OriginalFileRef | NativeFileRef | ExistingMailPart,
-    Field(discriminator="kind"),
-]
-
-
-class GmailCreateDraftInput(_StrictModel):
-    content: GmailContent
-    files: tuple[NewMailFile, ...]
-
-
-class GmailUpdateDraftInput(_StrictModel):
-    draft_ref: UUID
-    replacement: GmailContent
-    files: tuple[UpdateMailFile, ...] | None
 
 
 class GmailSendDraftInput(_StrictModel):
@@ -508,8 +488,8 @@ type CalendarDeleteEventError = (
 
 
 _GMAIL_FILE_GUIDANCE = (
-    "If OriginalNeedsOpen is returned, open those originals with attachment.open "
-    "and retry. For a machine file, use a worker and scp into a 0700 request "
+    "For a Drive item, pass its subject and id. Native Docs need an explicit export. "
+    "For a machine file, use a worker and scp into a 0700 request "
     "directory under /var/lib/jarvis-notes/.git/jarvis-mail/incoming on dev-server. "
     "Verify source and copy size and SHA-256, then publish the copy with the "
     "selected release's deploy/jarvis-mail-file prepare PATH. Use its returned "
@@ -587,9 +567,7 @@ HISTORICAL_CALENDAR_DELETE_EVENT_SPEC = ToolSpec[
 )
 
 
-type WorkspaceFailure = (
-    WorkspaceWriteFailure | FileUnavailable | MailLimit | OriginalNeedsOpen
-)
+type WorkspaceFailure = WorkspaceWriteFailure | FileUnavailable | MailLimit
 
 
 def _workspace_spec(
@@ -677,6 +655,52 @@ CALENDAR_DELETE_EVENT_SPEC = _workspace_spec(
     CalendarWriteReceipt,
     _CALENDAR_LIMITS,
 )
+_DRIVE_LIMITS = ToolLimits(
+    32_768, 65_536, 1, ATTACHMENT_OPERATION_SECONDS + HUMAN_WAIT_SECONDS
+)
+_DOCS_LIMITS = ToolLimits(32_768, 65_536, 1, 20.0 + HUMAN_WAIT_SECONDS)
+DRIVE_CREATE_SPEC = _workspace_spec(
+    "drive.create",
+    "Create one Drive item at its intended destination.",
+    "Give the destination folder, title and one exact source. Authored prose can "
+    "use a Google Doc. Owner uploads, selected Gmail parts and native publications "
+    "keep their bytes. Report the Drive id and verification separately. "
+    "Ask before using an agent-selected shared or uncertain folder.",
+    DriveCreate,
+    DriveWriteReceipt,
+    _DRIVE_LIMITS,
+)
+DRIVE_COPY_SPEC = _workspace_spec(
+    "drive.copy",
+    "Copy one existing Drive item under a new id.",
+    "Give the source id, destination folder and new title. Copying leaves the "
+    "source in place. Ask before using an agent-selected shared or uncertain folder. "
+    "If Google may have created the copy, report the uncertainty.",
+    DriveCopy,
+    DriveWriteReceipt,
+    _DRIVE_LIMITS,
+)
+DRIVE_REVISE_SPEC = _workspace_spec(
+    "drive.revise",
+    "Replace the bytes of one Drive file under its current id.",
+    "Use the exact fresh etag returned by Drive metadata and a verified source. "
+    "Ask when an agent-chosen item has a shared or uncertain audience. "
+    "A conflict requires a fresh observation and the owner's intended edit.",
+    DriveRevise,
+    DriveWriteReceipt,
+    _DRIVE_LIMITS,
+)
+DOCS_UPDATE_SPEC = _workspace_spec(
+    "docs.update",
+    "Apply one ordered edit or suggestion to an existing Google Doc.",
+    "Use the observed Docs revision and the actual tab, segment and UTF-16 "
+    "positions from Docs. Ask when an agent-chosen item has a shared or uncertain "
+    "audience. Stop on revision conflict. Report provider warnings and the "
+    "observed verification.",
+    DocsUpdate,
+    DriveWriteReceipt,
+    _DOCS_LIMITS,
+)
 _GMAIL_SPECS = (
     GMAIL_CREATE_DRAFT_SPEC,
     GMAIL_PREPARE_REPLACEMENT_SPEC,
@@ -690,7 +714,13 @@ _CALENDAR_SPECS = (
 AUTOMATIC_WRITE_TOOL_IDS = frozenset(
     (GMAIL_CREATE_DRAFT_SPEC.id, GMAIL_PREPARE_REPLACEMENT_SPEC.id)
 )
-WRITE_TOOL_IDS = frozenset(spec.id for spec in (*_GMAIL_SPECS, *_CALENDAR_SPECS))
+_DRIVE_SPECS = (DRIVE_CREATE_SPEC, DRIVE_COPY_SPEC, DRIVE_REVISE_SPEC)
+_DOCS_SPECS = (DOCS_UPDATE_SPEC,)
+DRIVE_WRITE_IDS = frozenset(spec.id for spec in _DRIVE_SPECS)
+DOCS_WRITE_IDS = frozenset(spec.id for spec in _DOCS_SPECS)
+WRITE_TOOL_IDS = frozenset(
+    spec.id for spec in (*_GMAIL_SPECS, *_CALENDAR_SPECS, *_DRIVE_SPECS, *_DOCS_SPECS)
+)
 WORKSPACE_IMPLEMENTATION = "jarvis-workspace-write-v1"
 
 
@@ -712,9 +742,13 @@ def _workspace_binding(
         policy_inputs={
             "action_max_attempts": 1,
             "owner_origin": "live-native-input",
-            "authority": "automatic"
-            if spec.id in AUTOMATIC_WRITE_TOOL_IDS
-            else "approval-required",
+            "authority": (
+                "audience-dependent"
+                if spec.id in DRIVE_WRITE_IDS or spec.id in DOCS_WRITE_IDS
+                else "automatic"
+                if spec.id in AUTOMATIC_WRITE_TOOL_IDS
+                else "approval-required"
+            ),
         },
     )
 
@@ -732,4 +766,20 @@ def calendar_write_family(writes: WorkspaceWrites) -> ToolFamily:
         "calendar",
         _CALENDAR_SPECS,
         tuple(_workspace_binding(s, writes) for s in _CALENDAR_SPECS),
+    )
+
+
+def drive_write_family(writes: WorkspaceWrites) -> ToolFamily:
+    return ToolFamily(
+        "drive",
+        _DRIVE_SPECS,
+        tuple(_workspace_binding(s, writes) for s in _DRIVE_SPECS),
+    )
+
+
+def docs_write_family(writes: WorkspaceWrites) -> ToolFamily:
+    return ToolFamily(
+        "docs",
+        _DOCS_SPECS,
+        tuple(_workspace_binding(s, writes) for s in _DOCS_SPECS),
     )

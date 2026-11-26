@@ -23,7 +23,12 @@ from google.auth import jwt as google_jwt
 from google.auth.exceptions import GoogleAuthError
 
 from jarvis._atomic_json import read_private_json
-from jarvis.workspace_mcp import SCOPES, WorkspaceError, workspace_http_attempt
+from jarvis.workspace_mcp import (
+    DRIVE_SCOPE,
+    SCOPES,
+    WorkspaceError,
+    workspace_http_attempt,
+)
 
 if TYPE_CHECKING:
     from jarvis.connectors import GoogleTokenManager
@@ -34,6 +39,7 @@ IDENTITY_SCOPES = frozenset(
     {"openid", "https://www.googleapis.com/auth/userinfo.email"}
 )
 ENROLLMENT_SCOPES = SCOPES | IDENTITY_SCOPES
+_AGENT_SCOPES = ENROLLMENT_SCOPES | {DRIVE_SCOPE}
 _APPROVAL_COPY = (
     "this client must be marked for an ai-powered agent in google cloud. "
     "its permission can trash ordinary mail and change message labels. jarvis "
@@ -70,9 +76,7 @@ def granted_scopes(values: object) -> frozenset[str]:
         "https://www.googleapis.com/auth/userinfo.email" if v == "email" else v
         for v in scope_list
     )
-    if not IDENTITY_SCOPES <= result <= ENROLLMENT_SCOPES or len(result) != len(
-        scope_list
-    ):
+    if not IDENTITY_SCOPES <= result <= _AGENT_SCOPES or len(result) != len(scope_list):
         raise ValueError("unexpected or incomplete Google OAuth scopes")
     return result
 
@@ -264,6 +268,7 @@ async def enroll_workspace(
     pending_label_id: str | None,
     confirm: Callable[[str], bool],
     show_url: Callable[[str], None],
+    drive: bool = False,
 ) -> WorkspaceEnrollment:
     """Run at the approved stopped installation on an operator-owned loopback;
     the caller displays the URL and scopes privately. Never print a returned code.
@@ -282,7 +287,15 @@ async def enroll_workspace(
     project = _text(client, "project_id")
     if not manager.matches_client(project, client_id, secret):
         raise WorkspaceError("grant_unavailable")
-    if not confirm(f"connect {expected_email} to {project}? {_APPROVAL_COPY}"):
+    drive_copy = (
+        " google grants account-wide drive access, including docs. "
+        "jarvis uses the supported drive and docs agent operations."
+        if drive
+        else ""
+    )
+    if not confirm(
+        f"connect {expected_email} to {project}? {_APPROVAL_COPY}{drive_copy}"
+    ):
         raise WorkspaceError("cancelled")
     state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
     challenge = (
@@ -346,7 +359,9 @@ async def enroll_workspace(
                 {
                     "client_id": client_id,
                     "redirect_uri": redirect,
-                    "scope": " ".join(sorted(ENROLLMENT_SCOPES)),
+                    "scope": " ".join(
+                        sorted(_AGENT_SCOPES if drive else ENROLLMENT_SCOPES)
+                    ),
                     "response_type": "code",
                     "access_type": "offline",
                     "prompt": "consent",
@@ -355,6 +370,7 @@ async def enroll_workspace(
                     "code_challenge": challenge,
                     "code_challenge_method": "S256",
                     "login_hint": expected_email,
+                    **({"include_granted_scopes": "true"} if drive else {}),
                 }
             )
         )
@@ -370,4 +386,5 @@ async def enroll_workspace(
         nonce=nonce,
         expected_email=expected_email,
         pending_label_id=pending_label_id,
+        incremental_drive=drive,
     )

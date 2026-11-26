@@ -199,7 +199,7 @@ SUMS
   fi
   sudo -n install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
   sudo -n install -d -m 0750 -o jarvis -g codex-clients \
-    /var/cache/jarvis /var/cache/jarvis/attachments
+    /var/cache/jarvis /var/cache/jarvis/files
   if ! sudo -n test -e /var/lib/jarvis-notes; then
     sudo -n install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
   fi

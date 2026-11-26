@@ -7,7 +7,9 @@ import base64
 import hashlib
 import json
 import re
+import tempfile
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email import policy
@@ -15,11 +17,22 @@ from email.errors import HeaderParseError
 from email.headerregistry import Address
 from email.message import EmailMessage
 from email.parser import BytesParser
-from typing import Literal, cast
+from pathlib import Path
+from typing import BinaryIO, Literal, Protocol, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from jarvis._thread_io import finish_entered
+from jarvis.drive_connector import (
+    FOLDER,
+    NATIVE_MIME,
+    audience,
+    document,
+    document_revision,
+    fetch_binary,
+    file_href,
+    metadata,
+)
 from jarvis.gmail_drafts import (
     WorkspaceReplyParent,
     provider_id,
@@ -30,6 +43,7 @@ from jarvis.gmail_drafts import (
     workspace_reply_parent,
 )
 from jarvis.mail_files import MailFileFailure, MailFiles, NewMailFile, ObservedMailPart
+from jarvis.read_tools import ATTACHMENT_MAX_BYTES
 from jarvis.workspace_links import workspace_link
 from jarvis.workspace_mcp import (
     Fence,
@@ -51,10 +65,20 @@ from jarvis.workspace_write_models import (
     DiscardReceipt,
     DiscardSelection,
     DiscardTarget,
+    DocsUpdate,
     DraftEdits,
     DraftObservation,
     DraftRef,
     DraftWriteReceipt,
+    DriveBinarySource,
+    DriveCopy,
+    DriveCreate,
+    DriveExpected,
+    DriveNewSource,
+    DriveRevise,
+    DriveSourceFile,
+    DriveTextSource,
+    DriveWriteReceipt,
     EventEdits,
     EventObservation,
     EventTime,
@@ -62,6 +86,11 @@ from jarvis.workspace_write_models import (
     FrozenCalendar,
     FrozenCompose,
     FrozenDiscard,
+    FrozenDocsUpdate,
+    FrozenDriveCopy,
+    FrozenDriveCreate,
+    FrozenDriveEffect,
+    FrozenDriveRevise,
     FrozenWorkspaceWrite,
     GmailContent,
     GmailReplyTo,
@@ -72,11 +101,28 @@ from jarvis.workspace_write_models import (
 from jarvis.write_tools import GMAIL_WRITE_POLICY
 
 type Obj = dict[str, object]
-type Receipt = DraftWriteReceipt | DiscardReceipt | CalendarWriteReceipt
+type Receipt = (
+    DraftWriteReceipt | DiscardReceipt | CalendarWriteReceipt | DriveWriteReceipt
+)
 type AckRecorder = Callable[[Receipt], Awaitable[None]]
 type EventRequest = CreateEvent | EventEdits | DeleteEvent
 
 _PARSE_ERRORS = (ValueError, LookupError, HeaderParseError, RecursionError)
+_DRIVE_WRITE_ATTEMPTS = 96
+_DRIVE_WRITE_SECONDS = 300.0
+_DOC = NATIVE_MIME + "document"
+_NEW_DRIVE_TYPES = {
+    "folder": FOLDER,
+    "doc": _DOC,
+    "sheet": NATIVE_MIME + "spreadsheet",
+    "slides": NATIVE_MIME + "presentation",
+}
+
+
+class DriveSources(Protocol):
+    def open(
+        self, source: DriveBinarySource, *, invocation_id: str, before_send: Fence
+    ) -> AbstractAsyncContextManager[DriveSourceFile]: ...
 
 
 def _digest(data: bytes) -> str:
@@ -129,6 +175,7 @@ class _Exchange:
     invocation: str
     fence: Fence
     read_resumptions: int = 0
+    background: bool = False
 
     async def call(
         self,
@@ -139,6 +186,8 @@ class _Exchange:
         raw: bool = False,
         preflight: Fence | None = None,
         write: bool = False,
+        upload: tuple[Path, int] | None = None,
+        download: tuple[BinaryIO, int] | None = None,
     ) -> Obj:
         transmissions = 0
         possible_effect = False
@@ -168,17 +217,26 @@ class _Exchange:
                 args,
                 grant_id=self.grant,
                 invocation_id=self.invocation,
-                background=False,
+                background=self.background,
                 before_send=before_send,
                 max_response_bytes=GMAIL_WRITE_POLICY.raw_bytes
                 if raw
                 else GMAIL_WRITE_POLICY.metadata_bytes,
+                upload=upload,
+                download=download,
             )
         except WorkspaceError as exc:
             if not write and exc.kind == "uncertain":
                 raise WorkspaceError("read_unavailable") from None
+            if write and product in {"drive", "docs"}:
+                if not possible_effect:
+                    exc.known_no_effect = True
+                if not exc.known_no_effect and exc.kind != "uncertain":
+                    raise WorkspaceError("uncertain") from None
             if write and not possible_effect and exc.kind == "uncertain":
-                raise WorkspaceError("preflight_unavailable") from None
+                raise WorkspaceError(
+                    "preflight_unavailable", known_no_effect=True
+                ) from None
             raise
         except (asyncio.CancelledError, TimeoutError, OSError):
             if possible_effect:
@@ -454,7 +512,9 @@ async def _compose(
         raise WorkspaceError("reply_subject_changed")
     _plain_addresses(content)
     content = content.model_copy(update={"body_text": _lf(content.body_text)})
-    staged = await files.stage(action_id, sources)
+    staged = await files.stage(
+        action_id, sources, invocation_id=io.invocation, before_send=io.fence
+    )
     return FrozenCompose(
         tool=tool,
         old=old,
@@ -951,6 +1011,154 @@ def _verify_event(raw: Obj, frozen: FrozenCalendar) -> None:
         raise WorkspaceError("untouched_event_fields_differ")
 
 
+def _document_text(doc: Obj) -> str:
+    # Traverse structural elements in their document order. Exclude editor metadata.
+    def content(item: object) -> str:
+        if isinstance(item, list):
+            return "".join(content(element) for element in cast(list[object], item))
+        if not isinstance(item, dict):
+            return ""
+        row = cast(Obj, item)
+        if "textRun" in row:
+            return str(_obj(row["textRun"])["content"])
+        return "".join(
+            content(row[key])
+            for key in (
+                "documentTab",
+                "body",
+                "content",
+                "paragraph",
+                "elements",
+                "table",
+                "tableRows",
+                "tableCells",
+                "childTabs",
+                "tableOfContents",
+            )
+            if key in row
+        )
+
+    if "tabs" in doc:
+        return content(doc["tabs"])
+    if "body" in doc:
+        return content(doc["body"])
+    raise WorkspaceError("document_structure_unavailable")
+
+
+def _document_locations(doc: Obj, update: DocsUpdate) -> None:
+    tabs: dict[str | None, set[str]] = {}
+
+    def load(item: Obj, tab: str | None) -> None:
+        if "body" not in item:
+            raise WorkspaceError("document_structure_unavailable")
+        names: set[str] = set()
+        for key in ("headers", "footers", "footnotes"):
+            names.update(_obj(item.get(key, {})))
+        tabs[tab] = names
+
+    def walk(items: object) -> None:
+        for item in _array(items):
+            row = _obj(item)
+            tab = _obj(row["tabProperties"])["tabId"]
+            if not isinstance(tab, str) or not tab or tab in tabs:
+                raise WorkspaceError("document_structure_unavailable")
+            load(_obj(row["documentTab"]), tab)
+            walk(row.get("childTabs", []))
+
+    if "tabs" in doc:
+        walk(doc["tabs"])
+        if not tabs:
+            raise WorkspaceError("document_structure_unavailable")
+    else:
+        load(doc, None)
+    first = next(iter(tabs))
+
+    def check(value: object) -> None:
+        if isinstance(value, list):
+            for item in cast(list[object], value):
+                check(item)
+        elif isinstance(value, dict):
+            row = cast(Obj, value)
+            if "tabIds" in row and not all(
+                isinstance(tab, str) and tab in tabs for tab in _array(row["tabIds"])
+            ):
+                raise WorkspaceError("document_location_unavailable")
+            if any(
+                key in row
+                for key in ("tabId", "segmentId", "index", "startIndex", "endIndex")
+            ):
+                tab = row.get("tabId") or first
+                segment = row.get("segmentId") or ""
+                indices = [
+                    row[key]
+                    for key in ("index", "startIndex", "endIndex")
+                    if key in row
+                ]
+                if (
+                    (tab is not None and not isinstance(tab, str))
+                    or tab not in tabs
+                    or not isinstance(segment, str)
+                    or (segment and segment not in tabs[tab])
+                    or any(
+                        type(i) is not int or not 0 <= i <= 2**31 - 1 for i in indices
+                    )
+                ):
+                    raise WorkspaceError("document_location_unavailable")
+            for child in row.values():
+                check(child)
+
+    for request in update.requests:
+        check(request.model_dump(mode="json", exclude_none=True))
+
+
+async def _drive_bytes(io: _Exchange, id: str) -> tuple[int, str]:
+    async def transfer(args: Obj, output: BinaryIO, maximum: int) -> Obj:
+        return await io.call(
+            "drive", "download_file_content", args, download=(output, maximum)
+        )
+
+    with tempfile.TemporaryFile() as output:
+        _, size, digest = await fetch_binary(
+            io.call, transfer, id, None, output, ATTACHMENT_MAX_BYTES
+        )
+        return size, digest
+
+
+async def _drive_readback(
+    io: _Exchange, effect: FrozenDriveEffect, receipt: DriveWriteReceipt
+) -> Obj:
+    if isinstance(effect, FrozenDocsUpdate):
+        current = await document(io.call, effect.id)
+        if document_revision(current, effect.id) != receipt.revision:
+            raise WorkspaceError("document_changed")
+        if receipt.warnings:
+            raise WorkspaceError("document_update_warned")
+        return {}
+    current = await metadata(io.call, receipt.file_id)
+    expected = effect.expected
+    if (
+        current.name != expected.name
+        or current.parent != expected.parent
+        or current.mime != expected.media_type
+        or (
+            isinstance(effect, FrozenDriveRevise)
+            and (receipt.etag is None or current.etag != receipt.etag)
+        )
+    ):
+        raise WorkspaceError("file_changed")
+    if expected.sha256 is not None:
+        if current.mime == _DOC:
+            text = _document_text(await document(io.call, receipt.file_id))
+            if _digest(text.removesuffix("\n").encode()) != expected.sha256:
+                raise WorkspaceError("document_content_differs")
+        elif await _drive_bytes(io, receipt.file_id) != (
+            expected.size,
+            expected.sha256,
+        ):
+            raise WorkspaceError("file_bytes_differ")
+    return {"title": current.name, "etag": current.etag}
+
+
 class WorkspaceWrites:
     def __init__(
         self,
@@ -958,10 +1166,18 @@ class WorkspaceWrites:
         mail_files: MailFiles,
         *,
         discard_qualified: bool = False,
+        drive_sources: DriveSources | None = None,
+        drive_download_qualified: bool = False,
+        drive_revise_qualified: bool = False,
+        docs_update_qualified: bool = False,
     ):
         self._client = client
         self._files = mail_files
         self._discard_qualified = discard_qualified
+        self._drive_sources = drive_sources
+        self._drive_download_qualified = drive_download_qualified
+        self._drive_revise_qualified = drive_revise_qualified
+        self._docs_update_qualified = docs_update_qualified
 
     async def prepare(
         self,
@@ -974,7 +1190,29 @@ class WorkspaceWrites:
         invocation_id: str,
         before_send: Fence,
         replacement: DraftWriteReceipt | None = None,
+        subject: str | None = None,
     ) -> FrozenWorkspaceWrite:
+        if tool.startswith(("drive.", "docs.")):
+            if subject is None or replacement is not None:
+                raise WorkspaceError("grant_unavailable")
+            with workspace_attempts(
+                _DRIVE_WRITE_ATTEMPTS, seconds=_DRIVE_WRITE_SECONDS
+            ):
+                io = _Exchange(
+                    self._client, grant_id, account, invocation_id, before_send
+                )
+                try:
+                    await io.fence()
+                    drive = await self._prepare_drive(io, tool, arguments, subject)
+                    await io.fence()
+                    return FrozenWorkspaceWrite(
+                        action_id=action_id,
+                        grant_id=grant_id,
+                        account=account,
+                        effect=drive,
+                    )
+                except (TypeError, *_PARSE_ERRORS):
+                    raise WorkspaceError("unrepresentable") from None
         with workspace_attempts(
             GMAIL_WRITE_POLICY.max_attempts,
             seconds=GMAIL_WRITE_POLICY.operation_seconds
@@ -1057,9 +1295,12 @@ class WorkspaceWrites:
         before_send: Fence,
         record_ack: AckRecorder | None = None,
     ) -> Receipt:
+        drive = frozen.tool.startswith(("drive.", "docs."))
         with workspace_attempts(
-            GMAIL_WRITE_POLICY.max_attempts,
-            seconds=GMAIL_WRITE_POLICY.operation_seconds
+            _DRIVE_WRITE_ATTEMPTS if drive else GMAIL_WRITE_POLICY.max_attempts,
+            seconds=_DRIVE_WRITE_SECONDS
+            if drive
+            else GMAIL_WRITE_POLICY.operation_seconds
             if frozen.tool.startswith("gmail.")
             else 20.0,
         ):
@@ -1070,7 +1311,11 @@ class WorkspaceWrites:
                 invocation_id,
                 before_send,
             )
-            await io.fence()
+            try:
+                await io.fence()
+            except WorkspaceError as e:
+                e.known_no_effect = True
+                raise
             effect = frozen.effect
             if (
                 effect.tool in {"gmail.prepare_replacement", "gmail.discard_draft"}
@@ -1081,8 +1326,10 @@ class WorkspaceWrites:
                 receipt: Receipt = await self._create(io, frozen, effect)
             elif isinstance(effect, FrozenDiscard):
                 receipt = await self._trash(io, frozen, effect)
-            else:
+            elif isinstance(effect, FrozenCalendar):
                 receipt = await self._calendar(io, frozen, effect)
+            else:
+                receipt = await self._write_drive(io, frozen, effect)
             # No admission fence between a validated acknowledgement and local custody.
             if record_ack is not None:
                 # Once Google acknowledges the effect, local cancellation must
@@ -1150,6 +1397,14 @@ class WorkspaceWrites:
                         )
                         or receipt.link
                     )
+                elif isinstance(receipt, DriveWriteReceipt) and isinstance(
+                    effect,
+                    FrozenDriveCreate
+                    | FrozenDriveCopy
+                    | FrozenDriveRevise
+                    | FrozenDocsUpdate,
+                ):
+                    verified_fields = await _drive_readback(io, effect, receipt)
                 await io.fence()
                 return receipt.with_readback(None, **verified_fields)
             except (Exception, asyncio.CancelledError) as exc:
@@ -1161,6 +1416,323 @@ class WorkspaceWrites:
                     else "readback_unavailable"
                 )
                 return receipt.with_readback(reason)
+
+    async def _prepare_drive(
+        self,
+        io: _Exchange,
+        tool: str,
+        arguments: Mapping[str, object],
+        subject: str,
+    ) -> FrozenDriveEffect:
+        if tool == "docs.update":
+            if not self._docs_update_qualified:
+                raise WorkspaceError("docs_update_unqualified")
+            update = DocsUpdate.model_validate(arguments)
+            observed = await document(io.call, update.id)
+            if document_revision(observed, update.id) != update.revision:
+                raise WorkspaceError("document_changed")
+            _document_locations(observed, update)
+            shared = await audience(io.call, update.id, io.account)
+            return FrozenDocsUpdate(
+                **update.model_dump(), subject=subject, audience=shared
+            )
+        if tool == "drive.copy":
+            copy = DriveCopy.model_validate(arguments)
+            original = await metadata(io.call, copy.id)
+            if original.etag is None or original.mime == FOLDER:
+                raise WorkspaceError("copy_source_unavailable")
+            size, digest = None, None
+            if original.mime == _DOC:
+                text = _document_text(await document(io.call, copy.id))
+                digest = _digest(text.removesuffix("\n").encode())
+            elif not original.native:
+                if not self._drive_download_qualified:
+                    raise WorkspaceError("drive_download_unqualified")
+                size, digest = await _drive_bytes(io, copy.id)
+            if (await metadata(io.call, copy.id)).etag != original.etag:
+                raise WorkspaceError("source_changed")
+            shared = await audience(io.call, copy.parent, io.account)
+            return FrozenDriveCopy(
+                **copy.model_dump(),
+                subject=subject,
+                audience=shared,
+                source_etag=original.etag,
+                expected=DriveExpected(
+                    name=copy.name,
+                    parent=copy.parent,
+                    media_type=original.mime,
+                    size=size,
+                    sha256=digest,
+                ),
+            )
+        if tool == "drive.create":
+            request = DriveCreate.model_validate(arguments)
+            name, parent = request.name, request.parent
+            target = parent
+        elif tool == "drive.revise":
+            if not self._drive_revise_qualified:
+                raise WorkspaceError("drive_revise_unqualified")
+            request = DriveRevise.model_validate(arguments)
+            current = await metadata(io.call, request.id)
+            if current.etag != request.etag or current.native:
+                raise WorkspaceError("file_revision_changed")
+            name, parent = current.name, current.parent
+            target = request.id
+        else:
+            raise WorkspaceError("unsupported")
+
+        source = request.source.value
+        size, digest = None, None
+        if isinstance(source, DriveNewSource):
+            mime = _NEW_DRIVE_TYPES[source.new_type]
+            if mime == _DOC:
+                digest = _digest(b"")
+        elif isinstance(source, DriveTextSource):
+            mime = {"doc": _DOC, "plain": "text/plain", "markdown": "text/markdown"}[
+                source.format
+            ]
+            data = source.text.encode()
+            if mime == _DOC:
+                digest = _digest(_lf(source.text).encode())
+            else:
+                size, digest = len(data), _digest(data)
+        else:
+            if self._drive_sources is None:
+                raise WorkspaceError("source_unavailable")
+            async with self._drive_sources.open(
+                source,
+                invocation_id=io.invocation,
+                before_send=io.fence,
+            ) as file:
+                mime, size, digest = file.media_type, file.size, file.sha256
+        if mime.startswith(NATIVE_MIME) and isinstance(request, DriveRevise):
+            raise WorkspaceError("native_edit_requires_docs")
+        if not mime.startswith(NATIVE_MIME) and not self._drive_download_qualified:
+            raise WorkspaceError("drive_download_unqualified")
+        expected = DriveExpected(
+            name=name, parent=parent, media_type=mime, size=size, sha256=digest
+        )
+        shared = await audience(io.call, target, io.account)
+        if isinstance(request, DriveCreate):
+            return FrozenDriveCreate(
+                **request.model_dump(),
+                subject=subject,
+                audience=shared,
+                expected=expected,
+            )
+        return FrozenDriveRevise(
+            **request.model_dump(),
+            subject=subject,
+            audience=shared,
+            expected=expected,
+        )
+
+    async def _write_drive(
+        self,
+        io: _Exchange,
+        frozen: FrozenWorkspaceWrite,
+        effect: FrozenDriveEffect,
+    ) -> DriveWriteReceipt:
+        async def fresh() -> None:
+            while True:
+                rounds = io.read_resumptions
+                observed = await audience(io.call, effect.audience.target, io.account)
+                if observed.fingerprint != effect.audience.fingerprint or (
+                    observed.state != effect.audience.state
+                ):
+                    raise WorkspaceWriteConflict(
+                        "drive_audience_changed",
+                        {"audience": observed.model_dump(mode="json")},
+                    )
+                if isinstance(effect, FrozenDocsUpdate):
+                    doc = await document(io.call, effect.id)
+                    if document_revision(doc, effect.id) != effect.revision:
+                        raise WorkspaceError("document_changed")
+                elif isinstance(effect, FrozenDriveRevise):
+                    if (await metadata(io.call, effect.id)).etag != effect.etag:
+                        raise WorkspaceError("file_revision_changed")
+                elif isinstance(effect, FrozenDriveCopy):
+                    if (await metadata(io.call, effect.id)).etag != effect.source_etag:
+                        raise WorkspaceError("source_changed")
+                if rounds == io.read_resumptions:
+                    return
+
+        upload: AbstractAsyncContextManager[DriveSourceFile | None] = nullcontext()
+        product: Product = "drive"
+        outcome: Literal["created", "copied", "revised", "updated"]
+        if isinstance(effect, FrozenDocsUpdate):
+            if not self._docs_update_qualified:
+                raise WorkspaceError("docs_update_unqualified", known_no_effect=True)
+            product, operation, outcome = "docs", "update_doc", "updated"
+            args: Obj = {
+                "documentId": effect.id,
+                "requests": [
+                    r.model_dump(mode="json", exclude_none=True)
+                    for r in effect.requests
+                ],
+                "writeControl": {
+                    "requiredRevisionId": effect.revision,
+                    "writeMode": effect.mode.upper(),
+                },
+            }
+        elif isinstance(effect, FrozenDriveCopy):
+            operation, outcome = "copy_file", "copied"
+            args = {
+                "fileId": effect.id,
+                "parentId": effect.parent,
+                "title": effect.name,
+            }
+        else:
+            if isinstance(effect, FrozenDriveCreate):
+                operation, outcome = "create_file", "created"
+                args = {"parentId": effect.parent, "title": effect.name}
+            else:
+                if not self._drive_revise_qualified:
+                    raise WorkspaceError(
+                        "drive_revise_unqualified", known_no_effect=True
+                    )
+                operation, outcome = "upload_file_revision", "revised"
+                args = {"fileId": effect.id, "etag": effect.etag}
+            source = effect.source.value
+            if isinstance(source, DriveNewSource):
+                args["mimeType"] = effect.expected.media_type
+            else:
+                mime = effect.expected.media_type
+                if isinstance(source, DriveTextSource):
+                    args["textContent"] = source.text
+                    if mime == _DOC:
+                        mime = "text/plain"
+                else:
+                    if self._drive_sources is None:
+                        raise WorkspaceError("source_unavailable", known_no_effect=True)
+                    upload = self._drive_sources.open(
+                        source,
+                        invocation_id=io.invocation,
+                        before_send=io.fence,
+                    )
+                args["contentMimeType"] = mime
+                if mime != "text/plain" or effect.expected.media_type != _DOC:
+                    if isinstance(effect, FrozenDriveCreate):
+                        args["disableConversionToGoogleType"] = True
+        dispatch_started = False
+        try:
+            async with upload as file:
+                if (
+                    file is not None
+                    and isinstance(effect, FrozenDriveCreate | FrozenDriveRevise)
+                    and (file.sha256, file.size, file.media_type)
+                    != (
+                        effect.expected.sha256,
+                        effect.expected.size,
+                        effect.expected.media_type,
+                    )
+                ):
+                    raise WorkspaceError("source_changed")
+                dispatch_started = True
+                result = await io.call(
+                    product,
+                    operation,
+                    args,
+                    preflight=fresh,
+                    write=True,
+                    upload=(file.path, file.size) if file is not None else None,
+                )
+        except WorkspaceError as e:
+            if not dispatch_started:
+                e.known_no_effect = True
+            raise
+        except (OSError, asyncio.CancelledError):
+            raise WorkspaceError(
+                "uncertain" if dispatch_started else "source_unavailable",
+                known_no_effect=not dispatch_started,
+            ) from None
+        try:
+            warnings: tuple[str, ...] = ()
+            revision, etag = None, None
+            if isinstance(effect, FrozenDocsUpdate):
+                control = _obj(result["writeControl"])
+                revision = provider_id(control, "requiredRevisionId")
+                replies = _array(result.get("replies", []))
+                warnings = tuple(
+                    item
+                    for reply in replies
+                    for item in (_obj(reply).get("warning"), _obj(reply).get("error"))
+                    if isinstance(item, str) and len(item.encode()) <= 512
+                )[:20]
+                id, title = effect.id, None
+            elif isinstance(effect, FrozenDriveRevise):
+                id, title = effect.id, effect.expected.name
+                revision = provider_id(result, "id")
+                if "fileEtag" in result:
+                    etag = provider_id(result, "fileEtag")
+            else:
+                id, title = provider_id(result, "id"), effect.name
+                if isinstance(effect, FrozenDriveCopy) and id == effect.id:
+                    raise ValueError("copy identity is not new")
+            now = datetime.now(UTC)
+            return DriveWriteReceipt(
+                action_id=frozen.action_id,
+                grant_id=frozen.grant_id,
+                account=frozen.account,
+                acknowledged_at=now,
+                observed_at=now,
+                verification="unverified",
+                reason="readback_pending",
+                outcome=outcome,
+                subject=effect.subject,
+                file_id=id,
+                title=title,
+                link=file_href(effect.subject, id),
+                revision=revision,
+                etag=etag,
+                warnings=warnings,
+            )
+        except (TypeError, *_PARSE_ERRORS):
+            raise WorkspaceError("uncertain") from None
+
+    async def recover_drive(
+        self,
+        frozen: FrozenWorkspaceWrite,
+        receipt: DriveWriteReceipt,
+        *,
+        invocation_id: str,
+        before_send: Fence,
+    ) -> DriveWriteReceipt:
+        effect = frozen.effect
+        if (
+            not isinstance(
+                effect,
+                FrozenDriveCreate
+                | FrozenDriveCopy
+                | FrozenDriveRevise
+                | FrozenDocsUpdate,
+            )
+            or (receipt.action_id, receipt.grant_id, receipt.account, receipt.subject)
+            != (frozen.action_id, frozen.grant_id, frozen.account, effect.subject)
+            or (
+                isinstance(effect, FrozenDriveRevise | FrozenDocsUpdate)
+                and receipt.file_id != effect.id
+            )
+        ):
+            raise WorkspaceError("invalid_receipt")
+        with workspace_attempts(_DRIVE_WRITE_ATTEMPTS, seconds=_DRIVE_WRITE_SECONDS):
+            io = _Exchange(
+                self._client,
+                frozen.grant_id,
+                frozen.account,
+                invocation_id,
+                before_send,
+                background=True,
+            )
+            try:
+                await io.fence()
+                evidence = await _drive_readback(io, effect, receipt)
+                await io.fence()
+                return receipt.with_readback(None, **evidence)
+            except WorkspaceError as e:
+                return receipt.with_readback(e.kind)
+            except (TypeError, *_PARSE_ERRORS):
+                return receipt.with_readback("invalid_response")
 
     async def _create(
         self, io: _Exchange, frozen: FrozenWorkspaceWrite, effect: FrozenCompose

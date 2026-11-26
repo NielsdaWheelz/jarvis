@@ -169,6 +169,10 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 
 independent claude opus 5.5 passed the original design, its calendar and draft amendments, and the five-minute reception and quota amendment at sha256 `aa3862bc78b5b7174a309d8392f8430c1a8d3a110761a52522134c24e81d23f6`. the scoped reviews and verified rechecks are in `~/.local/state/jarvis/qualification/workspace-mcp-design/`. for temporary proof, cancel the consent round on native interruption or timeout, serialize workspace calls, and check that a match tap never acknowledges a nonexistent outbox row. measure raw attachment access and draft byte limits on the qualified server. prove the visible generic alert in actual android doze and an ordinary overnight sample. notification settings may suppress it, and repeated invisible high-priority pushes may affect delivery. accept best-effort delivery without adding a handset status service. inconclusive checks appear on the todo. the subscribed-model run is mandatory. missing google-hosted evidence holds installed acceptance.
 
+## drive files
+
+[adr 0120](decisions/0120-drive-files.md) assigns the agent connector, file custody, owner viewer and stopped cut to four units. integrate [0119's standard client](decisions/0119-owner-gmail-draft-editor.md) and use the next free migration. qualify against the exact combined release and clients. the owner approved synthetic google tests in the dedicated project. [live enrollment and rollout](issues/drive-files-live.md) and [document backup](issues/drive-document-backup.md) have separate evidence.
+
 ## private web home
 
 [inline todo viewer](decisions/0117-inline-todo-viewer.md) is implemented

@@ -1,3 +1,5 @@
+import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
+
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, cls) => {
   const node = document.createElement(tag);
@@ -21,7 +23,8 @@ function objectPath(ref) {
     case "view":
       return "/v/" + ref.slug + "/" + ref.rev;
     case "file":
-      return "/f/" + ref.id + (ref.page ? "?page=" + ref.page : "");
+    case "drive_file":
+      return drivePath(ref);
     case "proposal":
       return "/m/" + ref.message_id;
     case "todo":
@@ -29,7 +32,8 @@ function objectPath(ref) {
   }
 }
 function label(ref) {
-  return ref.kind === "view" ? ref.slug : ref.kind + (ref.page ? " · page " + ref.page : "");
+  const kind = ref.kind === "view" ? ref.slug : ref.kind === "drive_file" ? "drive file" : ref.kind;
+  return kind + (ref.page ? " · page " + ref.page : "");
 }
 const mobile = matchMedia("(max-width:720px)");
 const draftKey = "jarvis.home.draft";
@@ -576,7 +580,7 @@ function prose(text) {
   const p = el("p", undefined, "prose");
   // Recognise links without interpreting the rest of a message as markup.
   const pattern =
-    /\[([^\]\n]+)\]\((?=https?:\/\/|\/[mftv]\/)|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?:\/\/|\/[mftv]\/)[^\s<>]+/gi;
+    /\[([^\]\n]+)\]\((?=https?:\/\/|\/(?:[mftv]\/|files\/))|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?:\/\/|\/(?:[mftv]\/|files\/))[^\s<>]+/gi;
   let end = 0;
   for (let match; (match = pattern.exec(text)); ) {
     const [token, label, attachment] = match;
@@ -609,13 +613,6 @@ function prose(text) {
   p.append(text.slice(end));
   return p;
 }
-const fileState = {
-  pending: "saving original",
-  ready: "open original",
-  deleted: "original deleted",
-  deleting: "deleting original",
-  failed: "original unavailable",
-};
 function emailBody(label, load) {
   const disclosure = el("details");
   const body = el("p", "", "prose");
@@ -649,7 +646,7 @@ function renderMessage(m) {
       link(
         (f.name || "unnamed file") +
           " · " +
-          (f.unavailable ? "original unavailable" : fileState[f.state] || "unavailable"),
+          (f.unavailable ? "file unavailable" : originStatus(f.state, f.disposition)),
         "/f/" + f.id,
         "file",
       ),
@@ -826,8 +823,14 @@ function rememberReading() {
     changeState({ reading: { id: selectedMessage, offset: selectedMessageOffset() } });
 }
 $("chat").addEventListener("scrollend", rememberReading);
-function navigate(path, { origin, canvasSelection = path } = {}) {
+function navigate(path, { origin, canvasSelection = path, filesSelector, replace = false } = {}) {
   armed = null;
+  if (replace) {
+    if (isDetail(location.pathname)) changeState({ canvasSelection, canvasAddress: path });
+    else changeState({ canvasSelection }, path);
+    startRoute();
+    return;
+  }
   if (
     canvasSelection === todosCanvas &&
     location.pathname === "/" &&
@@ -836,10 +839,13 @@ function navigate(path, { origin, canvasSelection = path } = {}) {
   )
     return;
   rememberOverview(origin);
+  files.remember(origin || document.activeElement);
   rememberReading();
-  let state = { canvasSelection };
+  let state = { canvasSelection, ...(filesSelector ? { filesSelector } : {}) };
   if (path.startsWith("/t/")) {
     state = { ...todoEntry(path.slice(3)), hasOrigin: true };
+  } else if (driveRoute(path)) {
+    state.filesBack = Boolean(driveRoute(history.state.canvasSelection));
   } else if (isDetail(path)) {
     state = {
       ...history.state,
@@ -857,7 +863,10 @@ function navigate(path, { origin, canvasSelection = path } = {}) {
 function todoEntry(id) {
   return { canvasSelection: todosCanvas, todoTarget: id, openTodos: { [id]: [] } };
 }
+const files = bindFiles({ $, el, button, link, navigate, changeState, request, time });
 $("todos-tab").onclick = () => navigate("/", { canvasSelection: todosCanvas });
+$("files-tab").onclick = () => navigate("/files");
+$("files-return").onclick = () => history.back();
 $("todo-return").onclick = () => {
   if (history.state.hasOrigin) history.back();
   else {
@@ -878,9 +887,9 @@ document.addEventListener("click", (e) => {
     e.button !== 0
   )
     return;
-  if (a.origin === location.origin && /^\/(?:$|overview$|[mftv]\/)/.test(a.pathname)) {
+  if (a.origin === location.origin && (/^\/(?:$|overview$|[mtv]\/)/.test(a.pathname) || driveRoute(a.href))) {
     e.preventDefault();
-    navigate(a.pathname + a.search, { origin: a });
+    navigate(a.pathname + a.search, { origin: a, replace: a.hasAttribute("data-file-page") });
   }
 });
 window.onpopstate = () => {
@@ -919,6 +928,7 @@ function startRoute() {
   revealTodo = path.startsWith("/t/") && !history.state.targetRevealed ? path.slice(3) : null;
   if (!restoreOverview && !detail && !history.state.panel) $("canvas").scrollTop = 0;
   $("todo-return").hidden = !path.startsWith("/t/");
+  $("files-return").hidden = !history.state.filesBack || !driveRoute(path);
   setPanel();
   refresh();
 }
@@ -936,8 +946,27 @@ async function canvasRead(ver) {
   }
   const overview = path === todosCanvas;
   $("todos-tab").setAttribute("aria-pressed", String(overview));
+  const viewingFiles = path === "/files" || path.startsWith("/files/") || path.startsWith("/f/");
+  $("files-tab").setAttribute("aria-pressed", String(viewingFiles));
   $("overview").hidden = !overview;
-  $("object").hidden = overview;
+  $("drive").hidden = !viewingFiles;
+  $("object").hidden = overview || viewingFiles;
+  if (viewingFiles) {
+    if (displayed !== "files") {
+      current = null;
+      displayed = "files";
+      $("location").textContent = "";
+      $("object").replaceChildren();
+      $("object-tools").hidden = true;
+    }
+    if (mobile.matches && history.state.panel) {
+      files.close();
+      return;
+    }
+    await files.show(path, ver);
+    return;
+  }
+  files.close();
   if (overview) {
     if (displayed !== path) {
       current = null;
@@ -964,114 +993,47 @@ async function canvasRead(ver) {
     refreshTodoRows(false);
     return;
   }
-  const url = new URL(path, location.origin);
-  const [, kind, key, more] = url.pathname.split("/");
-  if (kind === "v") {
-    if (!ref)
-      ref = await read(
-        "/api/views/" + encodeURIComponent(key) + (more ? "/" + encodeURIComponent(more) : ""),
-      );
-    if (!same()) return;
-    if (!ref) {
-      current = null;
-      if (displayed !== "withdrawn:" + path)
-        $("object").replaceChildren(empty("this page is no longer available."));
-      displayed = "withdrawn:" + path;
-      $("location").textContent = "";
-      $("object-tools").hidden = true;
-      return;
-    }
-    if (!more) {
-      const pinned = objectPath(ref);
-      if (isDetail(location.pathname)) {
-        changeState({ canvasSelection: pinned, canvasAddress: pinned });
-      } else {
-        changeState({ canvasSelection: pinned }, pinned);
-      }
-    }
-  } else {
-    const n = Number(url.searchParams.get("page"));
-    ref = { kind: "file", id: key, ...(Number.isSafeInteger(n) && n > 0 ? { page: n } : {}) };
-    if (displayed === objectPath(ref) && !$("object-tools").hidden) return;
-  }
-  let type = null,
-    name = null,
-    fileUrl = null,
-    fileState = null;
-  if (ref.kind === "file") {
-    fileUrl = "/api/files/" + ref.id;
-    const resp = await request(fileUrl, { method: "HEAD" });
-    if (!same()) return;
-    if (!resp.ok)
-      fileState =
-        resp.status === 410
-          ? "original deleted"
-          : resp.status === 409
-            ? resp.headers.get("X-Jarvis-File-State") === "Pending"
-              ? "saving original"
-              : "original unavailable"
-            : "original not found";
-    type = resp.headers.get("content-type")?.split(";")[0];
-    const disposition = resp.headers.get("content-disposition") || "";
-    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
-    name = encoded ? decodeURIComponent(encoded[1]) : /filename="([^"]+)"/i.exec(disposition)?.[1];
-    if (!disposition.startsWith("inline")) type = null;
+  const [, kind, key, revision] = new URL(path, location.origin).pathname.split("/");
+  if (kind !== "v") return;
+  if (!ref)
+    ref = await read(
+      "/api/views/" + encodeURIComponent(key) + (revision ? "/" + encodeURIComponent(revision) : ""),
+    );
+  if (!same()) return;
+  if (!ref) {
+    current = null;
+    if (displayed !== "withdrawn:" + path)
+      $("object").replaceChildren(empty("this page is no longer available."));
+    displayed = "withdrawn:" + path;
+    $("location").textContent = "";
+    $("object-tools").hidden = true;
+    return;
   }
   const canonical = objectPath(ref);
-  const title = name || label(ref);
+  if (!revision) {
+    if (isDetail(location.pathname))
+      changeState({ canvasSelection: canonical, canvasAddress: canonical });
+    else
+      changeState({ canvasSelection: canonical }, canonical);
+  }
+  const title = label(ref);
   const locationLabel = $("location");
-  if (ref.kind === "view" && location.pathname === "/") {
+  if (location.pathname === "/") {
     if (locationLabel.firstElementChild?.getAttribute("href") !== canonical)
       locationLabel.replaceChildren(link(title, canonical));
   } else if (locationLabel.firstElementChild || locationLabel.textContent !== title) {
     locationLabel.textContent = title;
   }
-  const identity = canonical + (fileState || "");
-  if (displayed === identity) return;
+  if (displayed === canonical) return;
   current = ref;
-  displayed = identity;
-  $("object").replaceChildren();
-  $("object-tools").replaceChildren();
-  if (ref.kind === "view" || type === "application/pdf") {
-    const frame = el("iframe");
-    frame.title = title;
-    if (ref.kind === "view") {
-      frame.setAttribute("sandbox", "allow-scripts");
-      frame.src = "/content/" + ref.slug + "/" + ref.rev;
-    } else frame.src = fileUrl + (ref.page ? "#page=" + ref.page : "");
-    $("object").append(frame);
-  } else if (type?.startsWith("image/")) {
-    const img = el("img");
-    img.alt = name || "original image";
-    img.src = fileUrl;
-    $("object").append(img);
-  } else $("object").append(empty(fileState || name || "original file"));
-  $("object-tools").hidden = Boolean(fileState);
-  if (fileUrl && !fileState) {
-    const open = link(
-      type === "application/pdf" ? "open to print" : "open original",
-      fileUrl + (ref.page ? "#page=" + ref.page : ""),
-    );
-    open.target = "_blank";
-    open.rel = "noopener";
-    $("object-tools").append(open);
-    const download = link("download", fileUrl);
-    download.download = name || "";
-    $("object-tools").append(download);
-  }
-  if (type === "application/pdf") {
-    const page = el("input");
-    page.type = "number";
-    page.min = "1";
-    page.placeholder = "page";
-    page.setAttribute("aria-label", "pdf page");
-    page.value = ref.page || "";
-    page.onchange = () => {
-      if (page.value && page.validity.valid) navigate("/f/" + ref.id + "?page=" + page.value);
-    };
-    $("object-tools").append(page);
-  }
-  $("object-tools").append(button("discuss this", () => discuss(current)));
+  displayed = canonical;
+  const frame = el("iframe");
+  frame.title = title;
+  frame.setAttribute("sandbox", "allow-scripts");
+  frame.src = "/content/" + ref.slug + "/" + ref.rev;
+  $("object").replaceChildren(frame);
+  $("object-tools").replaceChildren(button("discuss this", () => discuss(current)));
+  $("object-tools").hidden = false;
 }
 
 function civilDate(value) {
@@ -1208,8 +1170,9 @@ function renderTodoBody(row, open) {
     const list = el("ul");
     for (const result of results.items) {
       const li = el("li");
-      li.append(link(result.label || "answer", "/m/" + result.message_id),
-        el("time", time(result.at, timezone)));
+      li.append(link(result.label || "answer", "/m/" + result.message_id));
+      if (result.file_ref) li.append(link("open file", objectPath(result.file_ref)));
+      li.append(el("time", time(result.at, timezone)));
       list.append(li);
     }
     section.append(list);
@@ -1471,6 +1434,8 @@ showFiles();
 startRoute();
 window.addEventListener("pagehide", () => {
   rememberOverview();
+  files.remember(document.activeElement);
+  files.close();
   rememberReading();
 });
 document.addEventListener("visibilitychange", () => {

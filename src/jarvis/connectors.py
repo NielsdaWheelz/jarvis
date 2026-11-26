@@ -60,6 +60,7 @@ from jarvis.workspace_enrollment import (
 )
 from jarvis.workspace_mcp import (
     ARRIVAL_SCOPES,
+    DRIVE_SCOPE,
     WorkspaceCredential,
     WorkspaceError,
     workspace_http_attempt,
@@ -202,6 +203,7 @@ class GoogleTokenManager:
         self._active_key_version = active_key_version
         self._project_id = project_id
         self.on_grant_loss: Callable[[UUID], None] | None = None
+        self.on_drive_loss: Callable[[UUID], None] | None = None
         self._handoff_key = (
             _handoff_key(single_secret) if project_id is not None else b""
         )
@@ -325,6 +327,7 @@ class GoogleTokenManager:
         nonce: str,
         expected_email: str,
         pending_label_id: str | None,
+        incremental_drive: bool = False,
     ) -> WorkspaceEnrollment:
         installation = self._installation
         if (
@@ -344,9 +347,20 @@ class GoogleTokenManager:
                 redirect_uri=redirect_uri,
                 expected_email=expected_email,
             )
+            previous = self.enrollment()
+            if incremental_drive and previous is not None:
+                if (
+                    tokens.subject != previous.subject
+                    or tokens.scopes - {DRIVE_SCOPE} != previous.scopes - {DRIVE_SCOPE}
+                    or pending_label_id not in (None, previous.pending_label_id)
+                ):
+                    raise WorkspaceError("grant_unavailable")
+                pending_label_id = previous.pending_label_id
+                grant_id = previous.grant_id
+            else:
+                grant_id = uuid4()
             if pending_label_id is not None and not ARRIVAL_SCOPES <= tokens.scopes:
                 raise WorkspaceError("scope_missing")
-            previous = self.enrollment()
             now = self._now().astimezone(UTC)
             state: dict[str, object] = {
                 "schema": GOOGLE_STATE_SCHEMA,
@@ -355,7 +369,7 @@ class GoogleTokenManager:
                 "installation": installation,
                 "project_id": self._project_id,
                 "client_id": self._client_id,
-                "grant_id": str(uuid4()),
+                "grant_id": str(grant_id),
                 "account": tokens.account,
                 "subject": tokens.subject,
                 "pending_label_id": pending_label_id,
@@ -380,8 +394,18 @@ class GoogleTokenManager:
             }
             enrolled = self._identity(state)
             replace_private_json(self._state_path, state)
-            if previous is not None:
+            if previous is not None and previous.grant_id != enrolled.grant_id:
                 self._forget(previous.grant_id)
+            else:
+                self._access_token = None
+                self._expires_at = None
+                self._force_refresh = False
+                if (
+                    previous is not None
+                    and DRIVE_SCOPE in previous.scopes - enrolled.scopes
+                    and self.on_drive_loss is not None
+                ):
+                    self.on_drive_loss(previous.grant_id)
             return enrolled
 
     async def credential(
@@ -406,6 +430,9 @@ class GoogleTokenManager:
                 raise WorkspaceError("temporary") from None
             except ConnectorFailure:
                 raise WorkspaceError("temporary") from None
+            current = self.enrollment()
+            if current is None or current.grant_id != grant_id:
+                raise WorkspaceError("grant_unavailable")
             return WorkspaceCredential(token, current.scopes, current.pending_label_id)
 
     async def _current_access_token(self, current: WorkspaceEnrollment) -> str:
@@ -521,6 +548,7 @@ class GoogleTokenManager:
                     raise
                 if subject != current.subject:
                     raise _GoogleRefreshRejected("Google OAuth subject changed")
+            refreshed_scopes = current.scopes
             returned_scope = payload.get("scope")
             if returned_scope is not None:
                 if not isinstance(returned_scope, str):
@@ -529,7 +557,10 @@ class GoogleTokenManager:
                     refreshed_scopes = granted_scopes(returned_scope)
                 except ValueError:
                     raise _GoogleRefreshRejected("Google OAuth scope changed") from None
-                if refreshed_scopes != current.scopes:
+                if (
+                    refreshed_scopes != current.scopes
+                    and refreshed_scopes != current.scopes - {DRIVE_SCOPE}
+                ):
                     raise _GoogleRefreshRejected("Google OAuth scope changed")
         except GoogleCredentialDefect:
             raise
@@ -541,6 +572,7 @@ class GoogleTokenManager:
         updated["access_token_enc"] = self._encrypt(token, field="access_token")
         updated["access_token_expires_at"] = refreshed_expiry.isoformat()
         updated["token_obtained_at"] = refreshed_at.isoformat()
+        updated["granted_scopes"] = sorted(refreshed_scopes)
         returned_refresh = payload.get("refresh_token")
         if returned_refresh is not None:
             if not isinstance(returned_refresh, str) or not returned_refresh:
@@ -559,6 +591,8 @@ class GoogleTokenManager:
             "key_version": self._active_key_version,
         }
         replace_private_json(self._state_path, updated)
+        if DRIVE_SCOPE in current.scopes - refreshed_scopes and self.on_drive_loss:
+            self.on_drive_loss(current.grant_id)
         self._access_token = token
         self._expires_at = refreshed_expiry
         self._force_refresh = False

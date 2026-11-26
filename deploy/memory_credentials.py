@@ -280,7 +280,7 @@ async def install_staged(stage, bootstrap):
             for path, mode, group in (
                 ("/var/lib/jarvis/connectors", "0700", "jarvis"),
                 ("/var/cache/jarvis", "0750", "codex-clients"),
-                ("/var/cache/jarvis/attachments", "0750", "codex-clients"),
+                ("/var/cache/jarvis/files", "0750", "codex-clients"),
             ):
                 await asyncio.to_thread(
                     subprocess.run,

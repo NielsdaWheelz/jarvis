@@ -134,6 +134,16 @@ internal fun JarvisHome(
                         },
                         modifier = Modifier.semantics { selected = viewingTodos },
                     ) { Text("todos", style = if (viewingTodos) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge) }
+                    val files = route == Route.Files || route is Route.File || route is Route.DriveFile
+                    val viewingFiles = files && !chat && !showDrafts
+                    TextButton(
+                        onClick = {
+                            chat = false
+                            showDrafts = false
+                            if (!files || (viewingFiles && route != Route.Files)) onNavigate(Route.Files)
+                        },
+                        modifier = Modifier.semantics { selected = viewingFiles },
+                    ) { Text("files", style = if (viewingFiles) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge) }
                     if (!chat || showDrafts) TextButton(onClick = {
                         showDrafts = false
                         chat = true
@@ -170,7 +180,9 @@ internal fun JarvisHome(
                             is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, newDraft) {
                                 chat = true
                             }
-                            is Route.File -> FilePane(route, api, reload, signIn, newDraft)
+                            Route.Files -> DriveList(null, api, reload, signIn, onNavigate)
+                            is Route.File -> OriginPane(route, api, reload, signIn, onResolve)
+                            is Route.DriveFile -> FilePane(route, api, reload, signIn, onNavigate)
                             is Route.Canvas -> CanvasPane(route, api, reload, signIn, activity, onResolve, newDraft)
                         }
                     }
@@ -313,13 +325,7 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
     Text("$speaker · ${formattedTime(message.string("at"))}", style = MaterialTheme.typography.labelMedium)
     Prose(message.getString("text"), navigate)
     for (file in message.objects("files")) {
-        val status = if (file.optBoolean("unavailable")) "original unavailable" else when (file.string("state")) {
-            "pending" -> "saving original"
-            "ready" -> "open original"
-            "deleted" -> "original deleted"
-            "deleting" -> "deleting original"
-            else -> "original unavailable"
-        }
+        val status = if (file.optBoolean("unavailable")) "file unavailable" else originStatus(file)
         TextButton(onClick = { navigate(Route.File(file.getString("id"), null)) }) {
             Text("${file.string("name") ?: "original file"} · $status")
         }
@@ -461,7 +467,7 @@ internal fun civilDate(value: String): String =
     LocalDate.parse(value).format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
 
 private val LinkStart = Regex(
-    """\[([^\]\n]+)]\((?=https?://|/[mftv]/)|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?://|/[mftv]/)[^\s<>]+""",
+    """\[([^\]\n]+)]\((?=https?://|/(?:[mftv]/|files/))|attachment:([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})|(?:https?://|/(?:[mftv]/|files/))[^\s<>]+""",
     RegexOption.IGNORE_CASE,
 )
 

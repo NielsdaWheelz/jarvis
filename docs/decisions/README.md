@@ -170,3 +170,4 @@ justify. They are founding rationale rather than records of decisions taken unde
 observed pressure. That is worth knowing when reading SPEC section 13's
 "observed evidence" bar for future ADRs: the bar applies to changing these
 decisions, not to how they were originally reached.
+| [0120](0120-drive-files.md) | drive files and documents | accepted implementation target; stopped import and live qualification required |

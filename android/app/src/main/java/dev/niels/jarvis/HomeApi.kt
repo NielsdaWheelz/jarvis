@@ -20,6 +20,8 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
+internal class DriveFailure(val code: String, val retryAfter: String?) : IOException(code)
+
 internal class SignInRequired : IOException("sign in to continue")
 
 internal class HomeApi(context: Context) {
@@ -83,6 +85,24 @@ internal class HomeApi(context: Context) {
         }
     }
 
+    suspend fun drive(path: String): JSONObject = withContext(Dispatchers.IO) {
+        request(path).use { response ->
+            response.checkDrive()
+            response.json()
+        }
+    }
+
+    suspend fun pendingUploads(): List<JSONObject> = withContext(Dispatchers.IO) {
+        request("/api/drive/pending").use { response ->
+            response.checkDrive()
+            try {
+                JSONArray(response.body?.string() ?: throw IOException("missing response")).objects()
+            } catch (error: JSONException) {
+                throw IOException("invalid response", error)
+            }
+        }
+    }
+
     private companion object {
         val origin = Routes.origin.toHttpUrl()
         val client = OkHttpClient.Builder()
@@ -91,6 +111,13 @@ internal class HomeApi(context: Context) {
             .readTimeout(45, TimeUnit.SECONDS)
             .writeTimeout(45, TimeUnit.SECONDS)
             .build()
+    }
+}
+
+internal fun Response.checkDrive() {
+    if (!isSuccessful) {
+        val code = try { json().string("detail") } catch (_: IOException) { null }
+        throw DriveFailure(code ?: "drive_unavailable", header("Retry-After"))
     }
 }
 
@@ -133,6 +160,13 @@ internal sealed interface DiscussionRef {
         override val label = if (page == null) "original file" else "page $page"
     }
 
+    data class DriveFile(val subject: String, val id: String, val page: Long?) : DiscussionRef {
+        override fun json() = JSONObject().put("kind", "drive_file").put("subject", subject)
+            .put("id", id).apply { page?.let { put("page", it) } }
+        override fun route() = Route.DriveFile(subject, id, page)
+        override val label = if (page == null) "drive file" else "page $page"
+    }
+
     data class Canvas(val slug: String, val revision: String) : DiscussionRef {
         override fun json() = JSONObject().put("kind", "view").put("slug", slug).put("rev", revision)
         override fun route() = Route.Canvas(slug, revision)
@@ -144,6 +178,7 @@ internal sealed interface DiscussionRef {
             "todo" -> Todo(value.getString("id"))
             "proposal" -> Proposal(value.getString("message_id"), value.getString("action_id"))
             "file" -> File(value.getString("id"), (value.opt("page") as? Number)?.toLong())
+            "drive_file" -> DriveFile(value.getString("subject"), value.getString("id"), (value.opt("page") as? Number)?.toLong())
             "view" -> Canvas(value.getString("slug"), value.getString("rev"))
             else -> null
         }

@@ -18,8 +18,9 @@ from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 
-from jarvis.attachments import AttachmentStore, WebUpload
-from jarvis.db import attachment, message
+from jarvis.attachments import AttachmentStore, SpoolFull, WebUpload
+from jarvis.db import message
+from jarvis.home_drive import DriveReader, mount_drive
 from jarvis.home_pages import HOME_ORIGIN, PAGE_CSP, HomePages
 from jarvis.home_reads import conversation, todo_results, visible_message
 from jarvis.home_uploads import attachment_response, read_submission
@@ -45,7 +46,7 @@ _PHONE_ROUTE = "/api/push/phone"
 _WORKSPACE_APPROVALS = "/api/workspace/approvals"
 _SHELL_CSP = (
     "default-src 'self'; object-src 'none'; base-uri 'none'; "
-    "frame-ancestors 'none'; form-action 'self'"
+    "frame-ancestors 'none'; form-action 'self'; img-src 'self' blob:"
 )
 
 
@@ -79,6 +80,7 @@ def create_home_app(
     pages: Path,
     phone: PhoneSlot,
     workspace_approvals: WorkspaceApprovals | None = None,
+    drive_reader: DriveReader | None = None,
 ) -> FastAPI:
     app = FastAPI(
         docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False
@@ -129,24 +131,30 @@ def create_home_app(
                 occurrence = canonical_uuid(headers[0])
             except ValueError as exc:
                 raise HTTPException(422, "invalid workspace occurrence") from exc
-        body, raw_ref, uploads = await read_submission(request, submission_id, spool)
         try:
-            if occurrence is None:
-                identifier, created = await submit(
-                    submission_id, body, raw_ref, uploads
-                )
-            else:
-                identifier, created = await submit(
-                    submission_id,
-                    body,
-                    raw_ref,
-                    uploads,
-                    workspace_occurrence=occurrence,
-                )
+            async with read_submission(request, submission_id) as (
+                body,
+                raw_ref,
+                uploads,
+            ):
+                if occurrence is None:
+                    identifier, created = await submit(
+                        submission_id, body, raw_ref, uploads
+                    )
+                else:
+                    identifier, created = await submit(
+                        submission_id,
+                        body,
+                        raw_ref,
+                        uploads,
+                        workspace_occurrence=occurrence,
+                    )
         except StaleWorkspaceOccurrence as exc:
             raise HTTPException(410, "this check is no longer available") from exc
         except IngressUnavailable as exc:
             raise HTTPException(503, "jarvis is offline") from exc
+        except SpoolFull as exc:
+            raise HTTPException(413, "unfiled upload space is full") from exc
         except SubmissionConflict as exc:
             raise HTTPException(409, "submission id was already used") from exc
         except InvalidReference as exc:
@@ -260,17 +268,6 @@ def create_home_app(
         return JSONResponse(state.public(), headers={"ETag": state.etag})
 
     async def file(identifier: UUID, request: Request) -> Response:
-        async with database.connect() as conn:
-            in_scope = await conn.scalar(
-                select(attachment.c.id)
-                .join(message, message.c.id == attachment.c.origin_message_id)
-                .where(
-                    attachment.c.id == identifier,
-                    message.c.source_conversation_id == scope,
-                )
-            )
-        if in_scope is None:
-            raise HTTPException(404)
         return await attachment_response(
             attachments, identifier, head=request.method == "HEAD"
         )
@@ -308,6 +305,7 @@ def create_home_app(
     app.add_api_route("/api/todos/{identifier}", todo, methods=["GET"])
     app.add_api_route("/api/todos/{identifier}/results", results, methods=["GET"])
     app.add_api_route("/api/files/{identifier}", file, methods=["GET", "HEAD"])
+    mount_drive(app, drive_reader, attachments.pending, attachments.inspect)
     app.add_api_route("/api/home", home, methods=["GET"])
     app.add_api_route(_PHONE_ROUTE, get_phone, methods=["GET"])
     app.add_api_route(_PHONE_ROUTE, change_phone, methods=["PUT", "DELETE"])
@@ -320,6 +318,8 @@ def create_home_app(
     app.add_api_route("/t/{identifier}", shell, methods=["GET"])
     app.add_api_route("/m/{identifier}", shell, methods=["GET"])
     app.add_api_route("/f/{identifier}", shell, methods=["GET"])
+    app.add_api_route("/files", shell, methods=["GET"])
+    app.add_api_route("/files/{subject}/{identifier}", shell, methods=["GET"])
     app.add_api_route("/overview", shell, methods=["GET"])
     app.add_api_route("/v/{slug}", shell, methods=["GET"])
     app.add_api_route("/v/{slug}/{rev}", shell, methods=["GET"])

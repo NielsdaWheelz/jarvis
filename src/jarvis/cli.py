@@ -144,7 +144,6 @@ from jarvis.settings import (
 from jarvis.state import PausedState
 from jarvis.tool_composition import (
     ToolComposition,
-    build_attachment_store,
     build_tool_composition,
     google_tokens,
 )
@@ -272,15 +271,15 @@ def _shared_cognition_directory(path: Path, group: str) -> None:
         )
 
 
-def _attachment_cache_layout(
+def _file_scratch_layout(
     settings: IsolatedRoleSettings | CutoverSettings, host: CodexHostConfig
 ) -> None:
-    path = settings.attachment_cache_directory
+    path = settings.file_scratch_directory
     try:
         metadata = path.stat()
         group_id = grp.getgrnam(host.client_group).gr_gid
     except (KeyError, OSError) as exc:
-        raise StartupDefect("attachment cache is unavailable") from exc
+        raise StartupDefect("native file scratch is unavailable") from exc
     if (
         not stat.S_ISDIR(metadata.st_mode)
         or stat.S_IMODE(metadata.st_mode) != 0o750
@@ -293,7 +292,7 @@ def _attachment_cache_layout(
         or Path(host.notes_repository).is_relative_to(path)
     ):
         raise StartupDefect(
-            "attachment cache must be app-owned mode 0750 in the native client group, "
+            "native file scratch must be app-owned mode 0750 in the native client group, "
             "separate from private state and the notes checkout"
         )
 
@@ -303,7 +302,7 @@ def _validate_runtime_layout(
 ) -> None:
     _private_directory(settings.runtime_state_directory, "runtime state directory")
     _shared_cognition_directory(Path(host.cognition_cwd_parent), host.client_group)
-    _attachment_cache_layout(settings, host)
+    _file_scratch_layout(settings, host)
     try:
         host.verify_notes_repository()
     except ValueError as exc:
@@ -350,7 +349,9 @@ async def recover_startup_actions(
     paused: PausedState,
 ) -> int:
     inactive = await paused.is_paused()
-    return await action_recovery.recover(allow_queued_execution=not inactive)
+    recovered = await action_recovery.recover(allow_queued_execution=not inactive)
+    await action_recovery.recover_staged_files()
+    return recovered
 
 
 class _HomeListener(uvicorn.Server):
@@ -615,7 +616,7 @@ async def _serve(
                         await historical_mail(actions),
                         settings.runtime_state_directory / CUT_RECEIPT,
                     )
-                    await composition.attachments.reset_cache()
+                    await composition.attachments.reset_scratch()
                     await composition.mail_files.sweep(
                         await actions.active_mail_stages()
                     )
@@ -665,6 +666,8 @@ async def _serve(
                         events=events,
                         attachments=composition.attachments,
                         mail_files=composition.mail_files,
+                        workspace_writes=composition.workspace_writes,
+                        workspace_grant=tokens.enrollment,
                         plan=definitions.plans["main"],
                         source_conversation_id=settings.owner_scope,
                         delegation_changed=agents.delegations.notify_changed,
@@ -788,26 +791,6 @@ async def _serve(
         await engine.dispose()
 
 
-async def reconcile_attachment(
-    settings: Settings, attachment_id: UUID, *, after_manual_cleanup: bool
-) -> dict[str, object]:
-    """Observe a stopped original; manual cleanup never proves its old action."""
-    _attachment_cache_layout(settings, settings.codex_host_config)
-    engine = create_engine(settings.database_url.get_secret_value())
-    try:
-        async with deployment_ownership(engine) as database:
-            store = build_attachment_store(
-                settings=settings,
-                database=database,
-                google=None,
-            )
-            return await store.reconcile(
-                attachment_id, after_manual_cleanup=after_manual_cleanup
-            )
-    finally:
-        await engine.dispose()
-
-
 async def workspace_operator(settings: Settings, arguments: argparse.Namespace) -> None:
     engine = create_engine(settings.database_url.get_secret_value())
     try:
@@ -832,6 +815,7 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
                     arguments.client,
                     expected_email=arguments.email,
                     pending_label_id=arguments.label,
+                    drive=arguments.drive,
                     confirm=lambda text: input(f"{text}\ntype yes: ") == "yes",
                     show_url=print,
                 )
@@ -1753,17 +1737,13 @@ def _parser() -> argparse.ArgumentParser:
         "cutover-native",
         help="inventory stopped obligations before common-main cutover",
     )
-    attachment = commands.add_parser(
-        "attachment-reconcile", help="observe one stopped original and its cache"
-    )
-    attachment.add_argument("id", type=UUID)
-    attachment.add_argument("--after-manual-cleanup", action="store_true")
     enrollment = commands.add_parser(
         "workspace-enroll", help="enroll a workspace grant while stopped"
     )
     enrollment.add_argument("--client", required=True, type=Path)
     enrollment.add_argument("--email", required=True)
     enrollment.add_argument("--label")
+    enrollment.add_argument("--drive", action="store_true")
     commands.add_parser(
         "workspace-disconnect",
         help="invalidate the local workspace grant while stopped",
@@ -1972,15 +1952,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"incompatible={incompatible} in_flight={in_flight}"
                 )
             return 0 if check.passed else 1
-        elif arguments.command == "attachment-reconcile":
-            result = asyncio.run(
-                reconcile_attachment(
-                    settings,
-                    arguments.id,
-                    after_manual_cleanup=arguments.after_manual_cleanup,
-                )
-            )
-            print(json.dumps(result, sort_keys=True))
         else:  # pragma: no cover
             raise AssertionError("unknown command")
     except (AgentRuntimeError, AgentRuntimeDefect) as exc:

@@ -31,6 +31,7 @@ from jarvis.db import (
     create_engine,
     normalize_database_url,
 )
+from jarvis.drive_cut import DRIVE_CUSTODY_SCHEMA, load_stopped_drive_map
 from jarvis.ownership import maintenance_ownership
 
 ROOT = Path("/opt/jarvis")
@@ -434,10 +435,12 @@ def check_private_inputs(snapshot, manifest):
                 not (STATE / google).exists()
                 and not (snapshot / "private-state" / google).exists()
             )
-            or ((STATE / google).is_file()
-            and (snapshot / "private-state" / google).is_file()
-            and copy_digest(STATE / google)
-            == copy_digest(snapshot / "private-state" / google))
+            or (
+                (STATE / google).is_file()
+                and (snapshot / "private-state" / google).is_file()
+                and copy_digest(STATE / google)
+                == copy_digest(snapshot / "private-state" / google)
+            )
         ),
         "authority differs from the stopped declarations or google state",
     )
@@ -559,6 +562,17 @@ async def inspect_restored(operation, snapshot, proof):
             "target_facts_sha256": json_digest(facts),
             "compatibility": restored_compatibility(proof),
         }
+        if version == DRIVE_CUSTODY_SCHEMA:
+            drive_map = proof / "drive-cut.json"
+            load_stopped_drive_map(
+                drive_map,
+                spool=snapshot / "private-state" / "runtime" / "uploads",
+                google_state=snapshot
+                / "private-state"
+                / "connectors"
+                / "google-oauth-state.json",
+            )
+            document["drive_map_sha256"] = file_digest(drive_map)
         check_qualification(document, manifest)
         replace_private_json(proof / "qualification.json", document)
     finally:
@@ -671,6 +685,21 @@ async def cut(operation, destination, binding, stop, qualification):
                 return
             document = json.loads(qualification.read_bytes())
             check_qualification(document, manifest)
+            verified_drive_map = None
+            if target["schema"] == DRIVE_CUSTODY_SCHEMA:
+                drive_map = qualification.with_name("drive-cut.json")
+                require(
+                    file_digest(drive_map) == document.get("drive_map_sha256"),
+                    "drive attachment map differs from rehearsal",
+                )
+                verified_drive_map = load_stopped_drive_map(
+                    drive_map,
+                    spool=destination / "private-state" / "runtime" / "uploads",
+                    google_state=snapshot
+                    / "private-state"
+                    / "connectors"
+                    / "google-oauth-state.json",
+                )
             if operation == "verify-rehearsal":
                 return
             require(
@@ -682,6 +711,10 @@ async def cut(operation, destination, binding, stop, qualification):
                 def upgrade(connection):
                     cfg = Config(str(target_dir / "alembic.ini"))
                     cfg.attributes["connection"] = connection
+                    if verified_drive_map is not None:
+                        cfg.attributes["drive_cut"] = verified_drive_map.model_dump(
+                            mode="json"
+                        )
                     command.upgrade(cfg, target["schema"])
 
                 await conn.run_sync(upgrade)

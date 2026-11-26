@@ -1648,7 +1648,8 @@ pipeline, never a nested agent.
 | `memory.save_note` | main full plan only | admitted local append; no gate/action |
 
 [adr 0112](docs/decisions/0112-managed-agent-delegation.md) owns the current
-worker contract. machines are `macbook|dev-server|arch`. the selected host's
+worker contract. [adr 0113](docs/decisions/0113-desktop-worker.md) adds the
+`desktop` label in v13. machines are `macbook|dev-server|arch|desktop`. the selected host's
 applied skid configuration owns profile keys. model-visible terminal targets
 are `{machine,handle}`; the handle is `t-` plus 16 lowercase hex characters.
 exact target refs stay private.

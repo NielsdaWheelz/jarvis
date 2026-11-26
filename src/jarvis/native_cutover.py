@@ -11,6 +11,7 @@ from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis._atomic_json import replace_private_json
+from jarvis.actions import unfinished_action_or_worker_ack
 from jarvis.agent_tools import AGENT_IMPLEMENTATION_REVISION
 from jarvis.db import (
     APPLICATION_SCHEMA_REVISION,
@@ -179,7 +180,7 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
                     ),
                     action.c.tool_name.like("codex.%"),
                 ),
-                action.c.status.in_(("queued", "awaiting_approval", "executing")),
+                unfinished_action_or_worker_ack(),
             )
             .limit(1)
         )

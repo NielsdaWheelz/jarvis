@@ -28,9 +28,11 @@ value = json.load(sys.stdin)
 assert value["ok"] is True, "worker inventory failed"
 inventory = value["result"]
 peers = inventory["peers"]
-assert len(peers) == 3 and {p["label"] for p in peers} == {
-    "dev-server", "macbook", "arch"
-}, "worker inventory differs from the enrolled fleet"
+labels = {p["label"] for p in peers}
+required = {"dev-server", "macbook", "arch"}
+assert len(labels) == len(peers) and labels in (required, required | {"desktop"}), (
+    "worker inventory differs from the expected fleet"
+)
 failed = [p for p in peers if p["ok"] is False]
 assert inventory["partial"] is bool(failed), "inconsistent partial inventory"
 assert int(sys.argv[1]) == (1 if failed else 0), "unexpected worker exit status"
@@ -39,9 +41,9 @@ for peer in peers:
     if peer["ok"] is True:
         print(f"agent gateway read passed: {machine}")
     else:
-        assert machine == "arch" and peer["error"]["code"] == "unavailable", (
+        assert machine in {"arch", "desktop"} and peer["error"]["code"] == "unavailable", (
             "required worker gateway read failed"
         )
-        print("agent gateway read deferred: arch unavailable")
+        print(f"agent gateway read deferred: {machine} unavailable")
 ' "$status"
 }

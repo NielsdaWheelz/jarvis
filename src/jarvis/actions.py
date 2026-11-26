@@ -143,6 +143,7 @@ _RETIRED_AGENT_REVISIONS = (
     "jarvis-agent-control-v9",
     "jarvis-agent-control-v10",
     "jarvis-agent-control-v11",
+    "jarvis-agent-control-v12",
 )
 _RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2")
 
@@ -896,7 +897,7 @@ class ActionStore:
             unfinished = await connection.scalar(
                 select(action.c.id)
                 .where(
-                    action.c.status.in_(("queued", "executing", "awaiting_approval")),
+                    unfinished_action_or_worker_ack(),
                     retired_worker_predicate(
                         action.c.tool_name,
                         action.c.execution_contract[
@@ -2895,6 +2896,16 @@ def terminal_report_pending() -> ColumnElement[bool]:
             "NOT EXISTS (SELECT 1 FROM native_invocation AS invocation "
             "WHERE invocation.action_id = action.id AND "
             "invocation.reply_receipt->>'type' = 'tool_result_ref')"
+        ),
+    )
+
+
+def unfinished_action_or_worker_ack() -> ColumnElement[bool]:
+    return or_(
+        action.c.status.in_(("queued", "executing", "awaiting_approval")),
+        and_(
+            action.c.tool_name == AGENT_DELEGATE_ID,
+            action.c.result.contains({"ack_pending": True}),
         ),
     )
 

@@ -246,3 +246,29 @@ smoke, publish two disposable editions without selecting home, deliver one
 in ordinary chat, reopen both pins on desktop and handset, check the exact
 delivery and withdraw the specimen. compare the preexisting home and
 membership and record any incomplete cleanup.
+
+## implementation evidence
+
+source `0e0c1f7` passed macbook's detached package, real git/postgres/http,
+chromium and stopped-custody probes on merged drive/sidebar `67b8bb1`.
+red on that predecessor reproduced the missing routes, typed delivery and
+reader. the corrected target also passed the standing capture/retry check.
+the custody probe uses real hold and conversion code with controlled service
+observations. the two-uid linux probe verified native replacement and
+application reads before and after it.
+
+subscribed astra/max published both microscope specimens using the real
+publisher and journal. the first was a passive link with its own backlink
+and $640 savings. an explicit show request for the revision produced a
+presentation and its own backlink, with $120 savings in the other direction.
+both pins reopened after the second publish. the recovery prompt is close
+to its 16,384-byte ceiling. measure the prepared role again at the next cut.
+
+the emulator combined the actual service and postgres with chrome and native
+history. the detached version-8 signed apk came from `042af69`, whose android
+sources are identical to `0e0c1f7`. its packaged route and draft checks ran
+offline. the physical and installed journeys remain an
+[open acceptance issue](../issues/artifact-library-installed.md).
+independent opus passed the corrective source and the completed candidate
+evidence. evidence, hashes and separate cleanup receipts are under
+`~/.local/state/jarvis/qualification/artifact-library-implementation-0123/`.

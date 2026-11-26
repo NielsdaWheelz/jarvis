@@ -388,7 +388,12 @@ private fun Conversation(
                 }
                 !restored && oldAnchor != null -> list.scrollToItem(oldAnchor, offset)
                 !restored || (pinned && appliedVisit != history.placedVisit) -> {
-                    val target = boundary?.let { "boundary" } ?: messages.firstOrNull()?.id.takeIf { history.newAbove > 0 }
+                    val oldest = messages.firstOrNull()?.id
+                    val target = when {
+                        history.newAbove > 0 -> if (boundary != null && boundary == oldest) "boundary" else oldest
+                        boundary != null -> "boundary"
+                        else -> messages.firstOrNull(history::isNew)?.id
+                    }
                     val index = indexes[target]
                     if (index == null) bottom() else list.scrollToItem(index, -inset)
                     held = null

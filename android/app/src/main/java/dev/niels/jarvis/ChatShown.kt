@@ -130,7 +130,7 @@ internal class ChatHistory(private val shown: ChatShown) {
         private set
 
     val newAbove get() = outside.count(::isNew)
-    val nearestOlder get() = outside.firstOrNull(::isNew)
+    val nearestOlder get() = outside.asSequence().filter(::isNew).maxOrNull()
     val newTotal get() = newAbove + rows.count(::isNew)
 
     fun isNew(message: ChatMessage) = message.tracked && isNew(message.stamp)

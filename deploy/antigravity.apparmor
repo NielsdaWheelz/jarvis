@@ -28,11 +28,15 @@ profile jarvis-antigravity-localharness "@BINARY@" flags=(mediate_deleted,attach
   deny /var/lib/jarvis-notes/.git/{commondir,config.worktree} wl,
 }
 
-profile jarvis-antigravity-tool flags=(mediate_deleted) {
-  /** rwklmix,
+profile jarvis-antigravity-tool flags=(mediate_deleted,attach_disconnected,attach_disconnected.path=/jarvis-sdk-tool-disconnected) {
+  / r,
+  /{bin,dev,etc,home,lib,lib64,opt,proc,run,sbin,sys,tmp,usr,var}/{,**} rwklmix,
+  # Only the vendor's inherited tool terminal is usable off the mounted tree.
+  owner /jarvis-sdk-tool-disconnected/dev/pts/[0-9]* rw,
   network,
   unix,
   signal,
+  ptrace (tracedby) peer=jarvis-antigravity-localharness,
   deny capability,
   deny userns,
   deny /var/lib/jarvis-notes/.git/ wl,

@@ -127,6 +127,34 @@ WHERE m.source_conversation_id = :scope AND m.role IN ('assistant','owner')
   AND m.source != 'initialize_state'
 """
 
+_OWED = """
+SELECT final.id FROM message final
+WHERE final.source_conversation_id = :scope
+  AND final.role = 'assistant' AND final.source = 'native_final'
+  AND final.created_at >= COALESCE((
+      SELECT max(reply.created_at) FROM message reply
+      WHERE reply.source_conversation_id = :scope
+        AND reply.role = 'owner' AND reply.request_state = 'pending'
+  ), '-infinity'::timestamptz)
+  AND (
+      final.trace->>'native_attempt_id' IN (
+          SELECT waiting.trace->>'native_attempt_id' FROM message waiting
+          WHERE waiting.source_conversation_id = :scope
+            AND waiting.request_state = 'waiting'
+            AND waiting.wait_reason = 'owner_input'
+      )
+      OR final.home->'proposal_ids' ?| ARRAY(
+          SELECT a.id::text FROM action a
+          JOIN message origin ON origin.id = a.origin_message_id
+          WHERE a.status = 'awaiting_approval'
+            AND origin.source_conversation_id = :scope
+            AND origin.processing_parked_at IS NULL
+            AND origin.wait_reason IS DISTINCT FROM 'configuration'
+      )
+  )
+ORDER BY final.created_at DESC, final.id DESC
+"""
+
 
 def _cursor(before: str) -> tuple[datetime, UUID]:
     stamp, kind, identifier = before.split("~")
@@ -208,7 +236,13 @@ async def conversation(
     for item in page:
         item["sources"] = _source_metadata(item, source_grant)
         item["proposals"] = proposals[item["id"]]
-    return {"items": page[::-1], "next_before": before}
+    owed = list(await connection.scalars(text(_OWED), {"scope": scope}))
+    return {
+        "items": page[::-1],
+        "next_before": before,
+        "owed": owed,
+        "owed_total": len(owed),
+    }
 
 
 async def todo_results(

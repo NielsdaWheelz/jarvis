@@ -268,6 +268,84 @@ remains open.
    installed sidebar on wide and narrow web. record candidate and installed
    outcomes separately.
 
+## new, shown and owed in chat
+
+[adr 0125](decisions/0125-new-shown-and-owed.md) records the accepted design.
+nothing is implemented. two cuts: the first changes clients and one read-only
+projection; the second is a stopped schema cut.
+
+serialize both against the actual merges of
+[0118](decisions/0118-chat-reading-and-approvals.md),
+[0122](decisions/0122-chat-sidebar-and-phone-alerts.md),
+[0123](decisions/0123-artifact-library.md) and
+[0124](decisions/0124-citations-and-viewer-delivery.md). they own the same
+transcript, sidebar, android list and client files. build on whichever reader
+and sidebar have landed; do not fork them.
+
+on november 26, independent claude opus 5.5 at high effort held the first
+draft on eight findings, chiefly an owed rule that followed the latest
+attempt, an undo that permanent receipts could not support, and a sweep that
+cancelled unshown question alerts. it closed all eight on the revision and
+set three conditions, applied as worded: failure notices and parked requests
+are not owed, a retry is not owed until it asks again, and an owed message
+outside the loaded pages opens by its exact link. it accepted the clean slate
+at the second cut as a stated tradeoff. reviewed adr sha256
+`de5336c452291d3ffdc1fb796e4a94649933f741692834ebf129e9ae21646350`. both
+reviews and the frozen drafts are in
+`~/.local/state/jarvis/qualification/adr0125-design/`. after review, the
+owner approved scanning beyond the displayed pages for exact local totals
+and using document focus for the web assistive-reading gate.
+
+first cut, no schema:
+
+1. witness the two opening faults on real clients before changing them:
+   narrow web opening at the oldest loaded message, and android opening at
+   the top of the newest fifty.
+2. add `owed` and `owed_total` beside the items in `home_reads.py`. freeze
+   the rule with examples for approval, owner input, a wait re-recorded by an
+   unrelated wake, an answered question, a question with no wait, a parked
+   request whose failure notice repeats the proposal, and a retry.
+3. web: one new module under `static/home/` owns the shown set, the timing
+   and the marks, backed by `localStorage`. wire it into the existing merge,
+   message read and refresh paths. add the boundary, the ledge, the owed
+   words, the `--rubric` token and the opening and arrival rules. fix
+   narrow-web placement and scroll to the bottom on send.
+4. android: give the conversation a list state anchored by message id,
+   prepend earlier pages and read every three seconds while resumed. add the
+   same set, timing, marks, boundary and ledge, backed by private
+   preferences. in `Push.kt`, hold a notice while chat is on screen, group
+   replies, keep questions separate and sweep on resume from the local set.
+5. qualify journeys 1–11 of the adr on desktop and narrow browsers and the
+   signed s22+ candidate against an isolated service. stage the packaged
+   shell, the service and the same-signer android update together. tell the
+   owner that phone and laptop will disagree until the second cut.
+6. let the owner use it for at least a week. change the definition of shown
+   here, where it costs nothing, if marks linger or dry wrongly.
+
+second cut, stopped:
+
+1. wait for the [drive files cut](issues/drive-files-deploy.md): schema
+   `0027` must be installed first. then add `owner_shown` at the next free
+   migration with its guarded grants and the `cutover` receipts. add the
+   `Table` and move `APPLICATION_SCHEMA_REVISION` in `db.py`, extend
+   `STOPPED_TABLE_KEYS` and `SCHEMA_REVISION` in `deploy/memory_snapshot.py`,
+   and add a cut verifier. rehearse a restore on macbook.
+2. add the page `new` set and `new_total`, `POST /api/shown`, clear through
+   a message and the narrow hidden-tab read. set a new viewer contract value,
+   serialized with any value 0123 sets.
+3. replace the inside of each client's set module with the service contract
+   and delete both local stores. android sweeps notifications from the page
+   it was served. the web shell serves the three favicon files.
+4. qualify journey 12 and repeat 1–11. stage service, shell and the signed
+   app. the owner reads what is new first, because marks restart from the
+   cut. close old clients, switch the service, update the phone and reload
+   web before resuming use. record candidate and installed outcomes
+   separately.
+
+two follow-ups stay open and outside both cuts:
+[stale phone alerts](issues/stale-phone-alerts.md) and
+[crossed questions](issues/crossed-questions.md).
+
 ## chat composer attachments
 
 [adr 0116](decisions/0116-chat-composer-attachments.md) owns the interaction,

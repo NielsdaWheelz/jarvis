@@ -21,6 +21,7 @@ EnvironmentFile=/etc/jarvis/jarvis.env
 EnvironmentFile=-/etc/jarvis/fcm.env
 Environment=TZ=UTC
 Environment=PYTHONUNBUFFERED=1
+UnsetEnvironment=JARVIS_ATTACHMENT_R2_ACCOUNT_ID JARVIS_ATTACHMENT_R2_BUCKET JARVIS_ATTACHMENT_R2_ACCESS_KEY_ID JARVIS_ATTACHMENT_R2_SECRET_ACCESS_KEY
 ExecStart=/opt/jarvis/current/.venv/bin/jarvis serve
 Restart=on-failure
 RestartSec=5

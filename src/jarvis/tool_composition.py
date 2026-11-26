@@ -110,17 +110,21 @@ def build_tool_composition(
             raise WorkspaceError("grant_unavailable")
         await quota.debit(tool, background=background)
 
-    workspace = WorkspaceMcpClient(
-        google_api_http, credential=tokens.credential, debit=debit, approvals=approvals
-    )
-    tokens.on_grant_loss = workspace.invalidate
-    tokens.on_drive_loss = workspace.invalidate_drive
     attachments = AttachmentStore(
         owner.database,
         settings.owner_scope,
         spool_directory=settings.runtime_state_directory / "uploads",
         scratch_directory=settings.file_scratch_directory,
     )
+    workspace = WorkspaceMcpClient(
+        google_api_http,
+        credential=tokens.credential,
+        debit=debit,
+        approvals=approvals,
+        transfer_scratch=attachments.transfer_scratch,
+    )
+    tokens.on_grant_loss = workspace.invalidate
+    tokens.on_drive_loss = workspace.invalidate_drive
     google_read = WorkspaceReads(
         workspace,
         account=None if enrollment is None else enrollment.account,

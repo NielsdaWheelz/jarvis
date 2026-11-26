@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import tempfile
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -297,6 +296,9 @@ class DriveEntry(Closed):
     modified: str | None
     size: int | None
     etag: str | None
+    owner: str | None
+    visibility: str | None
+    shared_drive: DriveId | None
     capabilities: DriveCapabilities | None
     link: str
     url: str | None
@@ -313,6 +315,9 @@ class DriveEntry(Closed):
             modified=file.modified,
             size=file.size,
             etag=file.etag,
+            owner=file.owner,
+            visibility=file.visibility,
+            shared_drive=file.shared_drive,
             url=file.url,
             capabilities=DriveCapabilities(
                 add_children=capability.get("canAddChildren"),
@@ -485,6 +490,16 @@ def workspace_cursor_scope(
 ) -> str:
     args = {key: value for key, value in arguments.items() if key != "cursor"}
     return _digest([identity, str(grant_id), tool, args])
+
+
+def _fitting_page_end(items: Sequence[BaseModel], first: int) -> int:
+    cap = GOOGLE_OUTPUT_BYTES - GOOGLE_CURSOR_BYTES - 2048
+    used = 0
+    for index, item in enumerate(items[first:], first):
+        used += len(canonical_json_bytes(item.model_dump(mode="json"))) + 1
+        if used > cap:
+            return index
+    return len(items)
 
 
 class WorkspaceReads:
@@ -689,7 +704,7 @@ class WorkspaceReads:
                         download=(destination, maximum),
                     )
 
-                with tempfile.TemporaryFile() as scratch:
+                async with self.client.drive_temporary(ATTACHMENT_MAX_BYTES) as scratch:
                     file, size, digest = await fetch_binary(
                         call,
                         transfer,
@@ -719,7 +734,10 @@ class WorkspaceReads:
                     return DrivePage(
                         permissions=permissions(raw, value.id),
                         coverage=Coverage(
-                            state="partial", reason="inherited_access_unverified"
+                            state="partial",
+                            reason="permission_page_unavailable"
+                            if raw.get("nextPageToken")
+                            else "inherited_access_unverified",
                         ),
                         observed_at=datetime.now(UTC),
                         link=file_href(subject, value.id),
@@ -852,14 +870,7 @@ class WorkspaceReads:
         start = cursor.offset if cursor else 0
         if start > len(items):
             raise WorkspaceError("invalid_cursor")
-        end = start
-        used = 0
-        for item in items[start:]:
-            spent = len(canonical_json_bytes(item.model_dump(mode="json"))) + 1
-            if used + spent > GOOGLE_OUTPUT_BYTES - GOOGLE_CURSOR_BYTES - 2048:
-                break
-            used += spent
-            end += 1
+        end = _fitting_page_end(items, start)
         tokens = cursor.seen if cursor else []
         reason = "google_omissions" if data.get("omittedContent") else None
         next_cursor = None
@@ -952,22 +963,24 @@ class WorkspaceReads:
                 download=(file, bound),
             )
 
-        try:
-            with destination.open("x+b") as output:
-                file, size, digest = await fetch_binary(
-                    call,
-                    transfer,
-                    id,
-                    export_type,
-                    output,
-                    maximum,
+        async with self.client.drive_scratch(maximum):
+            output = destination.open("x+b")
+            try:
+                with output:
+                    file, size, digest = await fetch_binary(
+                        call,
+                        transfer,
+                        id,
+                        export_type,
+                        output,
+                        maximum,
+                    )
+                return DriveSourceFile(
+                    destination, file.name, export_type or file.mime, size, digest
                 )
-            return DriveSourceFile(
-                destination, file.name, export_type or file.mime, size, digest
-            )
-        except (Exception, asyncio.CancelledError):
-            destination.unlink(missing_ok=True)
-            raise
+            except (Exception, asyncio.CancelledError):
+                destination.unlink(missing_ok=True)
+                raise
 
     async def _collection(self, tool: str, value: Collection, now: datetime) -> Page:
         args = value.model_dump(mode="json")
@@ -1078,14 +1091,7 @@ class WorkspaceReads:
             raise WorkspaceError("source_changed")
         if start > len(items):
             raise WorkspaceError("invalid_cursor")
-        end = start
-        used = 0
-        for entry in items[start:]:
-            size = len(canonical_json_bytes(entry.model_dump(mode="json"))) + 1
-            if used + size > GOOGLE_OUTPUT_BYTES - GOOGLE_CURSOR_BYTES - 2048:
-                break
-            used += size
-            end += 1
+        end = _fitting_page_end(items, start)
         if end < len(items):
             if end == start:
                 return Page(

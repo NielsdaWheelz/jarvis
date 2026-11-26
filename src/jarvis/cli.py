@@ -302,7 +302,7 @@ def _file_scratch_layout(
         or Path(host.notes_repository).is_relative_to(path)
     ):
         raise StartupDefect(
-            "native file scratch must be app-owned mode 0750 in the native client group, "
+            "native file scratch must be app-owned mode 0750 in the client group, "
             "separate from private state and the notes checkout"
         )
 

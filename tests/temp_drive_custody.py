@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import os
 import sys
@@ -83,14 +84,17 @@ async def run() -> None:
                     work=None,
                     attachments=attachments,
                     submit=submit,
-                    spool=spool,
                     pages=root,
+                    **({"spool": spool} if predecessor else {}),
                     phone=PhoneSlot(root / "phone", lambda: None),
                 )
                 async with httpx.AsyncClient(
                     transport=httpx.ASGITransport(app=app),
                     base_url=HOME_ORIGIN,
-                    headers={"Origin": HOME_ORIGIN},
+                    headers={
+                        "Origin": HOME_ORIGIN,
+                        "X-Jarvis-Viewer-Contract": "drive-files",
+                    },
                 ) as client:
 
                     async def send(identifier, payload):
@@ -122,7 +126,15 @@ async def run() -> None:
                         )
                         source = rows.mappings().one()
                     assert source["state"] == "staged"
-                    download = await client.get(f"/api/files/{source['id']}")
+                    stale = await client.put(
+                        f"/api/messages/{uuid4()}",
+                        headers={"X-Jarvis-Viewer-Contract": "retired"},
+                        json={"text": "stale client"},
+                    )
+                    assert stale.status_code == 426
+                    download = await client.get(
+                        f"/api/drive/origin/{source['id']}/content"
+                    )
                     assert download.content == data
                     native = (await attachments.open(source["id"])).value
                     assert native["type"] == "Success", native
@@ -142,7 +154,67 @@ async def run() -> None:
                     with patch("jarvis.home_uploads.BODY_LIMIT", len(data)):
                         assert (await send(uuid4(), data)).status_code == 413
                     assert len(list(spool.iterdir())) == 1
+                    from jarvis.attachment_sources import AttachmentSources
+                    from jarvis.workspace_mcp import WorkspaceError
+                    from jarvis.workspace_write_models import SubmissionSource
+
+                    async def unused_fence():
+                        raise AssertionError("spool source should use no provider")
+
+                    marked = AttachmentSources(attachments, None)
+                    submission_source = SubmissionSource(submission_id=source["id"])
+                    (actual_file,) = spool.iterdir()
+                    alternate = actual_file.with_name(".source-fault")
+                    actual_file.rename(alternate)
+                    try:
+                        async with marked.open(
+                            submission_source,
+                            invocation_id="missing-source",
+                            before_send=unused_fence,
+                        ):
+                            raise AssertionError("missing source was yielded")
+                    except WorkspaceError as exc:
+                        assert exc.known_no_effect, (
+                            "pre-effect read was treated as unknown"
+                        )
+                    finally:
+                        alternate.rename(actual_file)
+                    with patch(
+                        "jarvis.attachment_sources.tempfile.NamedTemporaryFile",
+                        side_effect=OSError("synthetic temp disk full"),
+                    ):
+                        async with marked.open(
+                            submission_source,
+                            invocation_id="no-second-copy",
+                            before_send=unused_fence,
+                        ) as upload:
+                            assert upload.path == actual_file
+                            assert upload.path.read_bytes() == data
+                    assert list(spool.iterdir()) == [actual_file]
+
                     from jarvis.attachments import CustodyConflict
+
+                    # In-flight transport competes for the same native scratch.
+                    with patch("jarvis.attachments.SCRATCH_MAX_BYTES", 4):
+                        async with attachments.transfer_scratch(2) as transfer_dir:
+                            assert transfer_dir == scratch
+                            try:
+                                await attachments.materialize(
+                                    io.BytesIO(b"abc"),
+                                    3,
+                                    hashlib.sha256(b"abc").hexdigest(),
+                                )
+                            except CustodyConflict as exc:
+                                assert str(exc) == "ScratchFull"
+                            else:
+                                raise AssertionError(
+                                    "transfer scratch was not accounted"
+                                )
+                        path = await attachments.materialize(
+                            io.BytesIO(b"abc"), 3, hashlib.sha256(b"abc").hexdigest()
+                        )
+                        assert path.read_bytes() == b"abc"
+                        await attachments.reset_scratch()
 
                     # Replay the saved id after an executor restart.
                     async def create_action(
@@ -290,6 +362,9 @@ async def run_mail() -> None:
             before_send,
         ):
             assert (subject, id, export_type) == ("owner-subject", "doc", None)
+            assert (
+                destination.parent.parent == Path(directory) and destination.name == "1"
+            )
             await before_send()
             self.calls += 1
             if len(self.data) > maximum:

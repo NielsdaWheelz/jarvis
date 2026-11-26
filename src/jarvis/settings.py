@@ -327,7 +327,11 @@ class Settings(MemoryJobSettings):
                 ),
                 maps_api_key=SecretStr(required("JARVIS_MAPS_API_KEY")),
                 brave_api_key=SecretStr(required("JARVIS_BRAVE_API_KEY")),
-                file_scratch_directory=Path(required("JARVIS_FILE_SCRATCH_DIRECTORY")),
+                file_scratch_directory=Path(
+                    source.get(
+                        "JARVIS_FILE_SCRATCH_DIRECTORY", "/var/cache/jarvis/files"
+                    )
+                ),
                 maximum_batch_size=positive_int("JARVIS_MAXIMUM_BATCH_SIZE", 20),
                 delivery_batch_size=positive_int("JARVIS_DELIVERY_BATCH_SIZE", 20),
             )

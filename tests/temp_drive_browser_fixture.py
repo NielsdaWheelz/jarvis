@@ -1,8 +1,11 @@
 """Synthetic Drive transport with the actual Jarvis home routes/assets."""
 
+import struct
+import zlib
+
 from datetime import UTC, datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, TemporaryFile
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -45,10 +48,14 @@ def pdf(count: int) -> bytes:
 PDF = "application/pdf"
 FOLDER = "application/vnd.google-apps.folder"
 DOC = "application/vnd.google-apps.document"
-image = bytes.fromhex(
-    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-    "0000000d4944415478da63fccfc0500f00058301ffed46692b0000000049454e44ae426082"
-)
+def png_chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+image = b"\x89PNG\r\n\x1a\n" + b"".join((
+    png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)),
+    png_chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00\xff")),
+    png_chunk(b"IEND", b""),
+))
 items = {
     "tax": {"name": "tax", "mimeType": FOLDER, "parents": ["root"]},
     "2026": {"name": "2026", "mimeType": FOLDER, "parents": ["tax"]},
@@ -109,7 +116,7 @@ async def origin(identifier: UUID):
     filed = identifier == archive
     return SimpleNamespace(
         id=identifier, filename="return.pdf" if filed else "upload.pdf", media_type=PDF,
-        size_bytes=100, created_at=datetime(2026, 11, 26, tzinfo=UTC), state="filed" if filed else "staged",
+        size_bytes=len(pdf(6)), created_at=datetime(2026, 11, 26, tzinfo=UTC), state="filed" if filed else "staged",
         drive_subject="owner" if filed else None, drive_file_id="return" if filed else None,
         disposition=None,
     )
@@ -119,11 +126,19 @@ async def pending():
     return [await origin(upload)]
 
 
+async def open_pending(identifier: UUID):
+    assert identifier == upload
+    content = TemporaryFile(dir=spool)
+    content.write(pdf(6))
+    content.seek(0)
+    return await origin(identifier), content
+
+
 provider_client = httpx.AsyncClient(transport=httpx.MockTransport(provider))
 app = create_home_app(
     database=None, scope="owner", owner_timezone="UTC", work=None,
-    attachments=SimpleNamespace(pending=pending, inspect=origin),
-    submit=None, spool=spool, pages=spool, phone=None,
+    attachments=SimpleNamespace(pending=pending, inspect=origin, open_pending=open_pending),
+    submit=None, pages=spool, phone=None,
     drive_reader=DriveReader(provider_client, grant, spool, b"1" * 32),
 )
 fixture = FastAPI()

@@ -1,7 +1,9 @@
 """Controlled redirect-free Drive MCP journey for ADR 0120. Temporary proof."""
+
 import asyncio
 import base64
 import json
+import os
 from contextlib import asynccontextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -37,7 +39,12 @@ FOLDER = "application/vnd.google-apps.folder"
 PDF = "application/pdf"
 RAW = b"%PDF-1.7\n" + b"o" * 500_000
 OWNER = {"id": "owner", "role": "owner", "type": "user", "emailAddress": ACCOUNT}
-READER = {"id": "group", "role": "reader", "type": "group", "emailAddress": "family@example.test"}
+READER = {
+    "id": "group",
+    "role": "reader",
+    "type": "group",
+    "emailAddress": "family@example.test",
+}
 
 
 class Provider:
@@ -52,15 +59,18 @@ class Provider:
         }
         self.docs = {"doc": self.doc("doc", "rev0", "before\n")}
         self.permissions = {}
+        self.partial_permissions = False
         self.fail_create = False
         self.fail_revise = False
         self.fail_docs = False
         self.bad_binary = False
         self.write_total = 0
         self.catalogs = {
-            (product, method): json.loads(Path(
-                f"/tmp/jarvis-0120-unit-a-public-{product}-{method.replace('/', '-')}.json"
-            ).read_text())
+            (product, method): json.loads(
+                Path(
+                    f"{os.environ['JARVIS_DRIVE_CATALOG_DIR']}/jarvis-0120-unit-a-public-{product}-{method.replace('/', '-')}.json"
+                ).read_text()
+            )
             for product in ("drive", "docs")
             for method in ("server/discover", "tools/list")
         }
@@ -68,18 +78,37 @@ class Provider:
     @staticmethod
     def file(id, title, mime, parent=None, *, size=None, tag="etag0"):
         return {
-            "id": id, "title": title, "mimeType": mime, "parentId": parent,
-            "owner": ACCOUNT, "visibility": "PRIVATE", "etag": tag, "trashed": False,
+            "id": id,
+            "title": title,
+            "mimeType": mime,
+            "parentId": parent,
+            "owner": ACCOUNT,
+            "visibility": "PRIVATE",
+            "etag": tag,
+            "trashed": False,
             "fileSize": str(size) if size is not None else None,
         }
 
     @staticmethod
     def doc(id, revision, text):
-        return {"documentId": id, "revisionId": revision, "body": {
-            "content": [{"paragraph": {"elements": [{
-                "startIndex": 1, "textRun": {"content": text},
-            }]}}],
-        }}
+        return {
+            "documentId": id,
+            "revisionId": revision,
+            "body": {
+                "content": [
+                    {
+                        "paragraph": {
+                            "elements": [
+                                {
+                                    "startIndex": 1,
+                                    "textRun": {"content": text},
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+        }
 
     async def response(self, request):
         content = await request.aread()
@@ -89,7 +118,9 @@ class Provider:
         product = request.url.host.split("mcp.", 1)[0]
         method = data["method"]
         if (product, method) in self.catalogs:
-            return httpx.Response(200, json=self.catalogs[product, method] | {"id": data["id"]})
+            return httpx.Response(
+                200, json=self.catalogs[product, method] | {"id": data["id"]}
+            )
         params = data["params"]
         tool = params["name"]
         args = params["arguments"]
@@ -98,24 +129,35 @@ class Provider:
         id = args.get("fileId") or args.get("documentId")
         reply = {"resultType": "complete"}
         malformed_precondition = {
-            "status": "FAILED_PRECONDITION", "code": 400,
+            "status": "FAILED_PRECONDITION",
+            "code": 400,
         }
         if tool == "get_file_metadata":
             body = self.items["root_id" if id == "root" else id]
         elif tool == "get_file_permissions":
             body = {"permissions": self.permissions.get(id, [OWNER])}
+            if self.partial_permissions and id == "root_id":
+                body["nextPageToken"] = "withheld"
         elif tool == "search_files":
             if args.get("pageToken") is not None:
                 body = {"files": [self.items["pdf"], self.items["doc"]]}
             else:
-                body = {"files": [self.items["pdf"], self.items["pdf"]], "nextPageToken": "page1"}
+                body = {
+                    "files": [self.items["pdf"], self.items["pdf"]],
+                    "nextPageToken": "page1",
+                }
         elif tool == "list_recent_files":
             body = {"files": [self.items["doc"]]}
         elif tool == "read_file_content":
             body = {"fileContent": "tax return\n", "textFormattingNotSupported": True}
         elif tool == "download_file_content":
             payload = base64.b64encode(self.binary[id]).decode()
-            blob = {"id": id, "title": self.items[id]["title"], "mimeType": PDF, "content": payload}
+            blob = {
+                "id": id,
+                "title": self.items[id]["title"],
+                "mimeType": PDF,
+                "content": payload,
+            }
             reply["content"] = [{"type": "text", "text": json.dumps(blob)}]
             body = blob | {"content": "MQ==" if self.bad_binary else payload}
         elif tool == "read_doc":
@@ -123,11 +165,17 @@ class Provider:
         elif tool == "update_doc":
             self.write_total += 1
             assert args["writeControl"] == {
-                "requiredRevisionId": "rev0", "writeMode": "SUGGEST",
+                "requiredRevisionId": "rev0",
+                "writeMode": "SUGGEST",
             }
             if self.fail_docs:
                 return httpx.Response(
-                    200, json={"jsonrpc": "2.0", "id": data["id"], "error": malformed_precondition},
+                    200,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": data["id"],
+                        "error": {"status": "INVALID_ARGUMENT", "code": 400},
+                    },
                 )
             self.docs[id] = self.doc(id, "rev1", "after\n")
             body = {"replies": [{}], "writeControl": {"requiredRevisionId": "rev1"}}
@@ -144,7 +192,9 @@ class Provider:
             else:
                 mime, size = DRIVE_DOC, None
                 self.docs[id] = self.doc(id, "newrev", args["textContent"] + "\n")
-            self.items[id] = self.file(id, args["title"], mime, args["parentId"], size=size)
+            self.items[id] = self.file(
+                id, args["title"], mime, args["parentId"], size=size
+            )
             if self.fail_create:
                 raise httpx.ReadError("intentional reply loss", request=request)
             body = self.items[id]
@@ -152,14 +202,21 @@ class Provider:
             self.write_total += 1
             copy = f"copy{self.write_total}"
             self.binary[copy] = self.binary[id]
-            self.items[copy] = self.file(copy, args["title"], PDF, args["parentId"], size=len(self.binary[copy]))
+            self.items[copy] = self.file(
+                copy, args["title"], PDF, args["parentId"], size=len(self.binary[copy])
+            )
             body = self.items[copy]
         elif tool == "upload_file_revision":
             self.write_total += 1
             assert args["etag"] == self.items[id]["etag"]
             if self.fail_revise:
                 return httpx.Response(
-                    200, json={"jsonrpc": "2.0", "id": data["id"], "error": malformed_precondition},
+                    200,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": data["id"],
+                        "error": malformed_precondition,
+                    },
                 )
             self.binary[id] = base64.b64decode(args["base64Content"], validate=True)
             self.items[id]["fileSize"] = str(len(self.binary[id]))
@@ -168,12 +225,17 @@ class Provider:
         else:
             raise AssertionError(tool)
         reply["structuredContent"] = body
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": data["id"], "result": reply})
+        return httpx.Response(
+            200, json={"jsonrpc": "2.0", "id": data["id"], "result": reply}
+        )
 
 
 async def test(path):
     provider = Provider()
-    async with httpx.AsyncClient(transport=httpx.MockTransport(provider.response)) as http:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(provider.response)
+    ) as http:
+
         async def credential(grant, _):
             assert grant == GRANT
             return WorkspaceCredential("fake-drive-token", frozenset({DRIVE_SCOPE}))
@@ -194,13 +256,25 @@ async def test(path):
             target.write_bytes(data)
             return target
 
+        @asynccontextmanager
+        async def scratch(_):
+            yield path
+
         mcp = WorkspaceMcpClient(
-            http, credential=credential, debit=debit, approvals=WorkspaceApprovals(audit=audit),
+            http,
+            credential=credential,
+            debit=debit,
+            approvals=WorkspaceApprovals(audit=audit),
+            transfer_scratch=scratch,
         )
         reads = WorkspaceReads(
-            mcp, account=ACCOUNT, subject=SUBJECT, grant_id=GRANT,
+            mcp,
+            account=ACCOUNT,
+            subject=SUBJECT,
+            grant_id=GRANT,
             access=lambda: WorkspaceReadAccess("inv", False, fence),
-            drive_materialize=materialize, drive_download_qualified=True,
+            drive_materialize=materialize,
+            drive_download_qualified=True,
         )
         source_bytes = path / "chosen.pdf"
         source_bytes.write_bytes(RAW + b"revised")
@@ -210,11 +284,17 @@ async def test(path):
             async def open(self, source, *, invocation_id, before_send):
                 await before_send()
                 data = source_bytes.read_bytes()
-                yield DriveSourceFile(source_bytes, "chosen.pdf", PDF, len(data), sha256(data).hexdigest())
+                yield DriveSourceFile(
+                    source_bytes, "chosen.pdf", PDF, len(data), sha256(data).hexdigest()
+                )
 
         writes = WorkspaceWrites(
-            mcp, None, drive_sources=Sources(), drive_download_qualified=True,
-            drive_revise_qualified=True, docs_update_qualified=True,
+            mcp,
+            None,
+            drive_sources=Sources(),
+            drive_download_qualified=True,
+            drive_revise_qualified=True,
+            docs_update_qualified=True,
         )
         acks = []
         source = {"submission_id": str(uuid4())}
@@ -225,24 +305,49 @@ async def test(path):
 
         async def prepare(tool, args):
             return await writes.prepare(
-                tool, args, action_id=uuid4(), grant_id=GRANT, account=ACCOUNT,
-                invocation_id="inv", before_send=fence, subject=SUBJECT,
+                tool,
+                args,
+                action_id=uuid4(),
+                grant_id=GRANT,
+                account=ACCOUNT,
+                invocation_id="inv",
+                before_send=fence,
+                subject=SUBJECT,
             )
 
         async def execute(item):
             return await writes.execute(
-                item, invocation_id="inv", before_send=fence, record_ack=ack,
+                item,
+                invocation_id="inv",
+                before_send=fence,
+                record_ack=ack,
             )
 
-        p1 = await reads.read_drive("drive.search", DriveSearch(query="name contains 'tax'"))
+        p1 = await reads.read_drive(
+            "drive.search", DriveSearch(query="name contains 'tax'")
+        )
         assert [item.id for item in p1.items] == ["pdf"]
-        p2 = await reads.read_drive("drive.search", DriveSearch(query="name contains 'tax'", cursor=p1.next.cursor))
+        p2 = await reads.read_drive(
+            "drive.search",
+            DriveSearch(query="name contains 'tax'", cursor=p1.next.cursor),
+        )
         assert [item.id for item in p2.items] == ["doc"] and p2.next is None
-        assert (await reads.read_drive("drive.recent", Collection())).items[0].id == "doc"
-        assert (await reads.read_drive("drive.get", DriveItem(id="pdf"))).items[0].etag == "etag0"
-        assert (await reads.read_drive("drive.permissions", DriveItem(id="pdf"))).permissions[0].address == ACCOUNT
-        assert "tax return" in (await reads.read_drive("drive.read", DriveText(id="pdf"))).chunk.text
-        assert (await reads.read_drive("docs.read", DriveText(id="doc"))).revision == "rev0"
+        assert (await reads.read_drive("drive.recent", Collection())).items[
+            0
+        ].id == "doc"
+        assert (await reads.read_drive("drive.get", DriveItem(id="pdf"))).items[
+            0
+        ].etag == "etag0"
+        assert (
+            await reads.read_drive("drive.permissions", DriveItem(id="pdf"))
+        ).permissions[0].address == ACCOUNT
+        assert (
+            "tax return"
+            in (await reads.read_drive("drive.read", DriveText(id="pdf"))).chunk.text
+        )
+        assert (
+            await reads.read_drive("docs.read", DriveText(id="doc"))
+        ).revision == "rev0"
         download = await reads.read_drive("drive.download", DriveDownload(id="pdf"))
         assert Path(download.downloaded.path).read_bytes() == RAW
         provider.bad_binary = True
@@ -266,12 +371,23 @@ async def test(path):
         else:
             raise AssertionError("changed inherited audience did not stop effect")
         assert provider.write_total == original_total
-        assert (await prepare("drive.create", create_args)).effect.audience.state == "shared"
+        assert (
+            await prepare("drive.create", create_args)
+        ).effect.audience.state == "shared"
+        provider.partial_permissions = True
+        assert (
+            await prepare("drive.create", create_args)
+        ).effect.audience.state == "unknown"
+        provider.partial_permissions = False
         provider.permissions.clear()
         made = await execute(create)
         assert made.verification == "verified" and acks[-1].file_id == made.file_id
         assert provider.binary[made.file_id] == source_bytes.read_bytes()
-        assert (await writes.recover_drive(create, acks[-1], invocation_id="repair", before_send=fence)).verification == "verified"
+        assert (
+            await writes.recover_drive(
+                create, acks[-1], invocation_id="repair", before_send=fence
+            )
+        ).verification == "verified"
 
         provider.fail_create = True
         before = provider.write_total
@@ -284,11 +400,20 @@ async def test(path):
         assert provider.write_total == before + 1
         provider.fail_create = False
 
-        copied = await execute(await prepare("drive.copy", {
-            "id": "pdf", "parent": "folder", "name": "copy.pdf",
-        }))
+        copied = await execute(
+            await prepare(
+                "drive.copy",
+                {
+                    "id": "pdf",
+                    "parent": "folder",
+                    "name": "copy.pdf",
+                },
+            )
+        )
         assert copied.verification == "verified" and copied.file_id != "pdf"
-        revise = await prepare("drive.revise", {"id": "pdf", "etag": "etag0", "source": source})
+        revise = await prepare(
+            "drive.revise", {"id": "pdf", "etag": "etag0", "source": source}
+        )
         provider.fail_revise = True
         try:
             await execute(revise)
@@ -299,16 +424,42 @@ async def test(path):
         provider.fail_revise = False
         revision = await execute(revise)
         assert revision.verification == "verified" and revision.revision == "revision1"
-        assert revision.etag == "etag1" and provider.binary["pdf"] == source_bytes.read_bytes()
+        assert (
+            revision.etag == "etag1"
+            and provider.binary["pdf"] == source_bytes.read_bytes()
+        )
 
-        doc = await execute(await prepare("drive.create", {
-            "parent": "folder", "name": "new doc", "source": {"text": "hello"},
-        }))
+        doc = await execute(
+            await prepare(
+                "drive.create",
+                {
+                    "parent": "folder",
+                    "name": "new doc",
+                    "source": {"text": "hello"},
+                },
+            )
+        )
         assert doc.verification == "verified"
-        updated = await execute(await prepare("docs.update", {
-            "id": "doc", "revision": "rev0", "mode": "suggest",
-            "requests": [{"insertText": {"location": {"index": 1}, "text": "after"}}],
-        }))
+        edit = await prepare(
+            "docs.update",
+            {
+                "id": "doc",
+                "revision": "rev0",
+                "mode": "suggest",
+                "requests": [
+                    {"insertText": {"location": {"index": 1}, "text": "after"}}
+                ],
+            },
+        )
+        provider.fail_docs = True
+        try:
+            await execute(edit)
+        except WorkspaceError as exc:
+            assert exc.kind == "document_write_rejected" and exc.known_no_effect
+        else:
+            raise AssertionError("rival docs revision not rejected")
+        provider.fail_docs = False
+        updated = await execute(edit)
         assert updated.verification == "verified" and updated.revision == "rev1"
 
 

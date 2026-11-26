@@ -8,8 +8,8 @@ import logging
 import os
 import shutil
 import tempfile
-from collections.abc import Callable, Mapping
-from contextlib import nullcontext
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +37,7 @@ from jarvis.db import (
 from jarvis.ownership import Database
 from jarvis.read_tools import ATTACHMENT_MAX_BYTES, ReadResponse, display_descriptor
 from jarvis.workspace_checks import workspace_read_receipts
+from jarvis.workspace_mcp import WorkspaceError
 from jarvis.workspace_reads import observed_workspace_file
 
 SPOOL_MAX_BYTES = 1024 * 1024 * 1024
@@ -225,6 +226,7 @@ class AttachmentStore:
         self._spool = spool_directory
         self._scratch = scratch_directory
         self._scratch_lock = asyncio.Lock()
+        self._scratch_reserved = 0
 
     def _owned_rows(self) -> Select[tuple[object, ...]]:
         return (
@@ -299,17 +301,35 @@ class AttachmentStore:
         assert stream is not None
         return record, stream
 
+    def _scratch_available(self, size: int) -> bool:
+        named = sum(
+            path.stat().st_size for path in self._scratch.iterdir() if path.is_file()
+        )
+        return named + self._scratch_reserved + size <= SCRATCH_MAX_BYTES
+
+    @asynccontextmanager
+    async def transfer_scratch(self, reserved: int) -> AsyncIterator[Path]:
+        """Reserve the upper bound for private transport bytes until they close."""
+        if reserved < 0:
+            raise ValueError("scratch reservation must be nonnegative")
+        async with self._scratch_lock:
+            if not self._scratch_available(reserved):
+                raise WorkspaceError("scratch_full", known_no_effect=True)
+            self._scratch_reserved += reserved
+        try:
+            yield self._scratch
+        finally:
+            # Same event loop as allocation, with no cancellable release step.
+            self._scratch_reserved -= reserved
+
     async def materialize(self, source: BinaryIO, size: int, digest: str) -> Path:
         """Publish one verified read-only file in the native attempt scratch."""
         async with self._scratch_lock:
+            if not self._scratch_available(size):
+                raise CustodyConflict("ScratchFull")
             return await joined_thread(self._materialize, source, size, digest)
 
     def _materialize(self, source: BinaryIO, size: int, digest: str) -> Path:
-        if (
-            sum(path.stat().st_size for path in self._scratch.iterdir()) + size
-            > SCRATCH_MAX_BYTES
-        ):
-            raise CustodyConflict("ScratchFull")
         with tempfile.NamedTemporaryFile(dir=self._scratch, delete=False) as output:
             path = Path(output.name)
             try:
@@ -369,6 +389,8 @@ class AttachmentStore:
                     path.unlink()
 
         async with self._scratch_lock:
+            if self._scratch_reserved:
+                raise CustodyConflict("ScratchInUse")
             await joined_thread(reset)
 
     async def clean_spool(self) -> None:

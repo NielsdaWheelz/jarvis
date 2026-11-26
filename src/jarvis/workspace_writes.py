@@ -7,7 +7,6 @@ import base64
 import hashlib
 import json
 import re
-import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
@@ -47,6 +46,7 @@ from jarvis.mail_files import MailFileFailure, MailFiles, NewMailFile, ObservedM
 from jarvis.read_tools import ATTACHMENT_MAX_BYTES
 from jarvis.workspace_links import workspace_link
 from jarvis.workspace_mcp import (
+    WORKSPACE_DRIVE_RPC_LIMIT,
     Fence,
     Product,
     WorkspaceError,
@@ -111,7 +111,6 @@ type AckRecorder = Callable[[Receipt], Awaitable[None]]
 type EventRequest = CreateEvent | EventEdits | DeleteEvent
 
 _PARSE_ERRORS = (ValueError, LookupError, HeaderParseError, RecursionError)
-_DRIVE_WRITE_ATTEMPTS = 96
 _DRIVE_WRITE_SECONDS = 300.0
 _DOC = NATIVE_MIME + "document"
 _NEW_DRIVE_TYPES = {
@@ -1015,7 +1014,10 @@ def _document_text(doc: Obj) -> str:
             return ""
         row = cast(Obj, item)
         if "textRun" in row:
-            return str(_obj(row["textRun"])["content"])
+            value = _obj(row["textRun"])["content"]
+            if not isinstance(value, str):
+                raise ValueError("invalid document text run")
+            return value
         return "".join(
             content(row[key])
             for key in (
@@ -1112,7 +1114,7 @@ async def _drive_bytes(io: _Exchange, id: str) -> tuple[int, str]:
             "drive", "download_file_content", args, download=(output, maximum)
         )
 
-    with tempfile.TemporaryFile() as output:
+    async with io.client.drive_temporary(ATTACHMENT_MAX_BYTES) as output:
         _, size, digest = await fetch_binary(
             io.call, transfer, id, None, output, ATTACHMENT_MAX_BYTES
         )
@@ -1193,7 +1195,7 @@ class WorkspaceWrites:
             if subject is None or replacement is not None:
                 raise WorkspaceError("grant_unavailable")
             with workspace_attempts(
-                _DRIVE_WRITE_ATTEMPTS, seconds=_DRIVE_WRITE_SECONDS
+                WORKSPACE_DRIVE_RPC_LIMIT, seconds=_DRIVE_WRITE_SECONDS
             ):
                 io = _Exchange(
                     self._client, grant_id, account, invocation_id, before_send
@@ -1299,7 +1301,7 @@ class WorkspaceWrites:
     ) -> Receipt:
         drive = frozen.tool.startswith(("drive.", "docs."))
         with workspace_attempts(
-            _DRIVE_WRITE_ATTEMPTS if drive else GMAIL_WRITE_POLICY.max_attempts,
+            WORKSPACE_DRIVE_RPC_LIMIT if drive else GMAIL_WRITE_POLICY.max_attempts,
             seconds=_DRIVE_WRITE_SECONDS
             if drive
             else GMAIL_WRITE_POLICY.operation_seconds
@@ -1721,7 +1723,9 @@ class WorkspaceWrites:
             )
         ):
             raise WorkspaceError("invalid_receipt")
-        with workspace_attempts(_DRIVE_WRITE_ATTEMPTS, seconds=_DRIVE_WRITE_SECONDS):
+        with workspace_attempts(
+            WORKSPACE_DRIVE_RPC_LIMIT, seconds=_DRIVE_WRITE_SECONDS
+        ):
             io = _Exchange(
                 self._client,
                 frozen.grant_id,

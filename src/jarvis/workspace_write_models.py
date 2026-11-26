@@ -600,7 +600,9 @@ class DriveCreateSource(_StrictModel):
 
     @property
     def value(self) -> DriveBinarySource | DriveTextSource | DriveNewSource:
-        fields = self.model_fields_set
+        fields = {
+            name for name in type(self).model_fields if getattr(self, name) is not None
+        }
         if fields == {"submission_id"} and self.submission_id is not None:
             return SubmissionSource(submission_id=self.submission_id)
         if fields == {"gmail_observation", "part_selector"} and (
@@ -630,10 +632,6 @@ class DriveCreateSource(_StrictModel):
     def selected(self) -> Self:
         _ = self.value
         return self
-
-    @model_serializer(mode="wrap")
-    def supplied(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
-        return {key: value for key, value in handler(self).items() if value is not None}
 
 
 class DriveCreate(_StrictModel):
@@ -814,15 +812,11 @@ class DocsRequest(_StrictModel):
     @model_validator(mode="after")
     def operation(self) -> Self:
         if (
-            len(self.model_fields_set) != 1
-            or getattr(self, next(iter(self.model_fields_set))) is None
+            sum(getattr(self, name) is not None for name in type(self).model_fields)
+            != 1
         ):
             raise ValueError("each docs request needs one supported operation")
         return self
-
-    @model_serializer(mode="wrap")
-    def supplied(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
-        return {key: value for key, value in handler(self).items() if value is not None}
 
 
 class DocsUpdate(_StrictModel):

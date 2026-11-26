@@ -1,8 +1,8 @@
 """Controlled Android UI proof against the ordinary home routes."""
 
+import json
 import re
 import subprocess
-import time
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -61,6 +61,16 @@ adb("shell", "input", "keyevent", "4")
 tap("tax")
 tap("2026")
 present("return.pdf")
+tap("attach to chat")
+present("about drive file")
+drafts = adb("shell", "run-as", PACKAGE, "find", "no_backup/drafts", "-name", "draft.json").splitlines()
+assert any(
+    json.loads(adb("shell", "run-as", PACKAGE, "cat", path))["ref"]
+    == {"kind": "drive_file", "subject": "owner", "id": "2026"}
+    for path in drafts
+)
+adb("shell", "input", "keyevent", "4")
+present("return.pdf")
 show(ARCHIVE)
 present("page 6 of 6")
 assert cache().endswith(".preview"), cache()
@@ -85,7 +95,7 @@ tap("recent")
 present("pdf · tax / 2026")
 present("pdf · shared / accountant")
 tap("more files")
-present("google drive is limiting requests. retry in 1 seconds.")
+present("google drive is limiting requests. retry in 1 second.")
 present("return.pdf")
 # A new process removes a stale copy before showing any preview.
 adb("shell", "am", "force-stop", PACKAGE)

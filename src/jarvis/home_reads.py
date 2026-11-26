@@ -671,22 +671,22 @@ async def mail_revision(
         ):
             raise ActionPersistenceDefect("revision origin differs")
         if row["kind"] == "discard":
-            match = await _discard_revision(connection, scope, stored)
-            if match is None:
-                return unavailable_revision()
-            return await _attach_original_links(connection, scope, *match)
+            return (
+                await _discard_revision(connection, scope, stored)
+                or unavailable_revision()
+            )
         reading = inspect_revision(stored, saved=row["kind"] == "saved")
         reading["editable"] = editor_epoch is not None and row["epoch"] == str(
             editor_epoch
         )
-        return await _attach_original_links(connection, scope, stored, reading)
+        return reading
     except (ActionPersistenceDefect, ValueError):
         return integrity_failure()
 
 
 async def _discard_revision(
     connection: AsyncConnection, scope: str, stored: StoredAction
-) -> tuple[StoredAction, Record] | None:
+) -> Record | None:
     frozen = FrozenWorkspaceWrite.model_validate(
         stored.execution_contract.as_json().get("workspace")
     )
@@ -725,46 +725,7 @@ async def _discard_revision(
     if source is None:
         return None
     reading = inspect_revision(source, saved=True)
-    return (source, reading) if reading["status"] == "complete" else None
-
-
-async def _attach_original_links(
-    connection: AsyncConnection, scope: str, stored: StoredAction, reading: Record
-) -> Record:
-    files = reading["files"]
-    if not files:
-        return reading
-    arguments = stored.arguments.get("arguments")
-    if not isinstance(arguments, dict):
-        return reading
-    selectors = cast(Record, arguments).get("files")
-    if not isinstance(selectors, list):
-        return reading
-    selectors = cast(list[object], selectors)
-    if len(selectors) != len(files):
-        return reading
-    for selector, file in zip(selectors, files, strict=True):
-        if not isinstance(selector, dict):
-            continue
-        ref = cast(Record, selector)
-        if ref.get("kind") != "original" or not isinstance(ref.get("id"), str):
-            continue
-        original_id = await connection.scalar(
-            select(attachment.c.id)
-            .join(message, message.c.id == attachment.c.origin_message_id)
-            .where(
-                message.c.source_conversation_id == scope,
-                attachment.c.id == UUID(ref["id"]),
-                attachment.c.state == "ready",
-                attachment.c.error.is_(None),
-                attachment.c.filename == file["filename"],
-                attachment.c.size_bytes == file["size_bytes"],
-                attachment.c.sha256 == file["sha256"],
-            )
-        )
-        if original_id is not None:
-            file["original_id"] = str(original_id)
-    return reading
+    return reading if reading["status"] == "complete" else None
 
 
 @dataclass(frozen=True, slots=True)

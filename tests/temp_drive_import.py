@@ -21,7 +21,9 @@ from uuid import uuid4
 from jarvis.drive_cut import DriveCutManifest
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "deploy" / "drive-import"
+SCRIPT = Path(
+    os.environ.get("DRIVE_IMPORT_UNDER_TEST", ROOT / "deploy" / "drive-import")
+)
 WORK_ROOT = (
     Path.home()
     / ".local/state/jarvis/qualification/drive-files-implementation-2z9MM6fE"
@@ -236,10 +238,16 @@ class Case:
         self.token_file.write_text(TOKEN + "\n")
         self.token_file.chmod(0o600)
         self.state = self.dir / "map.jsonl"
+        self.google_state = self.dir / "google-state.json"
+        self.write_google_state({"status": "connected", "subject": SUBJECT})
         self.out = self.dir / "cut.json"
         self.outputs: list[str] = []
         self.rows: list[dict[str, object]] = []
         self.payloads: dict[str, bytes] = {}
+
+    def write_google_state(self, grant: dict[str, object], mode: int = 0o600) -> None:
+        self.google_state.write_text(json.dumps(grant))
+        self.google_state.chmod(mode)
 
     def close(self) -> None:
         self.server.shutdown()
@@ -291,14 +299,14 @@ class Case:
         path.write_text(json.dumps(inventory))
         return path, sha256(path.read_bytes()).hexdigest()
 
-    def run(
+    def command(
         self,
         inventory_sha: str | None = None,
         extra: list[str] | None = None,
         **override: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> list[str]:
         path, digest = self.write_inventory(**override)
-        args = [
+        return [
             sys.executable,
             str(SCRIPT),
             "--inventory",
@@ -313,11 +321,26 @@ class Case:
             str(self.state),
             "--out",
             str(self.out),
+            "--google-state",
+            str(self.google_state),
             "--api",
             self.api,
             "--tokeninfo",
             self.api + "/tokeninfo",
         ] + (extra or [])
+
+    def start(self) -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            self.command(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+
+    def run(
+        self,
+        inventory_sha: str | None = None,
+        extra: list[str] | None = None,
+        **override: object,
+    ) -> subprocess.CompletedProcess[str]:
+        args = self.command(inventory_sha, extra, **override)
         result = subprocess.run(args, capture_output=True, text=True, timeout=120)
         self.outputs += [result.stdout, result.stderr]
         assert TOKEN not in result.stdout + result.stderr, "token printed"
@@ -682,6 +705,169 @@ def test_plain_http_to_remote_host_refused() -> None:
         case.close()
 
 
+def test_second_run_on_same_map_is_locked_out_before_any_id() -> None:
+    case = Case()
+    try:
+        case.add("ready", "a.pdf", b"%PDF-one")
+        case.add("ready", "b.pdf", b"%PDF-two")
+        entered, release = threading.Event(), threading.Event()
+
+        def stall(meta: dict[str, object]) -> None:
+            if not entered.is_set():
+                entered.set()
+                release.wait(60)
+
+        case.fake.on_upload = stall
+        first = case.start()
+        try:
+            assert entered.wait(60), "first run never reached its upload"
+            seen = len(case.fake.log)
+            ids = case.fake.next_id
+            second = case.run()
+            assert second.returncode == 1, second.stderr
+            assert "locked" in second.stderr
+            assert len(case.fake.log) == seen and case.fake.next_id == ids == 1
+        finally:
+            release.set()
+        stdout, stderr = first.communicate(timeout=60)
+        assert first.returncode == 0, stderr
+        assert TOKEN not in stdout + stderr
+        sources = [r["source_uuid"] for r in case.frozen() if "verified_at" not in r]
+        assert len(sources) == len(set(sources)) == 2 and len(case.fake.files) == 2
+    finally:
+        case.close()
+
+
+def test_stopped_installation_subject_gates_the_import() -> None:
+    bad = {
+        "other subject": ({"status": "connected", "subject": "999"}, 0o600),
+        "not connected": ({"status": "revoked", "subject": SUBJECT}, 0o600),
+        "no subject": ({"status": "connected"}, 0o600),
+        "mode 0644": ({"status": "connected", "subject": SUBJECT}, 0o644),
+    }
+    for label, (grant, mode) in bad.items():
+        case = Case()
+        try:
+            case.standard()
+            case.write_google_state(grant, mode)
+            result = case.run()
+            case.assert_untouched(result)
+            assert not case.fake.log, f"network touched: {label}"
+            assert "google state" in result.stderr, label
+            case.write_google_state({"status": "connected", "subject": SUBJECT})
+            assert case.run().returncode == 0, f"control run failed: {label}"
+        finally:
+            case.close()
+    case = Case()
+    try:
+        case.standard()
+        case.google_state.unlink()
+        result = case.run()
+        case.assert_untouched(result)
+        assert not case.fake.log
+    finally:
+        case.close()
+
+
+def test_absent_name_gets_a_derived_title_frozen_before_upload() -> None:
+    for label, name in (("null", None), ("empty", "")):
+        case = Case()
+        try:
+            source = case.add("ready", name, b"%PDF-one")
+            case.add("ready", name, b"%PDF-one")  # same bytes, still separate
+            result = case.run()
+            assert result.returncode == 0, f"{label}: {result.stderr}"
+            title = f"attachment-{source}"
+            frozen = {
+                r["source_uuid"]: r for r in case.frozen() if "verified_at" not in r
+            }
+            assert frozen[source]["name"] == title, label
+            assert len({r["name"] for r in frozen.values()}) == 2, label
+            manifest = DriveCutManifest.model_validate_json(case.out.read_text())
+            entry = manifest.entries[0]
+            assert entry.name == name and entry.drive_id, label  # history untouched
+            stored = case.fake.files[entry.drive_id]
+            assert stored["name"] == title and stored["bytes"] == b"%PDF-one", label
+        finally:
+            case.close()
+    # the frozen title is the verified one: a tampered record is never reused
+    case = Case()
+    try:
+        case.add("ready", None, b"%PDF-one")
+        case.fake.faults = ["500_before_store"]
+        assert case.run().returncode == 1
+        lines = [json.loads(line) for line in case.state.read_text().splitlines()]
+        for record in lines:
+            record["name"] = "attachment-other"
+        case.state.write_text("".join(json.dumps(r) + "\n" for r in lines))
+        before = case.fake.uploads
+        assert case.run().returncode == 1 and case.fake.uploads == before
+    finally:
+        case.close()
+    # an upload that lands under another title fails readback
+    case = Case()
+    try:
+        case.add("ready", None, b"%PDF-one")
+        case.fake.mutate = {"name": "a.pdf"}
+        result = case.run()
+        assert result.returncode == 1 and "mismatch" in result.stderr
+    finally:
+        case.close()
+    # the title is derived from one spelling of the uuid
+    case = Case()
+    try:
+        case.add("ready", None, b"%PDF-one")
+        case.rows[0]["source_uuid"] = str(case.rows[0]["source_uuid"]).upper()
+        result = case.run()
+        case.assert_untouched(result)
+        assert not case.fake.log and "uuid" in result.stderr
+    finally:
+        case.close()
+
+
+def test_target_type_is_normalised_and_frozen_before_allocation() -> None:
+    octet = "application/octet-stream"
+    cases = {
+        "google-native": ("application/vnd.google-apps.document", octet),
+        "native upper": ("Application/Vnd.Google-Apps.Folder", octet),
+        "absent": (None, octet),
+        "parameters": ("Text/Plain; charset=utf-8", "text/plain"),
+        "malformed": ("not a type\r\nX-Evil: 1", octet),
+        "plain": ("application/pdf", "application/pdf"),
+    }
+    for label, (given, expected) in cases.items():
+        case = Case()
+        try:
+            case.add("ready", "a.bin", b"exact bytes")
+            if given is None:
+                del case.rows[0]["media_type"]
+            else:
+                case.rows[0]["media_type"] = given
+            result = case.run()
+            assert result.returncode == 0, f"{label}: {result.stderr}"
+            frozen = [r for r in case.frozen() if "verified_at" not in r]
+            assert [r["media_type"] for r in frozen] == [expected], label
+            stored = case.fake.files[str(frozen[0]["drive_id"])]
+            assert stored["mimeType"] == expected, label
+            assert stored["bytes"] == b"exact bytes", label
+        finally:
+            case.close()
+    case = Case()
+    try:
+        case.add("ready", "a.bin", b"exact bytes")
+        case.fake.faults = ["500_before_store"]
+        assert case.run().returncode == 1
+        lines = [json.loads(line) for line in case.state.read_text().splitlines()]
+        for record in lines:
+            if "drive_id" in record:
+                record["media_type"] = "text/html"
+        case.state.write_text("".join(json.dumps(r) + "\n" for r in lines))
+        before = case.fake.uploads
+        assert case.run().returncode == 1 and case.fake.uploads == before
+    finally:
+        case.close()
+
+
 TESTS = [
     test_happy_path,
     test_restart_reuses_frozen_id_after_lost_response,
@@ -695,6 +881,10 @@ TESTS = [
     test_local_inputs_verified_before_any_effect,
     test_state_discipline,
     test_plain_http_to_remote_host_refused,
+    test_second_run_on_same_map_is_locked_out_before_any_id,
+    test_stopped_installation_subject_gates_the_import,
+    test_absent_name_gets_a_derived_title_frozen_before_upload,
+    test_target_type_is_normalised_and_frozen_before_allocation,
 ]
 
 

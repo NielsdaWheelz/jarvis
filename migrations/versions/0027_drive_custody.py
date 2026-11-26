@@ -46,7 +46,8 @@ def upgrade() -> None:
     ).one_or_none()
     if unfinished is not None:
         raise RuntimeError(
-            f"attachment action {unfinished.id} {unfinished.tool_name} is {unfinished.status}"
+            f"attachment action {unfinished.id} "
+            f"{unfinished.tool_name} is {unfinished.status}"
         )
     if connection.scalar(
         text("""
@@ -62,8 +63,8 @@ def upgrade() -> None:
     unknown = set(
         connection.execute(
             text("""
-        SELECT id FROM action WHERE tool_name IN ('attachment.retain','attachment.delete')
-          AND status='uncertain'
+        SELECT id FROM action WHERE status='uncertain'
+          AND tool_name IN ('attachment.retain','attachment.delete')
     """)
         ).scalars()
     )

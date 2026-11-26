@@ -4,8 +4,10 @@
 ADR 0120 stopped cut. Run by hand on the operator workstation with a disposable
 drive.file access token. Nothing here serves, schedules or is reachable by the agent.
 
-Inputs: a frozen inventory (the owner approves its sha-256), the exported blobs named
-by source uuid, a mode-0600 token file and a durable map outside scratch. Output: a
+Inputs: the stopped installation's private google state (its connected subject must
+equal the inventory's), a frozen inventory (the owner approves its sha-256), the
+exported blobs named by source uuid, a mode-0600 token file and a durable map outside
+scratch. One run at a time holds the map's lock. Output: a
 DriveCutManifest, written only when every row is accounted for. Interrupted or
 deferred runs resume from the map: a frozen Google-generated id is the only id ever
 used for its source.
@@ -14,6 +16,7 @@ Exit: 0 complete, 75 deferred by Google quota (rerun), 1 refused or failed.
 """
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -25,15 +28,19 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import UUID
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
+from jarvis._atomic_json import read_private_json
 from jarvis.drive_cut import DriveCutEntry, DriveCutManifest, DriveIdentifier
 
 DRIVE_FILE = "https://www.googleapis.com/auth/drive.file"
 FOLDER = "application/vnd.google-apps.folder"
 NATIVE = "application/vnd.google-apps."
+OCTET = "application/octet-stream"
+MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
 SCRATCH = ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp", "/var/folders")
 QUOTA = {
     "storageQuotaExceeded",
@@ -102,6 +109,34 @@ def read_token(path: Path) -> str:
     return token
 
 
+def target_type(raw: object) -> str:
+    """The stored media type: a plain label, never a Google-native (converting) one."""
+    base = str(raw or "").split(";")[0].strip().lower()
+    if not MEDIA_TYPE.fullmatch(base) or base.startswith(NATIVE):
+        return OCTET
+    return base
+
+
+def drive_title(row: dict) -> str:
+    """The Drive title. The manifest keeps the historical name, absent or not."""
+    return row["name"] or f"attachment-{row['source_uuid']}"
+
+
+def check_stopped_subject(path: Path, subject: str) -> None:
+    try:
+        grant = read_private_json(path)
+    except ValueError as error:
+        raise Failure(f"stopped google state unusable: {error}") from error
+    if (
+        grant is None
+        or grant.get("status") != "connected"
+        or grant.get("subject") != subject
+    ):
+        raise Failure(
+            "stopped google state is not a connected grant for the inventory subject"
+        )
+
+
 def read_inventory(path: Path, approved: str, blobs: Path) -> dict:
     raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != approved:
@@ -112,7 +147,11 @@ def read_inventory(path: Path, approved: str, blobs: Path) -> dict:
     if inventory["rows"] != len(inventory["entries"]):
         raise Failure("inventory does not cover every attachment row")
     for row in inventory["entries"]:
-        row.setdefault("media_type", "application/octet-stream")
+        if str(UUID(row["source_uuid"])) != row["source_uuid"]:
+            raise Failure(
+                f"source uuid is not canonical lowercase: {row['source_uuid']}"
+            )
+        row["media_type"] = target_type(row.get("media_type"))
     preflight(inventory, {}, datetime.now(UTC))
     for row in inventory["entries"]:
         if row["prior_state"] in ("ready", "pending"):
@@ -190,9 +229,10 @@ def read_map(path: Path, inventory: dict) -> tuple[dict, dict]:
             "source_uuid": row["source_uuid"],
             "subject": inventory["subject"],
             "parent": inventory["parent"],
-            "name": row["name"],
+            "name": drive_title(row),
             "size": row["size"],
             "sha256": row["sha256"],
+            "media_type": row["media_type"],
         }
         if (
             record["source_uuid"] in frozen
@@ -289,13 +329,13 @@ class Google:
         ident = self.get("files/generateIds", count="1", space="drive")["ids"][0]
         return TypeAdapter(DriveIdentifier).validate_python(ident)
 
-    def create(self, record: dict, media_type: str, blob: Path) -> None:
+    def create(self, record: dict, blob: Path) -> None:
         """Create under the frozen id. 409 means an earlier attempt landed."""
         metadata = {
             "id": record["drive_id"],
             "name": record["name"],
             "parents": [record["parent"]],
-            "mimeType": media_type,
+            "mimeType": record["media_type"],
         }
         init = self.request(
             "POST",
@@ -304,7 +344,7 @@ class Google:
             params={"uploadType": "resumable", "supportsAllDrives": "false"},
             json=metadata,
             headers={
-                "X-Upload-Content-Type": media_type,
+                "X-Upload-Content-Type": record["media_type"],
                 "X-Upload-Content-Length": str(record["size"]),
             },
         )
@@ -388,6 +428,14 @@ def run(args: argparse.Namespace) -> None:
         raise Failure(f"{out} already exists")
     token = read_token(args.token_file)
     inventory = read_inventory(args.inventory, args.inventory_sha256, args.blobs)
+    check_stopped_subject(args.google_state, inventory["subject"])
+
+    # one run per map, held until exit; before the map is read or any id exists
+    lock = os.open(state.with_name(state.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        raise Failure("map is locked by another running import") from error
     frozen, verified = read_map(state, inventory)
 
     google = Google(api, tokeninfo, token)
@@ -404,12 +452,13 @@ def run(args: argparse.Namespace) -> None:
                 "subject": inventory["subject"],
                 "drive_id": google.generate_id(),
                 "parent": inventory["parent"],
-                "name": row["name"],
+                "name": drive_title(row),
                 "size": row["size"],
                 "sha256": row["sha256"],
+                "media_type": row["media_type"],
             }
             append(state, frozen[source])
-        google.create(frozen[source], row["media_type"], args.blobs / source)
+        google.create(frozen[source], args.blobs / source)
         google.read_back(frozen[source])
         verified[source] = {
             "source_uuid": source,
@@ -454,6 +503,7 @@ def main() -> int:
     parser.add_argument("--token-file", type=Path, required=True)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--google-state", type=Path, required=True)
     parser.add_argument("--api", default="https://www.googleapis.com")
     parser.add_argument(
         "--tokeninfo", default="https://oauth2.googleapis.com/tokeninfo"

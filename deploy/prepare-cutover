@@ -500,7 +500,7 @@ def restored_compatibility(proof):
         return json.loads((root / "result.json").read_bytes())
 
 
-async def inspect_restored(operation, snapshot, proof):
+async def inspect_restored(operation, snapshot, proof, map_sha256=None):
     editor = owner_gmail_directory(OWNER_GMAIL_DIRECTORY)
     require(
         read_editor_stamp(editor) is None,
@@ -521,16 +521,62 @@ async def inspect_restored(operation, snapshot, proof):
         == {k: v for k, v in target.items() if k != "schema"},
         "wrong rehearsal target release",
     )
-    engine = create_engine(
-        normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
-    )
+    migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
+    migrating_drive = operation == "migrate-restored-drive"
+    original = rehearsal_binding(manifest)
+    source_proof = proof / "restored-source.json"
+    if migrating_drive:
+        url = make_url(migration_url)
+        require(
+            target["schema"] == DRIVE_CUSTODY_SCHEMA
+            and [url.host, url.port or 5432, url.database] != manifest["database"]
+            and json.loads(source_proof.read_bytes()) == original,
+            "drive rehearsal requires a verified, separate restored database",
+        )
+        drive_map = proof / "drive-cut.json"
+        require(
+            file_digest(drive_map) == map_sha256,
+            "drive attachment map differs from the approved digest",
+        )
+        verified_map = load_stopped_drive_map(
+            drive_map,
+            spool=snapshot / "private-state" / "runtime" / "uploads",
+            google_state=snapshot
+            / "private-state"
+            / "connectors"
+            / "google-oauth-state.json",
+        )
+    engine = create_engine(migration_url)
     try:
         async with maintenance_ownership(engine) as db, db.begin() as conn:
+            mode = "READ WRITE" if migrating_drive else "READ ONLY"
             await conn.execute(
-                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                text(f"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, {mode}")
             )
             version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
             facts = await inventory(conn, manifest["owner_scope"])
+            if migrating_drive:
+                require(
+                    version == manifest["source"]["schema"]
+                    and facts == manifest["original_facts"],
+                    "restored source differs from the stopped database",
+                )
+
+                def upgrade(connection):
+                    cfg = Config(
+                        str(Path(__file__).resolve().parents[1] / "alembic.ini")
+                    )
+                    cfg.attributes["connection"] = connection
+                    cfg.attributes["drive_cut"] = verified_map.model_dump(mode="json")
+                    command.upgrade(cfg, target["schema"])
+
+                await conn.run_sync(upgrade)
+                require(
+                    await conn.scalar(text("SELECT version_num FROM alembic_version"))
+                    == target["schema"],
+                    "drive rehearsal did not reach the target schema",
+                )
+                return
             if (manifest["source"]["schema"], target["schema"]) == ("0023", "0024"):
                 if version == "0023":
                     observed = await workspace_obligations(
@@ -550,9 +596,7 @@ async def inspect_restored(operation, snapshot, proof):
                 version,
             ) == ("0022", "0023"):
                 await require_phone_cut(conn, facts, manifest["original_facts"])
-        original = rehearsal_binding(manifest)
         proof.mkdir(mode=0o700, exist_ok=True)
-        source_proof = proof / "restored-source.json"
         if operation == "verify-restored-source":
             require(
                 version == manifest["source"]["schema"]
@@ -705,7 +749,7 @@ async def cut(operation, destination, binding, stop, qualification):
                 verified_drive_map = load_stopped_drive_map(
                     drive_map,
                     spool=destination / "private-state" / "runtime" / "uploads",
-                    google_state=snapshot
+                    google_state=destination
                     / "private-state"
                     / "connectors"
                     / "google-oauth-state.json",
@@ -748,6 +792,7 @@ def main():
     os.umask(0o077)
     if len(sys.argv) >= 2 and sys.argv[1] in {
         "verify-restored-source",
+        "migrate-restored-drive",
         "record-rehearsal",
     }:
         parser = argparse.ArgumentParser(
@@ -756,10 +801,19 @@ def main():
         parser.add_argument("operation")
         parser.add_argument("snapshot", type=Path)
         parser.add_argument("proof", type=Path)
+        parser.add_argument("--map-sha256")
         args = parser.parse_args()
+        require(
+            (args.operation == "migrate-restored-drive")
+            == (args.map_sha256 is not None),
+            "the restored drive migration requires its approved map digest",
+        )
         asyncio.run(
             inspect_restored(
-                args.operation, args.snapshot.resolve(), args.proof.resolve()
+                args.operation,
+                args.snapshot.resolve(),
+                args.proof.resolve(),
+                args.map_sha256,
             )
         )
         return

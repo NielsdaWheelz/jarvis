@@ -305,13 +305,6 @@ class ObservedMailPart:
     data: bytes
 
 
-@dataclass(frozen=True, slots=True)
-class _SourceCopy:
-    slot: int
-    file: MailFile
-    source: BinaryIO
-
-
 class DriveMailReader(Protocol):
     async def drive_file(
         self,
@@ -352,74 +345,94 @@ class MailFiles:
             raise MailFileFailure(
                 MailLimit(measure="files", actual=len(sources), maximum=MAIL_MAX_FILES)
             )
+        if not sources:
+            return ()
         deadline = time.monotonic() + INTAKE_SECONDS
-        copies: list[_SourceCopy] = []
+        files: list[MailFile] = []
         slot, total = 1, 0
         try:
             async with asyncio.timeout(INTAKE_SECONDS):
-                with ExitStack() as opened:
-                    for slot, source in enumerate(sources, 1):
-                        if isinstance(source, ObservedMailPart):
-                            descriptor = source.file
-                            body = opened.enter_context(io.BytesIO(source.data))
-                        elif isinstance(source, DriveMailFileRef):
-                            if self._google is None:
-                                raise MailFileFailure(
-                                    FileUnavailable(
-                                        slot=slot, reason="drive_disconnected"
-                                    )
-                                )
-                            temporary = opened.enter_context(
-                                tempfile.TemporaryDirectory(prefix="jarvis-mail-drive-")
-                            )
-                            target = Path(temporary) / "download"
-                            downloaded = await self._google.drive_file(
-                                source.subject,
-                                source.id,
-                                source.export_type,
-                                destination=target,
-                                maximum=MAIL_MAX_BYTES - total,
-                                invocation_id=invocation_id,
-                                before_send=before_send,
-                            )
-                            descriptor = MailFile(
-                                filename=downloaded.name,
-                                media_type=canonical_media_type(downloaded.media_type),
-                                size_bytes=downloaded.size,
-                                sha256=downloaded.sha256,
-                            )
-                            body = opened.enter_context(target.open("rb"))
-                        else:
-                            descriptor, body = opened.enter_context(
-                                native_file(self._native, source)
-                            )
-                        if contains_secret(descriptor.filename, self._secrets):
-                            raise MailFileFailure(
-                                FileUnavailable(slot=slot, reason="secret")
-                            )
-                        total += descriptor.size_bytes
-                        if total > MAIL_MAX_BYTES:
-                            raise MailFileFailure(
-                                MailLimit(
-                                    measure="decoded_bytes",
-                                    actual=total,
-                                    maximum=MAIL_MAX_BYTES,
-                                )
-                            )
-                        copies.append(_SourceCopy(slot, descriptor, body))
-                    if copies:
-                        try:
-                            await joined_thread(
-                                self._stage_files, action_id, copies, deadline
-                            )
-                        except asyncio.CancelledError:
-                            await self.discard(action_id)
-                            raise
-                        try:
-                            await self._inspect(action_id, copies, deadline)
-                        except BaseException:
-                            await self.discard(action_id)
-                            raise
+                with _directory(self._stage) as root:
+                    os.mkdir(str(action_id), mode=0o700, dir_fd=root)
+                    try:
+                        with _directory(str(action_id), root) as staged:
+                            for slot, source in enumerate(sources, 1):
+                                with ExitStack() as opened:
+                                    body: BinaryIO | None = None
+                                    if isinstance(source, ObservedMailPart):
+                                        descriptor = source.file
+                                        body = opened.enter_context(
+                                            io.BytesIO(source.data)
+                                        )
+                                    elif isinstance(source, DriveMailFileRef):
+                                        if self._google is None:
+                                            raise MailFileFailure(
+                                                FileUnavailable(
+                                                    slot=slot,
+                                                    reason="drive_disconnected",
+                                                )
+                                            )
+                                        downloaded = await self._google.drive_file(
+                                            source.subject,
+                                            source.id,
+                                            source.export_type,
+                                            destination=self._stage
+                                            / str(action_id)
+                                            / str(slot),
+                                            maximum=MAIL_MAX_BYTES - total,
+                                            invocation_id=invocation_id,
+                                            before_send=before_send,
+                                        )
+                                        descriptor = MailFile(
+                                            filename=downloaded.name,
+                                            media_type=canonical_media_type(
+                                                downloaded.media_type
+                                            ),
+                                            size_bytes=downloaded.size,
+                                            sha256=downloaded.sha256,
+                                        )
+                                    else:
+                                        descriptor, body = opened.enter_context(
+                                            native_file(self._native, source)
+                                        )
+                                    if contains_secret(
+                                        descriptor.filename, self._secrets
+                                    ):
+                                        raise MailFileFailure(
+                                            FileUnavailable(slot=slot, reason="secret")
+                                        )
+                                    total += descriptor.size_bytes
+                                    if total > MAIL_MAX_BYTES:
+                                        raise MailFileFailure(
+                                            MailLimit(
+                                                measure="decoded_bytes",
+                                                actual=total,
+                                                maximum=MAIL_MAX_BYTES,
+                                            )
+                                        )
+                                    if body is None:
+                                        with _regular(
+                                            staged, str(slot)
+                                        ) as downloaded_file:
+                                            await joined_thread(
+                                                os.fsync, downloaded_file.fileno()
+                                            )
+                                    else:
+                                        await joined_thread(
+                                            self._copy_slot,
+                                            staged,
+                                            slot,
+                                            descriptor,
+                                            body,
+                                            deadline,
+                                        )
+                                files.append(descriptor)
+                            os.fsync(staged)
+                        os.fsync(root)
+                        await self._inspect(action_id, files, deadline)
+                    except BaseException:
+                        await self.discard(action_id)
+                        raise
         except MailFileFailure as exc:
             if isinstance(exc.detail, FileUnavailable):
                 logging.getLogger(__name__).info(
@@ -444,53 +457,33 @@ class MailFiles:
             raise MailFileFailure(
                 FileUnavailable(slot=slot, reason="local_io")
             ) from exc
-        return tuple(copy.file for copy in copies)
-
-    def _stage_files(
-        self, action_id: UUID, copies: list[_SourceCopy], deadline: float
-    ) -> None:
-        with _directory(self._stage) as root_fd:
-            os.mkdir(str(action_id), mode=0o700, dir_fd=root_fd)
-            try:
-                with _directory(str(action_id), root_fd) as staged:
-                    for copy in copies:
-                        self._copy_slot(staged, copy, copy.source, deadline)
-                    os.fsync(staged)
-                os.fsync(root_fd)
-                if time.monotonic() >= deadline:
-                    raise MailFileFailure(
-                        FileUnavailable(slot=copies[-1].slot, reason="local_io")
-                    )
-            except BaseException:
-                self._discard(action_id)
-                raise
+        return tuple(files)
 
     @staticmethod
     def _copy_slot(
-        directory: int, copy: _SourceCopy, source: BinaryIO, deadline: float
+        directory: int,
+        slot: int,
+        descriptor: MailFile,
+        source: BinaryIO,
+        deadline: float,
     ) -> None:
-        try:
-            fd = os.open(
-                str(copy.slot),
-                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                0o600,
-                dir_fd=directory,
-            )
-            with os.fdopen(fd, "wb") as output:
-                size, digest = _copy(source, output, copy.file.size_bytes, deadline)
-                if (size, digest) != (copy.file.size_bytes, copy.file.sha256):
-                    raise MailFileFailure(
-                        FileUnavailable(slot=copy.slot, reason="digest_mismatch")
-                    )
-                output.flush()
-                os.fsync(fd)
-        except OSError as exc:
-            raise MailFileFailure(
-                FileUnavailable(slot=copy.slot, reason="local_io")
-            ) from exc
+        fd = os.open(
+            str(slot),
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+            dir_fd=directory,
+        )
+        with os.fdopen(fd, "wb") as output:
+            size, digest = _copy(source, output, descriptor.size_bytes, deadline)
+            if (size, digest) != (descriptor.size_bytes, descriptor.sha256):
+                raise MailFileFailure(
+                    FileUnavailable(slot=slot, reason="digest_mismatch")
+                )
+            output.flush()
+            os.fsync(fd)
 
     async def _inspect(
-        self, action_id: UUID, copies: list[_SourceCopy], deadline: float
+        self, action_id: UUID, files: list[MailFile], deadline: float
     ) -> None:
         # The Rust validator holds the GIL for the whole-file search.
         secrets = json.dumps(self._secrets).encode()
@@ -498,10 +491,10 @@ class MailFiles:
             _directory(self._stage) as root,
             _directory(str(action_id), root) as staged,
         ):
-            for copy in copies:
+            for slot, descriptor in enumerate(files, 1):
                 try:
                     async with asyncio.timeout(max(0.0, deadline - time.monotonic())):
-                        with _regular(staged, str(copy.slot)) as stream:
+                        with _regular(staged, str(slot)) as stream:
                             worker = await asyncio.create_subprocess_exec(
                                 sys.executable,
                                 "-I",
@@ -509,8 +502,8 @@ class MailFiles:
                                 "jarvis.mail_files",
                                 "_scan",
                                 str(stream.fileno()),
-                                str(copy.file.size_bytes),
-                                copy.file.sha256,
+                                str(descriptor.size_bytes),
+                                descriptor.sha256,
                                 env={},
                                 stdin=asyncio.subprocess.PIPE,
                                 stdout=asyncio.subprocess.DEVNULL,
@@ -529,17 +522,17 @@ class MailFiles:
                     verdict = worker.returncode
                     if verdict == _SECRET_FOUND:
                         raise MailFileFailure(
-                            FileUnavailable(slot=copy.slot, reason="secret")
+                            FileUnavailable(slot=slot, reason="secret")
                         )
                     if verdict == _BYTES_CHANGED:
                         raise MailFileFailure(
-                            FileUnavailable(slot=copy.slot, reason="digest_mismatch")
+                            FileUnavailable(slot=slot, reason="digest_mismatch")
                         )
                     if verdict != 0 or time.monotonic() >= deadline:
                         raise OSError("mail file scan failed")
                 except OSError as exc:
                     raise MailFileFailure(
-                        FileUnavailable(slot=copy.slot, reason="local_io")
+                        FileUnavailable(slot=slot, reason="local_io")
                     ) from exc
 
     async def read(self, action_id: UUID, slot: int, expected: MailFile) -> bytes:

@@ -1,6 +1,7 @@
 """Temporary ADR 0120 integration probe. Catalogs are unauthenticated public discovery."""
 import asyncio
 import json
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,7 +20,7 @@ DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 async def main():
     catalogs = {
         (product, method): json.loads(
-            Path(f"/tmp/jarvis-0120-unit-a-public-{product}-{method.replace('/', '-')}.json")
+            Path(f"{os.environ['JARVIS_DRIVE_CATALOG_DIR']}/jarvis-0120-unit-a-public-{product}-{method.replace('/', '-')}.json")
             .read_text()
         )
         for product in ("drive", "docs")

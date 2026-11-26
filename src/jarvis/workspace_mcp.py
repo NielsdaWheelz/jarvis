@@ -10,7 +10,12 @@ import mmap
 import re
 import tempfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
-from contextlib import asynccontextmanager, contextmanager, nullcontext
+from contextlib import (
+    AbstractAsyncContextManager,
+    asynccontextmanager,
+    contextmanager,
+    nullcontext,
+)
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -29,9 +34,11 @@ Product = Literal["gmail", "calendar", "drive", "docs"]
 Obj = dict[str, object]
 Audit = Callable[[Obj], Awaitable[None]]
 Fence = Callable[[], Awaitable[None]]
+DriveScratch = Callable[[int], AbstractAsyncContextManager[Path]]
 PROTOCOL_VERSION = "2026-07-28"
 HUMAN_WAIT_SECONDS = 120
 MAX_CONSENT_ROUNDS = 3
+WORKSPACE_DRIVE_RPC_LIMIT = 96
 _ORIGINS: dict[Product, str] = {
     "gmail": "https://gmailmcp.googleapis.com/mcp/v1",
     "calendar": "https://calendarmcp.googleapis.com/mcp/v1",
@@ -623,32 +630,132 @@ def _wire_result(body: bytearray, mime: str, id: str) -> Obj:
     return response
 
 
-# Spill only base64 values. Parse and validate the complete bounded MCP envelope
-# before decoding either presentation of the payload to the owned destination.
-_DRIVE_BINARY_FIELDS = re.compile(
-    rb'(?:\\?"content\\?")\s*:\s*\\?"([A-Za-z0-9+/=]*)\\?"'
-)
+# A large JSON string is an owned wire span until the parsed MCP envelope binds it
+# to FileContent.content or its one JSON text presentation. Quotes inside strings
+# are never structural. Everything outside the spans uses the ordinary MCP parser.
+_STRING_BOUNDARY = re.compile(rb'["\\]')
+_LITERAL_BYTES = 65_536
+type _Span = tuple[int, int]
+
+
+def _bounded_envelope(mapped: mmap.mmap) -> tuple[bytearray, dict[str, _Span]]:
+    metadata = bytearray()
+    spans: dict[str, _Span] = {}
+    offset = cursor = 0
+    while (opened := mapped.find(b'"', cursor)) != -1:
+        start = cursor = opened + 1
+        while True:
+            boundary = _STRING_BOUNDARY.search(mapped, cursor)
+            if boundary is None:
+                raise ValueError("unterminated json string")
+            if boundary[0] == b'"':
+                end = boundary.start()
+                cursor = end + 1
+                break
+            cursor = boundary.end() + 1
+        if end - start <= _LITERAL_BYTES:
+            continue
+        if len(spans) == 2 or len(metadata) + start - offset > _METADATA_BYTES:
+            raise ValueError("oversize drive download envelope")
+        marker = f"!drive-binary-{uuid4()}!"
+        spans[marker] = (start, end)
+        metadata.extend(mapped[offset:start])
+        metadata.extend(marker.encode("ascii"))
+        offset = end
+    if len(metadata) + len(mapped) - offset > _METADATA_BYTES:
+        raise ValueError("oversize drive download envelope")
+    metadata.extend(mapped[offset:])
+    return metadata, spans
+
+
+def _literal_bytes(mapped: mmap.mmap, span: _Span) -> Iterator[bytes]:
+    offset, end = span
+    while offset < end:
+        limit = min(end, offset + _BINARY_CHUNK_BYTES)
+        slash = mapped.find(b"\\", offset, limit)
+        if slash < 0:
+            yield mapped[offset:limit]
+            offset = limit
+            continue
+        if slash > offset:
+            yield mapped[offset:slash]
+        finish = slash + (6 if mapped[slash + 1 : slash + 2] == b"u" else 2)
+        if finish > end:
+            raise ValueError("truncated json escape")
+        escape = mapped[slash:finish]
+        if len(escape) == 6 and 0xD800 <= int(escape[2:], 16) <= 0xDBFF:
+            if mapped[finish : finish + 2] != b"\\u" or finish + 6 > end:
+                raise ValueError("unpaired json surrogate")
+            finish += 6
+            escape = mapped[slash:finish]
+        value = cast(str, json.loads(b'"' + escape + b'"'))
+        yield value.encode("utf-8")
+        offset = finish
+
+
+def _decode_drive_content(
+    payload: Obj,
+    mapped: mmap.mmap,
+    spans: dict[str, _Span],
+    maximum: int,
+    destination: BinaryIO | None,
+) -> Obj:
+    file = {key: payload[key] for key in ("id", "title", "mimeType")}
+    if not all(isinstance(value, str) for value in file.values()):
+        raise ValueError("invalid drive download metadata")
+    content = payload["content"]
+    if not isinstance(content, str):
+        raise ValueError("invalid drive binary content")
+    span = spans.pop(content, None)
+    pieces = (
+        _literal_bytes(mapped, span)
+        if span is not None
+        else iter((content.encode("ascii"),))
+    )
+    if destination is not None:
+        destination.seek(0)
+        destination.truncate()
+    digest = hashlib.sha256()
+    size = 0
+    carry = b""
+    padded = False
+    for piece in pieces:
+        if padded and piece:
+            raise ValueError("premature base64 padding")
+        word = carry + piece
+        end = len(word) - len(word) % 4
+        carry = word[end:]
+        if not end:
+            continue
+        encoded = word if end == len(word) else word[:end]
+        padded = b"=" in encoded
+        if padded and carry:
+            raise ValueError("premature base64 padding")
+        data = base64.b64decode(encoded, validate=True)
+        size += len(data)
+        if size > maximum:
+            raise WorkspaceError("too_large")
+        digest.update(data)
+        if destination is not None:
+            destination.write(data)
+    if carry:
+        raise ValueError("incomplete base64 quartet")
+    if destination is not None:
+        destination.flush()
+        destination.seek(0)
+    return file | {"size": size, "sha256": digest.hexdigest()}
 
 
 def _download_envelope(
-    wire: BinaryIO, mime: str, id: str, destination: BinaryIO, maximum: int
+    wire: BinaryIO,
+    mime: str,
+    id: str,
+    destination: BinaryIO,
+    maximum: int,
+    directory: Path | None = None,
 ) -> Obj:
     with mmap.mmap(wire.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
-        metadata = bytearray()
-        spans: dict[str, tuple[int, int]] = {}
-        offset = 0
-        for match in _DRIVE_BINARY_FIELDS.finditer(mapped):
-            start, end = match.span(1)
-            if len(spans) == 2 or len(metadata) + start - offset > _METADATA_BYTES:
-                raise ValueError("oversize drive download envelope")
-            marker = f"!drive-binary-{uuid4()}!"
-            spans[marker] = (start, end)
-            metadata.extend(mapped[offset:start])
-            metadata.extend(marker.encode("ascii"))
-            offset = end
-        if len(metadata) + len(mapped) - offset > _METADATA_BYTES:
-            raise ValueError("oversize drive download envelope")
-        metadata.extend(mapped[offset:])
+        metadata, spans = _bounded_envelope(mapped)
         packet = _wire_result(metadata, mime, id)
         result = _obj(packet.get("result", {}))
         if (
@@ -657,10 +764,18 @@ def _download_envelope(
             or result.get("truncated", False) is not False
             or result.get("isTruncated", False) is not False
         ):
+            if spans:
+                raise ValueError("oversize drive error or challenge")
             return packet
-        representations: list[Obj] = []
+        normalized = None
         if "structuredContent" in result:
-            representations.append(_obj(result["structuredContent"]))
+            normalized = _decode_drive_content(
+                _obj(result["structuredContent"]),
+                mapped,
+                spans,
+                maximum,
+                destination,
+            )
         parts = _items(result.get("content", []))
         if parts:
             if len(parts) != 1:
@@ -669,47 +784,41 @@ def _download_envelope(
             text = block.get("text")
             if block.get("type") != "text" or not isinstance(text, str):
                 raise ValueError("drive download needs JSON text")
-            representations.append(_decode(text))
-        if not representations:
-            raise ValueError("drive download returned no file")
-        first, *rest = representations
-        fields = ("id", "title", "mimeType")
-        file = {key: first[key] for key in fields}
-        if not all(isinstance(value, str) for value in file.values()):
-            raise ValueError("invalid drive download metadata")
-        start, end = spans[str(first["content"])]
-        for duplicate in rest:
-            if {key: duplicate[key] for key in fields} != file:
-                raise ValueError("drive download identities disagree")
-            s, e = spans[str(duplicate["content"])]
-            if e - s != end - start or any(
-                mapped[start + i : min(end, start + i + _BINARY_CHUNK_BYTES)]
-                != mapped[s + i : min(e, s + i + _BINARY_CHUNK_BYTES)]
-                for i in range(0, end - start, _BINARY_CHUNK_BYTES)
-            ):
+            target = destination if normalized is None else None
+            outer = spans.pop(text, None)
+            if outer is None:
+                observed = _decode_drive_content(
+                    _decode(text), mapped, {}, maximum, target
+                )
+            else:
+                with tempfile.TemporaryFile(dir=directory) as inner:
+                    length = 0
+                    cap = _METADATA_BYTES + 4 * ((maximum + 2) // 3)
+                    for piece in _literal_bytes(mapped, outer):
+                        length += len(piece)
+                        if length > cap:
+                            raise WorkspaceError("too_large")
+                        inner.write(piece)
+                    inner.flush()
+                    with mmap.mmap(inner.fileno(), 0, access=mmap.ACCESS_READ) as local:
+                        inner_metadata, inner_spans = _bounded_envelope(local)
+                        observed = _decode_drive_content(
+                            _decode(inner_metadata),
+                            local,
+                            inner_spans,
+                            maximum,
+                            target,
+                        )
+                        if inner_spans:
+                            raise ValueError(
+                                "unexpected large string in drive file metadata"
+                            )
+            if normalized is not None and observed != normalized:
                 raise ValueError("drive download representations disagree")
-        if end - start > 4 * ((maximum + 2) // 3):
-            raise WorkspaceError("too_large")
-        digest = hashlib.sha256()
-        size = 0
-        destination.seek(0)
-        destination.truncate()
-        for offset in range(start, end, _BINARY_CHUNK_BYTES):
-            piece = mapped[offset : min(end, offset + _BINARY_CHUNK_BYTES)]
-            data = base64.b64decode(piece, validate=True)
-            if b"=" in piece and offset + len(piece) != end:
-                raise ValueError("premature base64 padding")
-            size += len(data)
-            if size > maximum:
-                raise WorkspaceError("too_large")
-            digest.update(data)
-            destination.write(data)
-        destination.flush()
-        destination.seek(0)
-        packet["result"] = {
-            "resultType": "complete",
-            "structuredContent": file | {"size": size, "sha256": digest.hexdigest()},
-        }
+            normalized = observed
+        if normalized is None or spans:
+            raise ValueError("invalid drive download envelope")
+        packet["result"] = {"resultType": "complete", "structuredContent": normalized}
         return packet
 
 
@@ -748,6 +857,13 @@ def _provider_error(
     if product == "drive" and error.get("status") == "FAILED_PRECONDITION":
         return WorkspaceError("precondition_failed", known_no_effect=True)
     if (
+        write
+        and product == "docs"
+        and error.get("status") == "INVALID_ARGUMENT"
+        and error.get("code") == 400
+    ):
+        return WorkspaceError("document_write_rejected", known_no_effect=True)
+    if (
         (not write or product in {"drive", "docs"})
         and error.get("status") == "RESOURCE_EXHAUSTED"
         and error.get("code") == 429
@@ -774,12 +890,15 @@ class WorkspaceMcpClient:
         credential: Callable[[UUID, str | None], Awaitable[WorkspaceCredential]],
         debit: Callable[[UUID, str, bool], Awaitable[None]],
         approvals: WorkspaceApprovals,
+        transfer_scratch: DriveScratch | None = None,
     ):
         self._http = http
         self._credential = credential
         self._debit = debit
         self.approvals = approvals
+        self._transfer_scratch = transfer_scratch
         self._invalid: set[UUID] = set()
+        self._drive_generation: dict[UUID, int] = {}
         self._reading: dict[tuple[Product, UUID], set[asyncio.Task[Obj]]] = {}
         self._catalog: dict[tuple[Product, UUID], dict[str, Obj]] = {}
         self._discovery_locks = {product: asyncio.Lock() for product in _ORIGINS}
@@ -790,6 +909,7 @@ class WorkspaceMcpClient:
         self._invalidate_products(grant_id, frozenset(_ORIGINS))
 
     def invalidate_drive(self, grant_id: UUID) -> None:
+        self._drive_generation[grant_id] = self._drive_generation.get(grant_id, 0) + 1
         products: frozenset[Product] = frozenset({"drive", "docs"})
         self.approvals.invalidate(grant_id, products)
         self._invalidate_products(grant_id, products)
@@ -803,9 +923,31 @@ class WorkspaceMcpClient:
             for task in self._reading.get(key, ()):
                 task.cancel()
 
-    def _check(self, grant_id: UUID) -> None:
+    def _generation(self, grant_id: UUID, product: Product) -> int | None:
+        return (
+            self._drive_generation.get(grant_id, 0)
+            if product in {"drive", "docs"}
+            else None
+        )
+
+    def _check(self, grant_id: UUID, generation: int | None = None) -> None:
         if grant_id in self._invalid:
             raise WorkspaceError("grant_unavailable")
+        if generation is not None and generation != self._drive_generation.get(
+            grant_id, 0
+        ):
+            raise WorkspaceError("scope_missing")
+
+    def drive_scratch(self, reserved: int) -> AbstractAsyncContextManager[Path]:
+        if self._transfer_scratch is None:
+            raise WorkspaceError("drive_scratch_unavailable")
+        return self._transfer_scratch(reserved)
+
+    @asynccontextmanager
+    async def drive_temporary(self, maximum: int) -> AsyncIterator[BinaryIO]:
+        async with self.drive_scratch(maximum) as directory:
+            with tempfile.TemporaryFile(dir=directory) as output:
+                yield output
 
     async def _rpc(
         self,
@@ -844,6 +986,7 @@ class WorkspaceMcpClient:
         }
         request = {"jsonrpc": "2.0", "id": id, "method": method, "params": params}
         content: AsyncIterator[bytes] | None = None
+        transfer_bytes = cap if download is not None else 0
         if upload is not None:
             path, size = upload
             arguments = _obj(params.pop("arguments"))
@@ -861,9 +1004,8 @@ class WorkspaceMcpClient:
             finally:
                 params["arguments"] = arguments
             suffix = b'"}}}'
-            headers["Content-Length"] = str(
-                len(prefix) + 4 * ((size + 2) // 3) + len(suffix)
-            )
+            transfer_bytes = len(prefix) + 4 * ((size + 2) // 3) + len(suffix)
+            headers["Content-Length"] = str(transfer_bytes)
 
             async def request_body() -> AsyncIterator[bytes]:
                 yield prefix
@@ -887,9 +1029,14 @@ class WorkspaceMcpClient:
             nonlocal transmitted
             transmitted = True
 
+        # A streaming attempt still shares its invocation's cumulative deadline.
+        # Allow 30 seconds of provider work plus one second per wire MiB.
+        seconds = max(60.0, 30.0 + transfer_bytes / (1024 * 1024))
         try:
             async with (
-                workspace_http_attempt(60, before_send, on_transmission=transmitting),
+                workspace_http_attempt(
+                    seconds, before_send, on_transmission=transmitting
+                ),
                 self._http.stream(
                     "POST",
                     _ORIGINS[product],
@@ -918,33 +1065,52 @@ class WorkspaceMcpClient:
                     != "identity"
                 ):
                     raise ValueError("unsupported response encoding")
+                successful_download = download is not None and 200 <= status < 300
+                if download is not None and not successful_download:
+                    cap = _METADATA_BYTES
                 advertised = response.headers.get("content-length")
-                if advertised is not None and (
-                    not advertised.isdecimal() or int(advertised) > cap
-                ):
-                    raise WorkspaceError("uncertain" if write else "partial")
+                if advertised is not None:
+                    if not advertised.isdecimal():
+                        raise ValueError("invalid content length")
+                    if int(advertised) > cap:
+                        raise WorkspaceError(
+                            "too_large"
+                            if successful_download
+                            else "uncertain"
+                            if write
+                            else "partial"
+                        )
                 mime = (
                     response.headers.get("content-type", "")
                     .partition(";")[0]
                     .strip()
                     .lower()
                 )
-                seen = 0
-                if download is not None and 200 <= status < 300:
-                    with tempfile.TemporaryFile() as spool:
-                        async for chunk in response.aiter_bytes(chunk_size=65536):
-                            seen += len(chunk)
-                            if seen > cap:
-                                raise WorkspaceError("too_large")
-                            spool.write(chunk)
-                        if not seen or (
-                            advertised is not None and seen != int(advertised)
-                        ):
-                            raise ValueError("truncated reply")
-                        spool.flush()
-                        packet = await joined_thread(
-                            _download_envelope, spool, mime, id, *download
-                        )
+                if download is not None and successful_download:
+                    # Both raw carriers may exist. At most one text presentation
+                    # needs unescaping into a second encoded spool.
+                    inner_cap = _METADATA_BYTES + 4 * ((download[1] + 2) // 3)
+                    async with self.drive_scratch(cap + inner_cap) as directory:
+                        with tempfile.TemporaryFile(dir=directory) as spool:
+                            seen = 0
+                            async for chunk in response.aiter_bytes(chunk_size=65536):
+                                seen += len(chunk)
+                                if seen > cap:
+                                    raise WorkspaceError("too_large")
+                                await joined_thread(spool.write, chunk)
+                            if not seen or (
+                                advertised is not None and seen != int(advertised)
+                            ):
+                                raise ValueError("truncated reply")
+                            await joined_thread(spool.flush)
+                            packet = await joined_thread(
+                                _download_envelope,
+                                spool,
+                                mime,
+                                id,
+                                *download,
+                                directory,
+                            )
                 else:
                     body = bytearray()
                     async for chunk in response.aiter_bytes(chunk_size=65536):
@@ -1005,7 +1171,8 @@ class WorkspaceMcpClient:
         before_send: Fence | None = None,
         download: tuple[BinaryIO, int] | None = None,
     ) -> Obj:
-        self._check(grant)
+        generation = self._generation(grant, product)
+        self._check(grant, generation)
         task = asyncio.create_task(
             self._rpc(
                 product,
@@ -1024,24 +1191,23 @@ class WorkspaceMcpClient:
         try:
             result = await task
         except asyncio.CancelledError:
-            self._check(grant)
-            if product in {"drive", "docs"}:
-                current = await self._credential(grant, None)
-                if DRIVE_SCOPE not in current.scopes:
-                    raise WorkspaceError("scope_missing") from None
+            caller = asyncio.current_task()
+            if caller is not None and not caller.cancelling():
+                self._check(grant, generation)
             raise
         finally:
             active.discard(task)
             if not active:
                 self._reading.pop(key, None)
-        self._check(grant)
+        self._check(grant, generation)
         return result
 
     async def discover(self, product: Product, *, grant_id: UUID) -> None:
         if product not in _ORIGINS:
             raise WorkspaceError("unsupported")
+        generation = self._generation(grant_id, product)
         async with self._discovery_locks[product]:
-            self._check(grant_id)
+            self._check(grant_id, generation)
             if (product, grant_id) in self._catalog:
                 return
             names = _TOOL_SCOPES[product]
@@ -1094,7 +1260,7 @@ class WorkspaceMcpClient:
                         catalog[name] = _obj(tool["inputSchema"])
             except (KeyError, TypeError, ValueError):
                 raise WorkspaceError("invalid_response") from None
-            self._check(grant_id)
+            self._check(grant_id, generation)
             self._catalog[(product, grant_id)] = catalog
 
     async def call(
@@ -1124,12 +1290,14 @@ class WorkspaceMcpClient:
         write = tool in _WRITES
         if background and write and tool != "unlabel_message":
             raise WorkspaceError("denied")
-        if product in {"drive", "docs"}:
+        generation = self._generation(grant_id, product)
+        if generation is not None:
             credential = await self._credential(grant_id, None)
             if DRIVE_SCOPE not in credential.scopes:
                 raise WorkspaceError("scope_missing")
+            self._check(grant_id, generation)
         await self.discover(product, grant_id=grant_id)
-        self._check(grant_id)
+        self._check(grant_id, generation)
         spec = self._catalog[(product, grant_id)].get(tool)
         if upload is not None and (
             product != "drive"
@@ -1170,11 +1338,11 @@ class WorkspaceMcpClient:
         with nullcontext() if _attempt_limits.get() else workspace_attempts(None):
             while True:
                 try:
-                    self._check(grant_id)
+                    self._check(grant_id, generation)
                     credential = await self._credential(grant_id, rejected)
                     if _SCOPE_PREFIX + scopes[tool] not in credential.scopes:
                         raise WorkspaceError("scope_missing")
-                    self._check(grant_id)
+                    self._check(grant_id, generation)
                 except WorkspaceError as e:
                     if after_form:
                         e.known_no_effect = True
@@ -1189,10 +1357,10 @@ class WorkspaceMcpClient:
                 async def enter() -> None:
                     if product == "gmail":
                         await self._debit(grant_id, tool, background)
-                    self._check(grant_id)
+                    self._check(grant_id, generation)
                     if before_send is not None:
                         await before_send()
-                    self._check(grant_id)
+                    self._check(grant_id, generation)
 
                 try:
                     if write:
@@ -1231,7 +1399,7 @@ class WorkspaceMcpClient:
                         current = await self._credential(grant_id, None)
                         if DRIVE_SCOPE not in current.scopes:
                             raise WorkspaceError("scope_missing")
-                        self._check(grant_id)
+                        self._check(grant_id, generation)
                     except WorkspaceError as e:
                         if write:
                             if result.get("resultType") == "input_required":
@@ -1256,7 +1424,7 @@ class WorkspaceMcpClient:
                     raise WorkspaceError("consent_required")
                 # input_required proves the earlier submission has had no effect.
                 try:
-                    self._check(grant_id)
+                    self._check(grant_id, generation)
                     with _before_submission():
                         choice = await self.approvals.ask(
                             form, product, tool, grant_id, invocation_id

@@ -174,7 +174,9 @@ async def audience(call: DriveCall, target: str, account: str) -> DriveAudience:
             and observed[0].address.casefold() == account.casefold()
             and observed[0].pending_owner is not True
         )
-        if (
+        if raw.get("nextPageToken"):
+            state = "unknown"
+        elif (
             file.shared_drive
             or file.visibility
             in {"PUBLIC", "UNLISTED", "PUBLIC_TO_DOMAIN", "UNLISTED_TO_DOMAIN"}
@@ -183,12 +185,7 @@ async def audience(call: DriveCall, target: str, account: str) -> DriveAudience:
         ):
             if state == "private":
                 state = "shared"
-        elif (
-            not owner_only
-            or not file.owner
-            or file.visibility != "PRIVATE"
-            or raw.get("nextPageToken")
-        ):
+        elif not owner_only or not file.owner or file.visibility != "PRIVATE":
             state = "unknown"
         if file.inherited_disabled is True:
             current = None

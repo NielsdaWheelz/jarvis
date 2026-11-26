@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""Export verified attachment originals, without writing to the stopped sources."""
+
+import argparse
+import hashlib
+import os
+import re
+import stat
+import sys
+import tempfile
+from contextlib import closing
+from pathlib import Path
+
+import boto3
+import psycopg
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
+from psycopg.rows import dict_row
+from pydantic import TypeAdapter
+
+from jarvis._atomic_json import read_private_json, replace_private_json
+from jarvis.drive_cut import DriveIdentifier
+
+_CHUNK = 1024 * 1024
+_MAX_BYTES = 100 * _CHUNK
+_IDENTIFIER = TypeAdapter(DriveIdentifier)
+
+
+class Failure(RuntimeError):
+    """The stopped evidence cannot support import."""
+
+
+def stopped_rows():
+    dsn = os.environ["JARVIS_EXPORT_DATABASE_URL"]
+    with psycopg.connect(dsn, row_factory=dict_row, connect_timeout=10) as connection:
+        connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        revisions = connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchall()
+        if len(revisions) != 1 or revisions[0]["version_num"] not in {"0025", "0026"}:
+            raise Failure(
+                "source must be the restored predecessor at schema 0025 or 0026"
+            )
+        return connection.execute("""
+            SELECT id, state, source->>'kind' AS kind, r2_account, bucket,
+                   filename, media_type, size_bytes, sha256, put_entered_at,
+                   capture_action_id, error
+              FROM attachment
+             ORDER BY id
+        """).fetchall()
+
+
+def list_objects(client, bucket):
+    objects = {}
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
+        for item in page.get("Contents", ()):
+            key, size, etag = item["Key"], item["Size"], item["ETag"]
+            if key in objects or type(size) is not int or size < 0 or not etag:
+                raise Failure(
+                    "bucket inventory has duplicate or invalid object evidence"
+                )
+            objects[key] = (size, etag)
+    return objects
+
+
+def export_bytes(stream, output: Path, expected: int, sha256: str) -> None:
+    if not 0 <= expected <= _MAX_BYTES:
+        raise Failure("source exceeds the 100 mib bound")
+    descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        size = 0
+        digest = hashlib.sha256()
+        with os.fdopen(descriptor, "wb") as destination:
+            while data := stream.read(min(_CHUNK, expected + 1 - size)):
+                size += len(data)
+                if size > expected:
+                    raise Failure("source length differs from the stopped row")
+                digest.update(data)
+                destination.write(data)
+            if size != expected or digest.hexdigest() != sha256:
+                raise Failure("source bytes differ from the stopped row")
+            destination.flush()
+            os.fsync(destination.fileno())
+    except BaseException:
+        output.unlink(missing_ok=True)
+        raise
+
+
+def object_key(row) -> str:
+    return f"attachments/{row['id']}/original"
+
+
+def spool_key(row) -> str:
+    return f"{row['id']}.{row['sha256']}"
+
+
+def export_row(row, objects, spool: Path, blobs: Path, client, bucket: str) -> dict:
+    state = row["state"]
+    key = object_key(row)
+    output = blobs / str(row["id"])
+    size, digest = row["size_bytes"], row["sha256"]
+    reason = None
+    if state in {"ready", "pending"} and (
+        type(size) is not int
+        or not isinstance(digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+    ):
+        raise Failure("active source has no stopped byte evidence")
+    if state == "ready":
+        if not row["filename"]:
+            raise Failure("ready source has no name to preserve")
+        if key not in objects:
+            raise Failure("ready source has no listed original")
+        listed_size, etag = objects[key]
+        if listed_size != size:
+            raise Failure("bucket object length differs from the stopped row")
+        response = client.get_object(Bucket=bucket, Key=key, IfMatch=etag)
+        with closing(response["Body"]) as stream:
+            if response["ContentLength"] != size:
+                raise Failure("fetched object length differs from the stopped row")
+            export_bytes(stream, output, size, digest)
+    elif state == "pending":
+        if (
+            row["kind"] != "web"
+            or row["put_entered_at"] is not None
+            or row["capture_action_id"] is not None
+            or row["error"] is not None
+            or key in objects
+        ):
+            raise Failure("pending row has unresolved predecessor storage evidence")
+        descriptor = os.open(spool / spool_key(row), os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise Failure("stopped upload spool entry is not a regular file")
+            export_bytes(stream, output, size, digest)
+    elif state == "failed":
+        reason = row["error"]
+        if not reason:
+            raise Failure("failed row has no recorded disposition")
+    elif state == "deleted":
+        reason = "Deleted"
+    else:
+        raise Failure("row must settle under the predecessor before export")
+    return {
+        "source_uuid": str(row["id"]),
+        "prior_state": state,
+        "name": row["filename"],
+        "size": size,
+        "sha256": digest,
+        "reason": reason,
+        "media_type": row["media_type"],
+    }
+
+
+def fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def run(args: argparse.Namespace) -> None:
+    out = args.out.parent.resolve() / args.out.name
+    scratch = (
+        Path("/tmp"),
+        Path("/var/tmp"),
+        Path("/var/folders"),
+        Path(tempfile.gettempdir()),
+    )
+    if any(base.resolve() in (*out.parents, out) for base in scratch):
+        raise Failure("export directory must live outside scratch")
+    if not re.fullmatch(r"[a-z0-9-]{1,64}", args.account):
+        raise Failure("invalid r2 account")
+    credentials = read_private_json(args.credentials)
+    if (
+        credentials is None
+        or set(credentials) != {"access_key_id", "secret_access_key"}
+        or not all(isinstance(value, str) and value for value in credentials.values())
+    ):
+        raise Failure("expected the private read-only r2 credential")
+    grant = read_private_json(args.google_state)
+    if grant is None or grant.get("status") != "connected":
+        raise Failure("stopped google state has no connected subject")
+    subject = _IDENTIFIER.validate_python(grant.get("subject"))
+    parent = _IDENTIFIER.validate_python(args.parent)
+    rows = stopped_rows()
+    if any(
+        (row["r2_account"], row["bucket"]) != (args.account, args.bucket)
+        for row in rows
+    ):
+        raise Failure("stopped rows name a different r2 custody location")
+    spool = args.spool.resolve()
+    if not spool.is_dir():
+        raise Failure("stopped spool directory is unavailable")
+    if out.is_relative_to(spool) or out.exists():
+        raise Failure("export requires a new destination outside the stopped spool")
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=f"https://{args.account}.r2.cloudflarestorage.com",
+        aws_access_key_id=credentials["access_key_id"],
+        aws_secret_access_key=credentials["secret_access_key"],
+        region_name="auto",
+        config=Config(
+            connect_timeout=10, read_timeout=60, retries={"total_max_attempts": 2}
+        ),
+    )
+    objects = list_objects(client, args.bucket)
+    known = {object_key(row): row for row in rows}
+    known_spool = {spool_key(row): row for row in rows if row["sha256"] is not None}
+    spool_keys = {file.name for file in spool.iterdir()}
+    orphans = sorted(objects.keys() - known.keys())
+    stale = sorted(
+        key for key in objects.keys() & known.keys() if known[key]["state"] != "ready"
+    )
+
+    out.mkdir(mode=0o700)
+    fsync_directory(out.parent)
+    blobs = out / "blobs"
+    blobs.mkdir(mode=0o700)
+    entries, blocked = [], []
+    blocked_sources = set()
+    for row in rows:
+        try:
+            entries.append(export_row(row, objects, spool, blobs, client, args.bucket))
+        except (Failure, OSError, BotoCoreError, ClientError) as error:
+            source = str(row["id"])
+            blocked_sources.add(source)
+            reason = str(error) if isinstance(error, Failure) else type(error).__name__
+            blocked.append(
+                {"source_uuid": source, "state": row["state"], "reason": reason}
+            )
+    fsync_directory(blobs)
+
+    dispositions = []
+    for key, (size, _) in sorted(objects.items()):
+        row = known.get(key)
+        source = None if row is None else str(row["id"])
+        if row is None:
+            disposition = "orphan"
+        elif row["state"] != "ready":
+            disposition = "retained_stale"
+        else:
+            disposition = "blocked" if source in blocked_sources else "verified"
+        dispositions.append(
+            {
+                "key": key,
+                "size": size,
+                "source_uuid": source,
+                "disposition": disposition,
+            }
+        )
+    report = out / "report.json"
+    replace_private_json(
+        report,
+        {
+            "status": "held" if blocked else "complete",
+            "rows": len(rows),
+            "covered_rows": len(entries),
+            "verified_blob_bytes": sum(
+                row["size"]
+                for row in entries
+                if row["prior_state"] in {"ready", "pending"}
+            ),
+            "r2_objects": dispositions,
+            "r2_bytes": sum(size for size, _ in objects.values()),
+            "orphans": orphans,
+            "retained_stale": stale,
+            "spool_orphans": sorted(spool_keys - known_spool.keys()),
+            "retained_stale_spool": sorted(
+                key
+                for key in spool_keys & known_spool.keys()
+                if known_spool[key]["state"] != "pending"
+            ),
+            "blocked": blocked,
+        },
+    )
+    print(f"report sha256 {hashlib.sha256(report.read_bytes()).hexdigest()}")
+    if blocked:
+        raise Failure(
+            f"{len(entries)} of {len(rows)} source rows verified; export held"
+        )
+    inventory = out / "inventory.json"
+    replace_private_json(
+        inventory,
+        {
+            "subject": subject,
+            "parent": parent,
+            "rows": len(rows),
+            "entries": entries,
+        },
+    )
+    print(f"inventory sha256 {hashlib.sha256(inventory.read_bytes()).hexdigest()}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--spool", type=Path, required=True)
+    parser.add_argument("--account", required=True)
+    parser.add_argument("--bucket", required=True)
+    parser.add_argument("--credentials", type=Path, required=True)
+    parser.add_argument("--google-state", type=Path, required=True)
+    parser.add_argument("--parent", required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    try:
+        run(parser.parse_args())
+    except Failure as error:
+        print(f"refused: {error}", file=sys.stderr)
+        return 1
+    except (
+        KeyError,
+        OSError,
+        TypeError,
+        ValueError,
+        psycopg.Error,
+        BotoCoreError,
+        ClientError,
+    ) as error:
+        print(
+            f"refused: source or destination unavailable ({type(error).__name__})",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

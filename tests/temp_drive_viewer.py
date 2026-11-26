@@ -110,7 +110,6 @@ async def main():
                 work=None,
                 attachments=SimpleNamespace(pending=pending, inspect=origin),
                 submit=None,
-                spool=path,
                 pages=path,
                 phone=None,
                 drive_reader=DriveReader(provider, current, path, b"1" * 32),
@@ -149,6 +148,7 @@ async def main():
                 assert (await owner.get("/api/drive/pending")).json()[0]["id"] == str(upload)
                 good = await owner.get(base + "/content", params={"version": "1"})
                 assert good.content == media and good.headers["Content-Type"] == "application/pdf"
+                assert good.headers["Cache-Control"] == "private, no-store, no-transform"
                 version = "2"
                 media = b"%PDF-1.5\nother"
                 assert (await owner.get(base + "/content", params={"version": "1"})).status_code == 409

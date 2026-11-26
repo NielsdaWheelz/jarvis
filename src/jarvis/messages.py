@@ -563,7 +563,9 @@ class MessageStore:
                     validated = HOME_REF_ADAPTER.validate_python(ref)
                 except ValueError as exc:
                     raise InvalidReference("invalid reference") from exc
-                enrollment = None if self._workspace is None else self._workspace.enrollment()
+                enrollment = (
+                    None if self._workspace is None else self._workspace.enrollment()
+                )
                 context = await reference_context(
                     connection,
                     scope,

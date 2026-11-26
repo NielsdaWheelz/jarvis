@@ -1039,7 +1039,8 @@ def main():
             )
         )
     elif command == "repair-source":
-        binding = check_held(args.id)["binding"]
+        _, receipt = require_held(args.id)
+        binding = receipt["binding"]
         require(
             binding["operation"] == "release",
             "repair must use the original operation type",

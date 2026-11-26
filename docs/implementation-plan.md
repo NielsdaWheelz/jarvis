@@ -197,6 +197,16 @@ records probe and fixture deletion. the [november 24 cleanup](decisions/0094-wor
 the [installed issue](issues/default-home-work.md) stays open through acceptance.
 the [private android client](decisions/0105-native-android.md#installed-phone-follow-up-on-november-24-utc) handles sharing and push. iphone uses web access.
 
+## chat composer attachments
+
+[adr 0116](decisions/0116-chat-composer-attachments.md) owns the interaction,
+draft recovery and acceptance criteria. both clients passed [source and isolated
+acceptance](decisions/0116-chat-composer-attachments.md#implementation-evidence--november-26-2026).
+
+use the normal web release and signed app update for delivery. record
+one installed gesture-to-receipt check on each client. both use the existing
+api and can be released independently.
+
 ## full answers in web chat
 
 [adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)

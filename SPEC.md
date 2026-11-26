@@ -49,6 +49,11 @@ client, explicit todo results on both clients and replacement of discord alert
 delivery by firebase. the installed 0087 contract governs until the recorded
 stopped android cut. preserve the original owner scope and archive addresses.
 
+[adr 0116](docs/decisions/0116-chat-composer-attachments.md) adds files to
+the open chat draft by drop or paste on web and through the native android
+message field. web attach joins the same ordered list. staging is local until
+explicit send. both clients use the existing submission and receipt contract.
+
 ## outgoing gmail attachments
 
 [adr 0101](docs/decisions/0101-outgoing-mail-attachments.md) adopts outgoing files for the existing gmail write family. it supersedes the f1 deferral for this feature and the former draft-id-only send and recovery contract. source, detached rehearsal and isolated connected-account phone acceptance passed under adr 0046. the [production cut and installed smoke](docs/decisions/0101-outgoing-mail-attachments.md#production-cut) passed on schema `0022`.

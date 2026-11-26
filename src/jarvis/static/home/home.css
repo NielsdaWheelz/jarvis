@@ -263,6 +263,33 @@ article {
   font-size: 0.85rem;
   overflow-wrap: anywhere;
 }
+#composer.dragging {
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
+}
+#file-list {
+  max-height: 25vh;
+  overflow-y: auto;
+}
+.draft-file {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-block: 0.15rem;
+}
+.draft-file span {
+  flex: 1;
+  min-width: 0;
+}
+.draft-file canvas {
+  width: 2.5rem;
+  height: 2.5rem;
+  object-fit: contain;
+}
+#file-problem,
+#uncertain-help {
+  font-size: 0.85rem;
+}
 #context button {
   margin: 0.2rem;
 }

@@ -39,7 +39,10 @@ const newDraft = () => ({ id: null, text: "", ref: null, files: [], uncertain: f
 let draft = JSON.parse(sessionStorage.getItem(draftKey) || "null") || newDraft();
 let armed = null,
   pendingSend = false,
-  fileProblem = "",
+  checkingReceipt = false,
+  receiptMissing = false,
+  staging = 0,
+  reselect = null,
   lastRead = null;
 let current = null,
   displayed = "",
@@ -63,7 +66,10 @@ const time = (at, zone) =>
     timeZone: zone,
     timeZoneName: zone ? "short" : undefined,
   });
-const save = () => sessionStorage.setItem(draftKey, JSON.stringify(draft));
+function save() {
+  const files = draft.files.map(({ name, size, sha256 }) => ({ name, size, sha256 }));
+  sessionStorage.setItem(draftKey, JSON.stringify({ ...draft, files }));
+}
 const isDetail = (path) => /^\/[mt]\//.test(path);
 
 function changeState(values, path = location.href) {
@@ -107,44 +113,210 @@ $("sidebar-open").onclick = () => {
 $("sidebar-close").onclick = closeSidebar;
 $("chat-tab").onclick = openSidebar;
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && mobile.matches && history.state?.panel) closeSidebar();
+  if (e.key !== "Escape") return;
+  clearDrag();
+  if (mobile.matches && history.state?.panel) closeSidebar();
 });
+function oldUpload() {
+  return draft.uncertain && draft.files.some((entry) => !entry.sha256);
+}
+function canStage() {
+  return !pendingSend && !checkingReceipt && (!draft.uncertain || (receiptMissing && !oldUpload()));
+}
 function updateComposer() {
-  $("message").value = draft.text;
-  $("message").readOnly = pendingSend || draft.uncertain;
-  $("files").disabled = pendingSend;
-  $("context").replaceChildren();
+  if ($("message").value !== draft.text) $("message").value = draft.text;
+  const editable = !pendingSend && !draft.uncertain;
+  $("message").readOnly = !editable;
+  $("files").disabled = !canStage();
   $("context").hidden = !draft.ref;
-  if (draft.ref) {
-    const remove = button("remove reference", () => {
-      draft.ref = null;
-      delete draft.refLabel;
-      save();
-      updateComposer();
-    });
-    remove.disabled = pendingSend || draft.uncertain;
-    $("context").append(draft.refLabel || label(draft.ref), remove);
+  $("ref-label").textContent = draft.ref ? draft.refLabel || label(draft.ref) : "";
+  $("remove-ref").disabled = !editable;
+  for (const control of $("file-list").querySelectorAll("button")) {
+    control.hidden = draft.uncertain;
+    control.disabled = !editable || Boolean(staging);
   }
-  $("file-list").textContent = [draft.files.map((f) => f.name).join(" · "), fileProblem]
-    .filter(Boolean)
-    .join(" · ");
-  const oldUpload = draft.uncertain && draft.files.some((f) => !f.sha256);
+  const missing = draft.files.some((entry) => !entry.file);
+  $("uncertain-help").hidden = !draft.uncertain || pendingSend || (!missing && !oldUpload());
   $("send").textContent = draft.uncertain ? "retry send" : "send";
-  $("send").disabled = pendingSend || oldUpload || (!draft.text.trim() && !draft.files.length);
+  $("send").disabled =
+    !canStage() || Boolean(staging) || missing || (!draft.text.trim() && !draft.files.length);
+}
+$("remove-ref").onclick = () => {
+  draft.ref = null;
+  delete draft.refLabel;
+  save();
+  updateComposer();
+};
+function showFiles() {
+  const rows = draft.files.map((entry, index) => {
+    const row = el("div", undefined, "draft-file");
+    if (entry.preview) row.append(entry.preview);
+    row.append(el("span", entry.name + (entry.file ? "" : " · needs original file")));
+    if (!entry.file) {
+      const choose = button("reselect", () => {
+        reselect = entry;
+        $("files").multiple = false;
+        $("files").click();
+      });
+      choose.setAttribute("aria-label", "reselect " + entry.name);
+      row.append(choose);
+    }
+    const remove = button("remove", () => {
+      draft.files.splice(index, 1);
+      $("file-problem").textContent = "";
+      save();
+      showFiles();
+      const next = $("file-list").children[index] || $("file-list").lastChild;
+      (next?.lastChild || $("files")).focus();
+    });
+    remove.setAttribute("aria-label", "remove " + entry.name);
+    row.append(remove);
+    return row;
+  });
+  $("file-list").replaceChildren(...rows);
+  updateComposer();
+}
+const rasterType = /^image\/(png|jpeg|gif|webp|bmp|avif)$/i;
+async function attachBytes(entry, file) {
+  entry.file = file;
+  if (!rasterType.test(file.type)) return;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+    if (entry.file !== file || !draft.files.includes(entry)) return;
+    const canvas = el("canvas");
+    const scale = Math.min(1, 80 / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    canvas.setAttribute("aria-hidden", "true");
+    entry.preview = canvas;
+    $("file-list").children[draft.files.indexOf(entry)]?.prepend(canvas);
+  } catch {
+    // The filename remains usable when this browser cannot decode a thumbnail.
+  } finally {
+    bitmap?.close();
+  }
+}
+function fileName(file) {
+  if (file.name) return file.name;
+  const image = rasterType.exec(file.type);
+  return image ? "pasted image." + image[1].toLowerCase() : "pasted file";
+}
+async function digest(file) {
+  try {
+    const bytes = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+    return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    throw new Error("couldn’t read " + fileName(file) + ". choose its original again.");
+  }
+}
+async function restoreFiles(files, missing) {
+  const matches = [];
+  for (const file of files) {
+    const candidates = missing.filter((entry) => entry.size === file.size);
+    const hash = candidates.some((entry) => entry.sha256) ? await digest(file) : null;
+    const match = candidates.find((entry) =>
+      entry.sha256 ? entry.sha256 === hash : entry.name === fileName(file)
+    );
+    if (!match) throw new Error(fileName(file) + " does not match a missing original file.");
+    missing.splice(missing.indexOf(match), 1);
+    matches.push(match);
+  }
+  matches.forEach((entry, i) => attachBytes(entry, files[i]));
+}
+let additions = Promise.resolve();
+function stage(files, target = null) {
+  if (!files.length || !canStage()) return;
+  staging++;
+  updateComposer();
+  // A later gesture must see the slots filled by an earlier digest check.
+  additions = additions.then(async () => {
+    try {
+      $("file-problem").textContent = "";
+      if (draft.uncertain || target) {
+        await restoreFiles(files, target ? [target] : draft.files.filter((entry) => !entry.file));
+      } else {
+        if (draft.files.length + files.length > 10)
+          throw new Error("a message can have at most 10 files.");
+        const bytes = [...draft.files, ...files].reduce((total, file) => total + file.size, 0);
+        if (bytes + new TextEncoder().encode(draft.text).length > 90 * 1024 * 1024)
+          throw new Error("the message and files exceed 90 mib.");
+        for (const file of files) {
+          const entry = { name: fileName(file), size: file.size };
+          draft.files.push(entry);
+          attachBytes(entry, file);
+        }
+        save();
+      }
+      showFiles();
+    } catch (error) {
+      $("file-problem").textContent = error.message;
+    } finally {
+      staging--;
+      updateComposer();
+    }
+  });
 }
 $("message").oninput = () => {
   draft.text = $("message").value;
   save();
-  $("send").disabled = pendingSend || (!draft.text.trim() && !draft.files.length);
-};
-$("files").onchange = () => {
-  fileProblem = "";
-  if (!draft.uncertain) {
-    draft.files = Array.from($("files").files, (f) => ({ name: f.name, size: f.size }));
-    save();
-  }
   updateComposer();
 };
+function resetPicker() {
+  reselect = null;
+  $("files").value = "";
+  $("files").multiple = true;
+}
+$("files").onchange = () => {
+  stage(Array.from($("files").files), reselect);
+  resetPicker();
+};
+$("files").oncancel = resetPicker;
+function stageTransfer(e, data) {
+  if (!data) return;
+  const files = Array.from(data.files);
+  if (!files.length) {
+    for (const item of data.items || [])
+      if (item.kind === "file") files.push(item.getAsFile());
+  }
+  if (!files.length && !data.types.includes("Files")) return;
+  e.preventDefault();
+  if (!files.length || files.includes(null)) {
+    $("file-problem").textContent = "couldn’t read the files. choose them with attach.";
+    return;
+  }
+  stage(files);
+}
+$("message").onpaste = (e) => stageTransfer(e, e.clipboardData);
+let dragDepth = 0;
+function clearDrag() {
+  dragDepth = 0;
+  $("composer").classList.remove("dragging");
+}
+function fileDrag(e) {
+  return e.dataTransfer?.types.includes("Files");
+}
+$("composer").ondragenter = (e) => {
+  if (!fileDrag(e)) return;
+  e.preventDefault();
+  dragDepth++;
+  $("composer").classList.toggle("dragging", canStage());
+};
+$("composer").ondragover = (e) => {
+  if (!fileDrag(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = canStage() ? "copy" : "none";
+};
+$("composer").ondragleave = () => {
+  if (--dragDepth <= 0) clearDrag();
+};
+$("composer").ondrop = (e) => {
+  clearDrag();
+  stageTransfer(e, e.dataTransfer);
+};
+window.addEventListener("dragend", clearDrag);
+window.addEventListener("blur", clearDrag);
 function discuss(ref, title) {
   openSidebar();
   const choice = $("draft-choice");
@@ -273,106 +445,101 @@ function accepted(id, submission) {
   showConnection();
   if (armed?.submission === submission) armed.request = id;
   draft = newDraft();
-  fileProblem = "";
+  $("file-problem").textContent = "";
+  receiptMissing = false;
   save();
-  $("files").value = "";
-  updateComposer();
+  resetPicker();
+  showFiles();
   $("receipt").textContent = "received";
   present();
 }
 async function recover() {
   if (!draft.uncertain) return false;
   const id = draft.id;
-  const receipt = await read("/api/submissions/" + id);
-  if (!draft.uncertain || draft.id !== id) return true;
-  if (receipt) accepted(receipt.id, id);
-  else
-    $("receipt").textContent = draft.files.some((f) => !f.sha256)
-      ? "delivery unconfirmed. this earlier upload has no file digest. checking for its receipt."
-      : "delivery unconfirmed. retry the same message.";
-  return Boolean(receipt);
+  checkingReceipt = true;
+  updateComposer();
+  try {
+    const receipt = await read("/api/submissions/" + id);
+    if (!draft.uncertain || draft.id !== id) return true;
+    if (receipt) accepted(receipt.id, id);
+    else {
+      receiptMissing = true;
+      $("receipt").textContent = oldUpload()
+        ? "delivery unconfirmed. this earlier upload has no file digest. checking for its receipt."
+        : "delivery unconfirmed. retry the same message.";
+    }
+    return Boolean(receipt);
+  } finally {
+    checkingReceipt = false;
+    updateComposer();
+  }
 }
 $("composer").onsubmit = async (e) => {
   e.preventDefault();
-  if (pendingSend) return;
+  if ($("send").disabled) return;
   pendingSend = true;
   $("draft-choice").hidden = true;
+  $("file-problem").textContent = "";
   updateComposer();
-  if (!draft.uncertain) {
-    draft.id = crypto.randomUUID();
-    save();
-  }
+  const retry = draft.uncertain;
+  if (!retry) draft.id = crypto.randomUUID();
   const id = draft.id;
   try {
-    if (draft.uncertain && (await recover())) return;
-    const files = Array.from($("files").files);
-    if (
-      files.length !== draft.files.length ||
-      files.some(
-        (file, i) => file.name !== draft.files[i].name || file.size !== draft.files[i].size,
-      )
-    ) {
-      fileProblem = "reselect the original files to retry.";
+    if (retry && (await recover())) return;
+    if (new TextEncoder().encode(draft.text).length > 16 * 1024) {
+      $("file-problem").textContent = "the caption exceeds 16 kib. shorten it to send.";
       return;
     }
-    // Bound local hashing before allocating file buffers. The server also checks the encoded body.
-    if (files.length > 10 || files.reduce((bytes, f) => bytes + f.size, 0) > 90 * 1024 * 1024) {
-      fileProblem = "message or files are too large.";
-      return;
-    }
-    if (!draft.uncertain) armed = { submission: id, request: null };
-    for (const [i, file] of files.entries()) {
-      let digest;
-      try {
-        digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
-      } catch {
-        fileProblem = "couldn’t read the file. select it again.";
-        return;
-      }
-      const sha256 = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
-      if (draft.uncertain && draft.files[i].sha256 !== sha256) {
-        fileProblem = "the selected bytes differ. reselect the original files to retry.";
-        return;
-      }
-      draft.files[i].sha256 = sha256;
-    }
-    fileProblem = "";
     const message = JSON.stringify({ text: draft.text, ref: draft.ref });
     const options = { method: "PUT" };
-    if (files.length) {
+    if (draft.files.length) {
       const form = new FormData();
       form.append("message", message);
-      for (const file of files) form.append("file", file);
+      for (const entry of draft.files) {
+        try {
+          const hash = await digest(entry.file);
+          if (retry && hash !== entry.sha256)
+            throw new Error(entry.name + " has changed. choose its original again.");
+          entry.sha256 = hash;
+        } catch (error) {
+          delete entry.file;
+          delete entry.preview;
+          $("file-problem").textContent = error.message;
+          showFiles();
+          return;
+        }
+        form.append("file", entry.file, entry.name);
+      }
       options.body = form;
     } else {
       options.headers = { "Content-Type": "application/json" };
       options.body = message;
     }
+    if (!retry) armed = { submission: id, request: null };
+    receiptMissing = false;
     draft.uncertain = true;
     save();
     updateComposer();
     $("receipt").textContent = "sending…";
     const response = await request("/api/messages/" + id, options);
     if (response.ok) accepted((await response.json()).id, id);
-    else {
-      if (response.status === 409) {
-        $("receipt").textContent = "this submission was already used. review the conversation.";
-        armed = null;
-        draft.uncertain = false;
-        draft.id = null;
-        save();
-      } else if ([400, 413, 422].includes(response.status)) {
-        draft.uncertain = false;
-        save();
-        armed = null;
-        $("receipt").textContent =
-          response.status === 400
-            ? "use the private home address to send."
-            : response.status === 413
-              ? "message or files are too large."
-              : "check the message, files and reference.";
-      } else throw new Error("submission unavailable");
-    }
+    else if (response.status === 409) {
+      $("receipt").textContent = "this submission was already used. review the conversation.";
+      armed = null;
+      draft.uncertain = false;
+      draft.id = null;
+      save();
+    } else if ([400, 413, 422].includes(response.status)) {
+      // A rejected retry says nothing about the first attempt.
+      draft.uncertain = retry;
+      save();
+      if (!retry) armed = null;
+      const problem = response.status === 400 ? "use the private home address to send."
+        : response.status === 413 ? "message or files are too large."
+        : "check the message, files and reference.";
+      $("file-problem").textContent = problem;
+      $("receipt").textContent = retry ? "checking whether the earlier message arrived…" : "";
+    } else throw new Error("submission unavailable");
   } catch (error) {
     $("receipt").textContent = "checking whether your message arrived…";
     failure(error, "receipt");
@@ -1169,7 +1336,7 @@ function refresh() {
   if (!$("chat").hidden && (!mobile.matches || history.state?.panel)) {
     poll("workspace approval", workspaceApproval);
   }
-  if (!pendingSend && draft.uncertain) poll("receipt", recover);
+  if (!pendingSend && !staging && !checkingReceipt && draft.uncertain) poll("receipt", recover);
 }
 
 async function workspaceApproval(ver) {
@@ -1215,7 +1382,7 @@ async function workspaceApproval(ver) {
   node.dataset.round = approval.id;
   node.hidden = false;
 }
-updateComposer();
+showFiles();
 startRoute();
 window.addEventListener("pagehide", () => {
   rememberOverview();

@@ -452,8 +452,8 @@ function accepted(id, submission) {
   showFiles();
   $("receipt").textContent = "";
   presence.accepted();
-  if ($("msg-" + id)) $("chat").scrollTop = $("chat").scrollHeight;
-  else acceptedMessage = id;
+  acceptedMessage = $("msg-" + id) ? null : id;
+  if (!acceptedMessage) $("chat").scrollTop = $("chat").scrollHeight;
   present();
 }
 async function recover() {

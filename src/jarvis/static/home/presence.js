@@ -325,6 +325,7 @@ export function bindPresence({ request, openOwed, keepBottom }) {
     },
     resume() {
       supported = true;
+      if (stale) paint();
     },
     unauthenticated() {
       invalidate();

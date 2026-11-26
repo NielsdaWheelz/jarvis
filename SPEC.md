@@ -2667,7 +2667,9 @@ its own accepted adr and restore proof.
 the [0107 candidate](docs/decisions/0107-google-workspace.md) uses a dedicated
 agent-marked oauth client for gmail and calendar. the host validates the
 enrollment and owns the credentials. maps retains its separate reader.
-the production project stays held pending the recorded permission decision.
+`JARVIS_WORKSPACE_PROJECT_ID` selects the project for stopped enrollment.
+live access requires a verified owner grant for that project. an unset project
+disables gmail and calendar.
 
 V1 reuses the working Discord, Gmail, Google Calendar, and Google Maps
 integrations.

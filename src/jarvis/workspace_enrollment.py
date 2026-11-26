@@ -28,7 +28,6 @@ from jarvis.workspace_mcp import SCOPES, WorkspaceError, workspace_http_attempt
 if TYPE_CHECKING:
     from jarvis.connectors import GoogleTokenManager
 
-HELD_PRODUCTION_PROJECT = "unified-ion-515618-m7"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 GOOGLE_JWKS = "https://www.googleapis.com/oauth2/v3/certs"
 IDENTITY_SCOPES = frozenset(
@@ -36,7 +35,6 @@ IDENTITY_SCOPES = frozenset(
 )
 ENROLLMENT_SCOPES = SCOPES | IDENTITY_SCOPES
 _APPROVAL_COPY = (
-    "use a dedicated test mailbox and project with constructed examples. "
     "this client must be marked for an ai-powered agent in google cloud. "
     "its permission can trash ordinary mail and change message labels. jarvis "
     "uses deletion only for verified draft revisions and label changes only "

@@ -23,7 +23,6 @@ from universal_memory.policy import EMBEDDING_DIMENSIONS
 
 from jarvis.codex_config import CodexHostConfig
 from jarvis.config import ConfigurationError
-from jarvis.workspace_enrollment import HELD_PRODUCTION_PROJECT
 
 EMBEDDING_MODEL: Final[Literal["text-embedding-3-small"]] = "text-embedding-3-small"
 EMBEDDING_DIMENSION: Final[Literal[1536]] = EMBEDDING_DIMENSIONS
@@ -302,8 +301,6 @@ class Settings(MemoryJobSettings):
             return value
 
         project = source.get("JARVIS_WORKSPACE_PROJECT_ID") or None
-        if project == HELD_PRODUCTION_PROJECT:
-            project = None
 
         def workspace_value(name: str, disabled_default: str = "") -> str:
             return required(name) if project is not None else disabled_default

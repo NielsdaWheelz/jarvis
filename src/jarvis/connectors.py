@@ -52,7 +52,6 @@ from jarvis.read_tools import (
 )
 from jarvis.workspace_enrollment import (
     GOOGLE_TOKEN_ENDPOINT,
-    HELD_PRODUCTION_PROJECT,
     WorkspaceEnrollment,
     exchange_workspace_code,
     granted_scopes,
@@ -185,8 +184,6 @@ class GoogleTokenManager:
         project_id: str | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
-        if project_id == HELD_PRODUCTION_PROJECT:
-            project_id = None
         if not state_path.is_absolute():
             raise GoogleCredentialDefect("Google state path must be absolute")
         if project_id is not None and (

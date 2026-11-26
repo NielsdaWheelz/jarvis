@@ -245,11 +245,10 @@ def create_home_app(
 
         app.include_router(build_mail_editor_router(mail_editor, resolve_draft))
 
-    async def todo_list(offset: int = 0) -> dict[str, Any]:
-        try:
-            return await work.web_list(offset, owner_timezone)
-        except ValueError as exc:
-            raise HTTPException(422, "invalid offset") from exc
+    async def todo_list(request: Request) -> dict[str, Any]:
+        if request.query_params.multi_items() != [("all", "true")]:
+            raise HTTPException(422, "expected only all=true")
+        return await work.web_list()
 
     async def todo(identifier: UUID) -> dict[str, Any]:
         try:

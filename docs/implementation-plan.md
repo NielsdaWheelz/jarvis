@@ -179,9 +179,36 @@ independent claude opus 5.5 passed the original design, its calendar and draft a
 
 ## private web home
 
+[inline todo viewer](decisions/0117-inline-todo-viewer.md) is implemented
+for web and android. the isolated candidate passed. installed acceptance is
+pending.
+
+1. replace the existing todo collection page with the complete summary
+   response. verify the new ordered snapshot and rejection of retired queries.
+2. implement the web and android viewers against that contract. in the packaged
+   web shell, remove the sidebar record pane, duplicate todos control, backlog
+   fold and list pager. make ordinary rows disclosures and route exact links to
+   the viewer. in android, reuse the overview list and the existing detail
+   content in one scroll surface. preserve the calling visit when following a
+   result to a previously visited message. both clients load details on demand.
+3. exercise the adr’s four journeys on macbook with a real service, postgres,
+   desktop and narrow browsers, then the android candidate on the handset.
+   use isolated data. for a new detached rehearsal use dev-server’s
+   `scripts/rehearse-worktree`, retain named evidence outside scratch, reopen
+   and hash it, and record fixture cleanup separately.
+4. coordinate the release of the complete collection read, packaged web shell
+   and android apk in one maintenance window. have the updated apk ready
+   before switching the service. reload open web tabs and update the handset
+   before using todos. the change uses the current database schema. return
+   the service and web shell together if rollback is needed. a handset that
+   already updated needs a matching client installed as an in-place update
+   with the same signer and a higher version code. keep todo use on hold
+   until those artifacts match. record installed checks against the actual
+   release identities.
+
 [stable web home address](decisions/0115-web-home-address.md) keeps home and
-todos at the bare domain. qualify the packaged shell against the adr’s browser
-journeys on macbook before release.
+todos at the bare domain. qualify its home, address and history behavior on
+macbook. use 0117’s journeys for todo rows, exact todo links and return.
 
 the owner conversation, browser, originals, authored canvas and notifications share
 schema `0017`. [adr 0087](decisions/0087-private-web-home.md#implementation-evidence)

@@ -169,15 +169,9 @@ nav {
   border-bottom: 1px solid var(--line);
   padding: 0.65rem 1rem;
 }
-#chat-tab,
-nav .todos-control {
-  border: 0;
-  color: var(--muted);
-}
-#chat-tab[aria-pressed="true"] {
-  background: var(--paper);
-  color: var(--ink);
-  font-weight: 600;
+#todos-tab[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--paper);
 }
 .panel {
   flex: 1;
@@ -294,6 +288,10 @@ article {
   margin: 0.2rem;
 }
 @media (max-width: 720px) {
+  .bar {
+    gap: 0.45rem;
+    padding-inline: 0.65rem;
+  }
   body {
     display: block;
   }
@@ -380,37 +378,50 @@ article {
   margin: 1.5rem 0 0.25rem;
 }
 .todo-row {
-  display: block;
-  padding: 0.75rem 0;
   border-bottom: 1px solid var(--line);
-  color: var(--ink);
-  text-decoration: none;
+  overflow-wrap: anywhere;
 }
-.todo-row span {
-  font:
-    normal 1.45rem/1.2 "Cormorant Garamond",
-    Georgia,
-    serif;
+.todo-summary {
+  display: grid;
+  grid-template-columns: 1rem 1fr;
+  align-items: baseline;
+  column-gap: 0.4rem;
+  width: 100%;
+  text-align: start;
+  padding: 0.65rem 0;
+  border: 0;
 }
-.todo-row.lead span {
-  font-size: clamp(2.25rem, 5vw, 4rem);
-  letter-spacing: -0.035em;
+.todo-summary::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border: solid currentColor;
+  border-width: 1.5px 1.5px 0 0;
+  transform: rotate(45deg);
 }
-.todo-row:is(:hover, :focus-visible) span {
-  text-decoration: underline;
+.todo-summary[aria-expanded="true"]::before {
+  transform: rotate(135deg);
 }
-.todo-row small,
+.todo-summary span {
+  font: normal 1.45rem/1.2 "Cormorant Garamond", Georgia, serif;
+}
+.todo-summary small {
+  grid-column: 2;
+}
+.todo-summary small,
 #checked {
-  display: block;
   font-size: 0.85rem;
 }
+.todo-body {
+  padding: 0 0 0.8rem 1.4rem;
+}
+.todo-body button {
+  margin-inline-end: 0.6rem;
+}
 #checked,
-#todo-pages,
-#todo-list button,
 #todo-error {
   margin-top: 1rem;
 }
-#todo-pages,
 #draft-choice {
   display: flex;
   align-items: center;
@@ -424,13 +435,13 @@ article {
 #phone-alerts summary {
   cursor: pointer;
 }
-#records .linked-results {
+.todo-body .linked-results {
   margin-top: 1.4rem;
 }
-#records .linked-results ul {
+.todo-body .linked-results ul {
   padding-inline-start: 1.25rem;
 }
-#records .linked-results time {
+.todo-body .linked-results time {
   display: block;
   color: var(--muted);
 }

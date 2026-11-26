@@ -41,7 +41,6 @@ from jarvis.work_schedule import (
 )
 from jarvis.work_tools import (
     ACTIVE_WORK_STATES,
-    MAX_WORK_OFFSET,
     WORK_MUTATION_IDS,
     WORK_STATES,
     NotFound,
@@ -63,7 +62,6 @@ from jarvis.workspace_checks import (
 )
 
 _REPEAT = TypeAdapter[RepeatRule](RepeatRule)
-_WEB_PAGE_SIZE = 50
 _STATE_RANK = {state: rank for rank, state in enumerate(WORK_STATES)}
 _STATE_ORDER = case(_STATE_RANK, value=work.c.state)
 _DATE_ORDER = work.c.due_date.asc().nulls_last()
@@ -155,15 +153,12 @@ class WorkStore:
             )
             return result
 
-    async def web_list(self, offset: int, owner_timezone: str) -> dict[str, object]:
-        """Read the next deadline, counts and page under the same writer lock."""
-        if not 0 <= offset <= MAX_WORK_OFFSET or offset % _WEB_PAGE_SIZE:
-            raise ValueError("invalid todo page offset")
-
+    async def web_list(self) -> dict[str, object]:
+        """Read the complete active list under the writer lock."""
         async with self._database.begin() as connection:
             await lock_conversation(connection, self._conversation_id)
             as_of = datetime.now(UTC)
-            today = as_of.astimezone(ZoneInfo(owner_timezone)).date()
+            today = as_of.astimezone(self._owner_zone).date()
             active = work.c.state.in_(ACTIVE_WORK_STATES)
             due_order = (_DATE_ORDER, _STATE_ORDER, *_TIE_BREAK)
             next_id = await connection.scalar(
@@ -177,14 +172,6 @@ class WorkStore:
                 (work.c.id == next_id, "next_deadline"),
                 else_=work.c.state,
             )
-            total, backlog_remaining = (
-                await connection.execute(
-                    select(func.count(), func.count().filter(section == "backlog"))
-                    .select_from(work)
-                    .where(active)
-                )
-            ).one()
-            offset = min(offset, (max(total - 1, 0) // _WEB_PAGE_SIZE) * _WEB_PAGE_SIZE)
             rows = await connection.execute(
                 select(
                     work.c.id,
@@ -200,18 +187,17 @@ class WorkStore:
                     ),
                     *due_order,
                 )
-                .offset(offset)
-                .limit(_WEB_PAGE_SIZE)
             )
-            return {
-                "as_of": as_of,
-                "timezone": owner_timezone,
-                "today": today,
-                "offset": offset,
-                "total": total,
-                "backlog_remaining": backlog_remaining,
-                "items": [dict(row) for row in rows.mappings()],
-            }
+            items = [dict(row) for row in rows.mappings()]
+        return {
+            "as_of": as_of,
+            "timezone": self._owner_zone.key,
+            "today": today,
+            "offset": 0,
+            "total": len(items),
+            "backlog_remaining": sum(item["section"] == "backlog" for item in items),
+            "items": items,
+        }
 
     async def recover_mutation(self, action_id: UUID) -> ToolResult | None:
         """Wait out entered SQL before using absence as local replay proof."""

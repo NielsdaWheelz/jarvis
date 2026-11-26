@@ -132,7 +132,11 @@ from jarvis.proactivity import WorkWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
-from jarvis.recovery_catchup import CatchupInventory, queue_catchup
+from jarvis.recovery_catchup import (
+    CatchupInventory,
+    queue_catchup,
+    resume_catchup_quota,
+)
 from jarvis.service import JarvisService
 from jarvis.settings import (
     CutoverSettings,
@@ -899,6 +903,16 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
             enrollment = tokens.enrollment()
             if enrollment is None:
                 raise WorkspaceError("grant_unavailable")
+            if arguments.command == "resume-recovery-quota-wait":
+                inventory = CatchupInventory.model_validate_json(
+                    arguments.inventory.read_bytes()
+                )
+                print(
+                    await resume_catchup_quota(
+                        database, settings.owner_scope, inventory, enrollment
+                    )
+                )
+                return
             if arguments.command == "workspace-disconnect":
                 await tokens.disconnect(enrollment.grant_id)
                 print("workspace access disabled. revoke this app in google too.")
@@ -1880,6 +1894,11 @@ def _parser() -> argparse.ArgumentParser:
         help="queue a reviewed read-only parked mail inventory",
     )
     catchup.add_argument("inventory", metavar="INVENTORY", type=Path)
+    quota_wait = commands.add_parser(
+        "resume-recovery-quota-wait",
+        help="resume a reviewed held mail catch-up at its recorded quota deadline",
+    )
+    quota_wait.add_argument("inventory", metavar="INVENTORY", type=Path)
     return parser
 
 
@@ -1982,6 +2001,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "owner-gmail-enroll",
             "owner-gmail-disconnect",
             "owner-gmail-invalidate-restore",
+            "resume-recovery-quota-wait",
             "workspace-enroll",
             "workspace-disconnect",
             "workspace-restore-gap",

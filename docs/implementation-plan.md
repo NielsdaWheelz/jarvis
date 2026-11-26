@@ -60,8 +60,9 @@ the [live calendar check](decisions/0096-calendar-on-demand.md#live-google-calen
 
 [adr 0114](decisions/0114-skid-worker-placement.md) specifies the v14 cut from
 the v13 worker binding. source and the paired macbook candidate are qualified.
-the installed cut uses the currently selected application schema and records
-its own acceptance evidence.
+the installed cut committed on schema `0025`. the restricted fleet checks and
+the scoped owner-interface desktop assignment passed, including the exact
+reply and acknowledgement.
 
 1. **skid cli.** add the id selector to start parsing, help and fleet-client
    routing. use the existing machine-handle parser, peer lookup and start

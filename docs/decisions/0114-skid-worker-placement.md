@@ -73,7 +73,8 @@ private routing evidence.
   require the prior job's origin to belong to the current request's causal
   component, as `receipt.read` already does. an unrelated or unpinned job
   returns `job_not_found` with zero dispatches. a busy or departed worker
-  gets its skid outcome. [predecessor registration gap](../issues/worker-follow-up-scope.md)
+  gets its skid outcome. v13 checked conversation membership and omitted the
+  causal component check, which could admit an unrelated earlier job.
   removal, rename, an unreachable gateway or a change of profile never selects
   a replacement. preserve pause and current ownership at effect entry.
   reconcile an uncertain submission on its original host. only authoritative
@@ -137,6 +138,29 @@ verifier passed with a fifth offline peer and rejected a missing or failed
 required peer, invalid inventory and a mismatched exit status. the runner
 removed its containers, state and detached checkout.
 
-the installed proof remains a separate gate using the selected service and one
-scoped desktop assignment. the detached receipt and content-free observations
-are in `~/Documents/code/.rehearsal-evidence/jarvis-skid-worker-placement-20261126T061442Z/`.
+the detached receipt and content-free observations are in
+`~/Documents/code/.rehearsal-evidence/jarvis-skid-worker-placement-20261126T061442Z/`.
+the separate inventory rehearsal enrolled an offline fifth computer named
+`étage neuf` through skid and preserved all four healthy peers. filtered list,
+required-peer failure, recovery and private reference exclusion passed.
+
+## installed cut
+
+change `f5f9ac37-6955-4a7e-b05b-fa4a44ee8334` selected jarvis `8b9ab1e`
+after the desktop-memory cut to schema `0025`. the worker cut kept that schema
+and owner control `resume 42`. the predecessor had zero unfinished worker
+actions, pending worker wakes and outstanding acknowledgements. the signed
+skid v0.31.1 client used source `a85a41f` and linux binary sha256
+`b6920c9a73419e0a3a29c25985a93156fa57013764c41854814450a2b71f4075`.
+macbook, dev-server and desktop passed the restricted service-identity read.
+arch was unavailable. a transient client denied only desktop's tailnet routes
+and observed it as unavailable while the required pair stayed healthy. desktop
+returned healthy on the unrestricted read. the tower stayed online.
+
+the owner web interface admitted one smoke request. jarvis listed desktop
+before assigning one job on its applied `personal` profile. action
+`e7209aed-6efb-46ea-83d8-22ee580401b0` recorded the enrolled desktop handle
+and the original job id, confirmed one result and cleared its acknowledgement.
+one causal wake committed. the exact answer matched both the wake and the
+visible assistant reply. the installed receipt and scoped readback are in
+`~/Documents/code/.rehearsal-evidence/jarvis-worker-placement-installed-20261126T062229Z/`.

@@ -95,7 +95,10 @@ class ShareActivity : ComponentActivity() {
                             BodyStatus((state as CaptureState.Unavailable).message)
                             TextButton(onClick = ::finish) { Text("return") }
                         }
-                        CaptureState.Saved -> DraftComposer(draftId, ::finish) { finish() }
+                        CaptureState.Saved -> DraftComposer(draftId, ::finish) {
+                            Toast.makeText(this@ShareActivity, "received", Toast.LENGTH_SHORT).show()
+                            finish()
+                        }
                     }
                 }
             }
@@ -215,7 +218,6 @@ internal fun DraftComposer(id: String, onReturn: () -> Unit, onReceived: (String
         }
         if (draft.state == DraftState.Received && !active) {
             val receipt = checkNotNull(draft.receipt)
-            Toast.makeText(context, "received", Toast.LENGTH_SHORT).show()
             drafts.discard(id)
             onReceived(receipt)
         }

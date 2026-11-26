@@ -35,6 +35,8 @@ internal class HomeApi(context: Context) {
         method: String = "GET",
         body: RequestBody? = null,
         headers: Map<String, String> = emptyMap(),
+        retryAuthentication: Boolean = true,
+        timeoutMillis: Long? = null,
     ): Response {
         require(path.startsWith("/api/"))
         val url = requireNotNull(origin.resolve(path))
@@ -53,12 +55,12 @@ internal class HomeApi(context: Context) {
         request.header("X-Jarvis-Viewer-Contract", "cited-sources-v1")
         if (method != "GET" && method != "HEAD") request.header("Origin", Routes.origin)
         var bearer = access.currentBearer() ?: throw SignInRequired()
-        var response = execute(request.header("Authorization", "Bearer $bearer").build())
-        if (response.code == 401 && (method == "GET" || method == "HEAD")) {
+        var response = execute(request.header("Authorization", "Bearer $bearer").build(), timeoutMillis)
+        if (retryAuthentication && response.code == 401 && (method == "GET" || method == "HEAD")) {
             response.close()
             access.rejectedBearer(bearer)
             bearer = access.currentBearer() ?: throw SignInRequired()
-            response = execute(request.header("Authorization", "Bearer $bearer").build())
+            response = execute(request.header("Authorization", "Bearer $bearer").build(), timeoutMillis)
         }
         if (response.isRedirect || response.code == 401 || response.code == 403) {
             response.close()
@@ -68,9 +70,10 @@ internal class HomeApi(context: Context) {
         return response
     }
 
-    private suspend fun execute(request: Request): Response = suspendCancellableCoroutine { continuation ->
+    private suspend fun execute(request: Request, timeoutMillis: Long?): Response = suspendCancellableCoroutine { continuation ->
         val transport = if (request.method == "GET" || request.method == "HEAD") reads else client
         val call = transport.newCall(request)
+        timeoutMillis?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) = continuation.resumeWithException(e)
@@ -80,8 +83,8 @@ internal class HomeApi(context: Context) {
         })
     }
 
-    suspend fun read(path: String): JSONObject? = withContext(Dispatchers.IO) {
-        request(path).use { response ->
+    suspend fun read(path: String, timeoutMillis: Long? = null): JSONObject? = withContext(Dispatchers.IO) {
+        request(path, timeoutMillis = timeoutMillis).use { response ->
             when {
                 response.code == 426 -> throw ViewerUpdateRequired()
                 response.code == 404 -> null

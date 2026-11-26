@@ -88,11 +88,14 @@ the owner approved the local sdk, fresh children, queued follow-ups and the offl
 | `agy-sdk-rollover-3bKBXaaG/SHA256SUMS` | `09ba8f56b4cfa7bdccd92329dbdaacb9ce9b4806e4f9c9a8176d1334c5cba182` |
 | `sdk-exact-input-A10J8X/frozen/qualification.txt` | `35f459d19695752f290a78857a569c8249024dc555aca7b20dd81b1c1d45a2d6` |
 | `sdk-frozen-release-W6WB1m/final/qualification.txt` | `c75e80a1df3fc2404b3739eb7ea1db751708d0213bf08f47b28887a63e56c900` |
+| `sdk-frozen-release-W6WB1m/ready/qualification.txt` | `f521533eb0d77b83f375a95d0fe8c62084b82c4ff0435d1005da535edb705b30` |
 | `b-action-restart-prove-NWSy8C/SHA256SUMS` | `a42a429cc963cc9adcf3638a765f8f4949bd1a68c42ead5211535d62b9844d8b` |
 | `b-late-seal-MwoLzi/SHA256SUMS` | `0e7c88f98c55779b7f408421768ab9014c7673f3840954d1ceb6b785e8f35c5e` |
 | `child-stop-rrvBtRME/SHA256SUMS` | `f20d78a3b9879f620f60a0fa2312997e69d963d645cdde8a88b975a4844fcaf1` |
 | `sdk-app-review-lVXnoi/SHA256SUMS` | `9726ad1cf516e8679c4af1e13b272aa1de1e493a26e6d2ed0c857df8034424cd` |
 
 a two-process crash fixture entered the real billed-once worker action once, wrote a synthetic effect, and exited before replying. recovery marked the action uncertain, parked the origin with one notice, and kept an independent request eligible. a second fixture recovered the exact late seal with the sdk state gone and published the original answer once. the checks and fixture cleanup passed. the frozen installation used scoped local git source substitution for unpublished commits. the lock retains the original repository urls.
+
+the retained provider suite passed 1,016 checks and skipped one. two failures reproduce at the preceding pin for the credential error message and the gemini sdk import allowlist. the final lock and console entry point also passed a clean frozen installation.
 
 the owner chose synthetic verification for now. the paired paid trial still needs authorized same-project credential custody in an isolated candidate. verify optional developer request logging separately from data sharing. google defaults the logs on for recently created projects, and paid abuse monitoring has its own retention. synthetic tasks qualify observed harness behavior. real workspace-derived context still needs a permission determination. [developer request logs](https://aistudio.google.com/docs/logs-policy) · [paid terms](https://aistudio.google.com/docs/terms#data-use-paid) · [workspace permission](google-workspace-retention.md)

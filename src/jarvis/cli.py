@@ -2001,12 +2001,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "serve":
             asyncio.run(serve(settings, settings.codex_host_config))
         elif arguments.command in {
-            "resume-recovery-quota-wait",
             "owner-gmail-enroll",
             "owner-gmail-disconnect",
             "owner-drive-enroll",
             "owner-drive-disconnect",
             "owner-gmail-invalidate-restore",
+            "resume-recovery-quota-wait",
             "workspace-enroll",
             "workspace-disconnect",
             "workspace-restore-gap",

@@ -79,8 +79,11 @@ function mayLeaveEditor(canvas) {
     window.confirm("leave this draft? changes that gmail has not confirmed may be lost.");
 }
 
+function replaceEntry(state, path) {
+  history.replaceState({ ...state, entryIndex: shownIndex }, "", path);
+}
 function changeState(values, path = location.href) {
-  history.replaceState({ entryIndex: shownIndex, ...history.state, ...values }, "", path);
+  replaceEntry({ ...history.state, ...values }, path);
 }
 function setPanel() {
   const open = Boolean(history.state?.panel);
@@ -867,7 +870,11 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
       },
     });
   }
-  let state = { canvasSelection, ...(fromRevisionMessage ? { fromRevisionMessage } : {}), ...(filesSelector ? { filesSelector } : {}) };
+  let state = {
+    canvasSelection,
+    ...(fromRevisionMessage ? { fromRevisionMessage } : {}),
+    ...(filesSelector ? { filesSelector } : {}),
+  };
   if (path.startsWith("/t/")) {
     state = { ...todoEntry(path.slice(3)), hasOrigin: true };
   } else if (driveRoute(path)) {
@@ -898,7 +905,7 @@ $("files-return").onclick = () => history.back();
 $("todo-return").onclick = () => {
   if (history.state.hasOrigin) history.back();
   else {
-    history.replaceState({ entryIndex: shownIndex, canvasSelection: "/" }, "", "/");
+    replaceEntry({ canvasSelection: "/" }, "/");
     startRoute();
   }
 };
@@ -961,9 +968,9 @@ function startRoute() {
   const path = location.pathname + location.search;
   const detail = isDetail(path);
   if (location.pathname === "/overview") {
-    history.replaceState({ entryIndex: shownIndex, canvasSelection: todosCanvas }, "", "/");
+    replaceEntry({ canvasSelection: todosCanvas }, "/");
   } else if (path.startsWith("/t/") && history.state?.todoTarget !== path.slice(3)) {
-    history.replaceState({ entryIndex: shownIndex, ...todoEntry(path.slice(3)) }, "", path);
+    replaceEntry(todoEntry(path.slice(3)), path);
   } else if (!history.state?.canvasSelection) {
     changeState(
       detail ? { canvasSelection: "/", canvasAddress: "/", panel: true } : { canvasSelection: path },

@@ -87,4 +87,4 @@ run temporary end-to-end probes through actual chat/clients and postgres, red on
 
 the combined source candidate `c141cc8` passed the macbook detached rehearsal on postgres 16 and pgvector 0.8.6. it exercised captured input, single-entry dispatch, acknowledgement recovery, browser and android data interfaces, export and import, bad-map and bad-live-spool refusals, isolated restore, and the capture regression. browser and android rendering were exercised separately with controlled google. the controlled probes were removed after verification. the proof manifest is in the named local qualification directory.
 
-[isolated live qualification](../issues/drive-files-live.md) remains open. the binary download, blob revision and docs update gates depend on observed google behavior. the production cut and document backup have separate authority.
+[isolated live qualification](../issues/drive-files-live.md) remains open. the binary download, blob revision and docs update gates depend on observed google behavior. the [production cut](../issues/drive-files-deploy.md) and document backup have separate authority.

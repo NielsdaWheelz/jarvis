@@ -408,10 +408,13 @@ uses `ProcSubset=pid`. both native hosts use `ProtectProc=ptraceable`,
 no-new-privileges and empty capabilities. the personal host uses
 `ProtectKernelTunables=true` and `ProtectKernelLogs=true`. on ubuntu these
 settings add proc submounts that prevent unprivileged bwrap from mounting
-fresh procfs. the paid host uses read-only `/sys`, private devices and a
+fresh procfs. the paid host uses a read-only bind of `/sys`, private devices and a
 `syslog` syscall denial. its non-root uid and empty capabilities enforce the
 host proc tunable and kernel log permissions. paid startup requires private
 pid isolation, fresh procfs and credential denial in the stock sandbox.
+the paid stock unit allows `AF_NETLINK` for bwrap to bring up loopback in the
+helper's private network namespace. bwrap drops capabilities before running
+native code.
 
 on an established deployment, `deploy/install-private-state` publishes a
 private-configuration change under named custody and both stopped writer locks.

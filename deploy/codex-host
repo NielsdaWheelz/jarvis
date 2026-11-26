@@ -576,7 +576,7 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
         credential = ""
         kernel_protection = "ProtectKernelLogs=true\nProtectKernelTunables=true"
         if isinstance(account, NeonHost):
-            kernel_protection = "ReadOnlyPaths=/sys\nSystemCallFilter=~syslog:EPERM"
+            kernel_protection = "BindReadOnlyPaths=/sys\nSystemCallFilter=~syslog:EPERM"
             credential = (
                 "LoadCredential=neon-stock-bearer:/etc/jarvis/credentials/neon-stock-bearer\n"
                 "BindReadOnlyPaths=/etc/jarvis/codex-neon-requirements.toml:"
@@ -603,6 +603,9 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
             "@COUPLING@": paid_dependency,
             "@CREDENTIAL@": credential,
             "@KERNEL_PROTECTION@": kernel_protection,
+            "@EXTRA_ADDRESS_FAMILY@": " AF_NETLINK"
+            if isinstance(account, NeonHost)
+            else "",
             "@SOCKET_ROOT@": str(directory),
             "@SOCKET_DIRECTORY@": directory.name,
         }.items():

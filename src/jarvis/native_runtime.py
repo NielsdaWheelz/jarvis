@@ -692,6 +692,14 @@ class NativeRunner:
             except NeonOpeningUnavailable:
                 self.route_selector.opening_failed(selected.route)
                 LOGGER.warning("paid native control unavailable before submission")
+                if (
+                    pinned is None
+                    and selected.route == "agy_neon"
+                    and not cancellation.cancelled
+                    and self.neon_control is not None
+                    and await self.neon_control.available()
+                ):
+                    return "retry_stock"
                 return None
             except NativeDefect as error:
                 log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="run")

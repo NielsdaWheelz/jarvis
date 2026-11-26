@@ -1,8 +1,9 @@
 # adr 0114 · automatic foreground recovery
 
-**accepted for implementation · 2026-11-25 pacific.** the selected predecessor
-is `0584972`, schema `0024`. production activation and disposition of historical
-inputs remain separate operations.
+**accepted for implementation · 2026-11-25 pacific.** implementation started
+from the selected `0584972` at schema `0024` and integrates upstream
+`5647824` at `0025`. recovery adds no migration. production activation and
+disposition of historical inputs remain separate operations.
 
 ## decision
 

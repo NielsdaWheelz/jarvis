@@ -867,6 +867,12 @@ historical evidence remains in adr 0049. its transport is retired; use the
 
 ## skid-only worker cutover
 
+for desktop enrollment, first drain v12 worker actions, including acknowledgements
+owed to skid after an assignment has finished. activate the qualified v13
+release and verify the original three peers. then join the desktop and verify
+a four-peer list and a managed assignment on the new host.
+[desktop worker](decisions/0113-desktop-worker.md)
+
 [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) retains the
 historical worker transition. [adr 0112](decisions/0112-managed-agent-delegation.md)
 owns managed assignments and explicit terminal controls. settled old worker

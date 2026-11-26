@@ -206,7 +206,8 @@ receipts qualify only their named artifacts and boundaries.
   skid cli and live installed computer state (`JARVIS_AGENT_STATE_DIRECTORY`);
   [adr 0072](docs/decisions/0072-native-memory-rollout.md) adopts the enrolled
   `macbook|dev-server|arch` worker names and a read-only id-mapped state mount.
-  memory provenance still uses `devbox`.
+  [adr 0113](docs/decisions/0113-desktop-worker.md) adds the `desktop` worker.
+  shared memory enrollment remains separate.
   [installed service-state reads](docs/universal-memory.md#native-memory-installed-qualification)
   pass on both online hosts; worker observation remains separately qualified
 - cognition: [adr 0065](docs/decisions/0065-native-agent-supervision.md), a separate

@@ -24,6 +24,13 @@ audience: product, engineering, design, operations, and future coding agents
 
 ## private web home
 
+[adr 0125](docs/decisions/0125-new-shown-and-owed.md) marks jarvis messages
+that have not been shown to the owner, opens chat at the first of them, and
+labels a message "needs a reply" while jarvis is recorded as waiting on him.
+shown is a fact about display and never evidence of consent. the first cut
+keeps the record on each device; the second adds insert-only receipts to the
+service so web and android agree. implementation is pending.
+
 [adr 0123](docs/decisions/0123-artifact-library.md) gives todos and the private
 artifact library their own addresses, pins editions, and links an edition to
 its recorded chat delivery. the matched cut retires `/overview` and `/v/…`.

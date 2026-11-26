@@ -2611,7 +2611,7 @@ async def settle_undispatched_antigravity(
 ) -> bool:
     """Consume the retry for a joined host and zero upstream entries."""
     identifier = UUID(request.attempt_id)
-    await owner.require_current(request.permit)
+    await owner.require_current(owner.permit("jarvis-product:" + request.attempt_id))
     async with owner.database.begin() as connection:
         row = await _locked_attempt(
             connection,

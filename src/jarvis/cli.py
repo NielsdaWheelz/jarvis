@@ -677,6 +677,7 @@ async def _serve(
                     runner = NativeRunner(
                         settings=settings,
                         store=store,
+                        opening_reads=engine,
                         owner=owner,
                         kernel_runtime=kernel_runtime,
                         route_selector=routes,

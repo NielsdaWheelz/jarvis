@@ -60,6 +60,7 @@ from provider_runtime.agent_runtime import (
     thaw_json_value,
 )
 from sqlalchemy import case, func, or_, select, true, update
+from sqlalchemy import text as sql_text
 from universal_memory import MemoryError, render_ready_view
 
 from jarvis.actions import ActionStore, retired_worker_predicate
@@ -119,7 +120,7 @@ from jarvis.workspace_host import WorkspaceHost, is_workspace_wake
 
 if TYPE_CHECKING:
     from provider_runtime.agent_runtime.neon_control import NeonControl
-    from sqlalchemy.ext.asyncio import AsyncConnection
+    from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
     from jarvis.write_dispatch import WriteToolDispatcher
 
@@ -375,6 +376,7 @@ class NativeRunner:
         *,
         settings: Settings,
         store: MessageStore,
+        opening_reads: AsyncEngine,
         owner: JarvisOwner,
         kernel_runtime: KernelRuntime,
         route_selector: RouteSelector,
@@ -390,6 +392,7 @@ class NativeRunner:
         notify_workspace_match: WorkspaceMatchSender | None = None,
     ) -> None:
         self.settings, self.store, self.owner = settings, store, owner
+        self.opening_reads = opening_reads
         self.kernel, self.definitions = kernel_runtime, definitions
         self.route_selector = route_selector
         self.memory, self.actions = memory, actions
@@ -481,10 +484,11 @@ class NativeRunner:
         attempt_id = str(uuid4())
         permit = self.owner.permit("jarvis-native:" + attempt_id)
         try:
-            async with self.owner.database.connect() as connection:
-                await connection.execution_options(
-                    isolation_level="REPEATABLE READ",
-                    postgresql_readonly=True,
+            async with self.opening_reads.begin() as connection:
+                await connection.execute(
+                    sql_text(
+                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+                    )
                 )
                 while True:
                     definition = with_main_provider(template, selected.provider)

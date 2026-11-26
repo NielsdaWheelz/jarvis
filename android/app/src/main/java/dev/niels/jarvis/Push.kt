@@ -4,10 +4,12 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.service.notification.StatusBarNotification
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -32,7 +34,9 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -78,40 +82,178 @@ class Push : FirebaseMessagingService() {
         val data = message.data
         val notice = data["notice_id"]?.takeIf(::canonicalUuid) ?: return
         val kind = data["kind"] ?: return
-        val title: String
-        val destination: Intent
         if (kind == WORKSPACE) {
             if (data.keys != setOf("kind", "notice_id", "todo_id")) return
             val todo = data["todo_id"]?.takeIf(::canonicalUuid) ?: return
-            title = "open jarvis"
-            destination = Intent(this, WorkspaceTapActivity::class.java).setData(
+            val manager = getSystemService(NotificationManager::class.java)
+            if (!manager.allows(kind)) return
+            val destination = Intent(this, WorkspaceTapActivity::class.java).setData(
                 Uri.Builder().scheme("jarvis-check").authority("tap")
                     .appendPath(notice).appendPath(todo).build()
             )
-        } else {
-            if (data.keys != setOf("kind", "notice_id", "message_id")) return
-            val reply = data["message_id"]?.takeIf(::canonicalUuid) ?: return
-            title = when (kind) {
-                REPLY -> "jarvis replied"
-                QUESTION -> "jarvis needs a reply"
-                else -> return
-            }
-            destination = Intent(Intent.ACTION_VIEW, Routes.url(Route.Message(reply)), this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            manager.notify(notice, 0, notification(this, kind, "open jarvis", destination).build())
+            return
         }
-        val manager = getSystemService(NotificationManager::class.java)
-        if (!manager.areNotificationsEnabled()) return
-        manager.prepareChannels()
-        if (manager.getNotificationChannel(kind)?.importance == NotificationManager.IMPORTANCE_NONE) return
-        val tap = PendingIntent.getActivity(this, 0, destination, PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(this, kind)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(true)
-            .setContentIntent(tap)
-            .build()
-        manager.notify(notice, 0, notification)
+
+        if (kind !in setOf(REPLY, QUESTION) || data.keys != setOf("kind", "notice_id", "message_id")) return
+        val id = data["message_id"]?.takeIf(::canonicalUuid) ?: return
+        if (notice == messageNoticeTag(id)) PhoneNotices.get(this).receive(id, kind)
+    }
+}
+
+private fun NotificationManager.allows(kind: String): Boolean {
+    if (!areNotificationsEnabled()) return false
+    prepareChannels()
+    return getNotificationChannel(kind)?.importance != NotificationManager.IMPORTANCE_NONE
+}
+
+private fun notification(context: Context, channel: String, title: String, destination: Intent) =
+    NotificationCompat.Builder(context, channel)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(title)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        .setAutoCancel(true)
+        .setContentIntent(PendingIntent.getActivity(context, 0, destination, PendingIntent.FLAG_IMMUTABLE))
+
+private fun messageNoticeTag(id: String): String {
+    val namespace = UUID.fromString(id)
+    val bytes = MessageDigest.getInstance("SHA-1").apply {
+        update(ByteBuffer.allocate(16).putLong(namespace.mostSignificantBits).putLong(namespace.leastSignificantBits).array())
+    }.digest("jarvis-home-notice:reply".toByteArray())
+    bytes[6] = (bytes[6].toInt() and 15 or 80).toByte()
+    bytes[8] = (bytes[8].toInt() and 63 or 128).toByte()
+    val hash = ByteBuffer.wrap(bytes)
+    return UUID(hash.long, hash.long).toString()
+}
+
+class NoticeDismissed : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) = PhoneNotices.get(context).updateGroup()
+}
+
+internal class PhoneNotices private constructor(private val context: Context) {
+    val shown = ChatShown(context)
+    private val manager = context.getSystemService(NotificationManager::class.java)
+    private val held = context.getSharedPreferences("held-chat-notices", Context.MODE_PRIVATE)
+    private var foreground = false
+    private var revision = 0L
+    private val issued = mutableMapOf<String, Long>()
+
+    internal data class BeforeRead(val active: List<StatusBarNotification>, val revision: Long)
+
+    @Synchronized
+    fun foreground(visible: Boolean) {
+        foreground = visible
+        if (visible) return
+
+        val replies = replyTags()
+        for ((id, stored) in held.all) {
+            val receipt = stored as String
+            val kind = receipt.substringBefore(' ')
+            val stamp = receipt.substringAfter(' ', "").takeIf(String::isNotEmpty)?.let {
+                ChatStamp(id, Instant.parse(it))
+            }
+            if (!shown.recorded(id) && (stamp == null || !shown.recorded(stamp))) {
+                if (post(id, kind) && kind == REPLY) replies.add(messageNoticeTag(id))
+            }
+            held.edit().remove(id).apply()
+        }
+        updateGroup(replies.size)
+    }
+
+    @Synchronized
+    fun receive(id: String, kind: String) {
+        if (!manager.allows(kind)) return
+        val tag = messageNoticeTag(id)
+        issued[tag] = ++revision
+        if (foreground) {
+            val previous = held.getString(id, null)
+            val stamp = previous?.substringAfter(' ', "").orEmpty()
+            if (held.edit().putString(id, if (stamp.isEmpty()) kind else "$kind $stamp").commit()) return
+        }
+        val replies = if (kind == REPLY) replyTags() else null
+        if (post(id, kind) && replies != null) {
+            replies.add(tag)
+            updateGroup(replies.size)
+        }
+    }
+
+    @Synchronized
+    fun snapshot(): BeforeRead {
+        val active = manager.activeNotifications.toList()
+        issued.keys.retainAll(active.mapTo(mutableSetOf()) { it.tag } + held.all.keys.map(::messageNoticeTag))
+        return BeforeRead(active, revision)
+    }
+
+    @Synchronized
+    fun sweep(snapshot: BeforeRead, page: ChatPage) {
+        val previous = snapshot.active.associateBy { it.tag }
+        val active = manager.activeNotifications.associateBy { it.tag }
+        val replies = replyTags()
+        for (message in page.messages) {
+            if (!message.tracked) continue
+            val stored = held.getString(message.id, null)
+            if (stored != null && ' ' !in stored) {
+                held.edit().putString(message.id, "$stored ${message.stamp.at}").commit()
+            }
+            if (!shown.recorded(message.stamp)) continue
+            val tag = messageNoticeTag(message.id)
+            val notice = active[tag] ?: continue
+            if (previous[tag]?.postTime != notice.postTime || (issued[tag] ?: 0) > snapshot.revision) continue
+            val kind = notice.notification.channelId
+            if (kind == REPLY || (kind == QUESTION && message.id !in page.owed)) {
+                manager.cancel(tag, notice.id)
+                replies.remove(tag)
+            }
+        }
+        updateGroup(replies.size)
+    }
+
+    private fun post(id: String, kind: String): Boolean {
+        if (!manager.allows(kind)) return false
+        val route = Intent(Intent.ACTION_VIEW, Routes.url(Route.Message(id)), context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val title = if (kind == REPLY) "jarvis replied" else "jarvis needs a reply"
+        val notice = notification(context, kind, title, route)
+        if (kind == REPLY) notice.setGroup(ReplyGroup).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setDeleteIntent(groupDismissed())
+        val tag = messageNoticeTag(id)
+        issued[tag] = ++revision
+        manager.notify(tag, 0, notice.build())
+        return true
+    }
+
+    private fun replyTags() = manager.activeNotifications.filter {
+        it.notification.channelId == REPLY && it.notification.group == ReplyGroup && it.tag != ReplyGroup
+    }.mapTo(mutableSetOf()) { it.tag }
+
+    @Synchronized
+    fun updateGroup() = updateGroup(replyTags().size)
+
+    private fun updateGroup(count: Int) {
+        if (count == 0) {
+            manager.cancel(ReplyGroup, 0)
+        } else if (manager.allows(REPLY)) {
+            val summary = notification(context, REPLY, "jarvis · $count new", Intent(context, MainActivity::class.java))
+                .setGroup(ReplyGroup)
+                .setGroupSummary(true)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+                .setOnlyAlertOnce(true)
+                .setDeleteIntent(groupDismissed())
+                .setAutoCancel(false)
+            manager.notify(ReplyGroup, 0, summary.build())
+        }
+    }
+
+    private fun groupDismissed() =
+        PendingIntent.getBroadcast(context, 0, Intent(context, NoticeDismissed::class.java), PendingIntent.FLAG_IMMUTABLE)
+
+    companion object {
+        private const val ReplyGroup = "jarvis-replies"
+        @Volatile private var instance: PhoneNotices? = null
+
+        fun get(context: Context): PhoneNotices = instance ?: synchronized(this) {
+            instance ?: PhoneNotices(context.applicationContext).also { instance = it }
+        }
     }
 }
 

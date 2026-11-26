@@ -11,7 +11,16 @@
   <body>
     <main id="workspace">
       <header class="bar">
-        <a class="wordmark" href="/" aria-label="jarvis home">jarvis</a>
+        <span class="presence-signature">
+          <a class="wordmark" href="/" aria-label="jarvis home" aria-describedby="presence-description"><span>jarvis</span></a>
+          <span id="presence-slot">
+            <button id="presence-mark" type="button" class="presence-mark presence-point" data-point="none">
+              <span aria-hidden="true">¶</span>
+            </button>
+          </span>
+        </span>
+        <span id="presence-description" class="sr-only"></span>
+        <span id="presence-legend" class="presence-legend" hidden></span>
         <nav class="destinations" aria-label="workspace">
           <a id="todos-tab" href="/todos">todos</a>
           <a id="artifacts-tab" href="/artifacts">artifacts</a>
@@ -39,10 +48,20 @@
       <footer id="object-tools" hidden></footer>
     </main>
     <aside id="sidebar" aria-label="conversation">
-      <button id="sidebar-close" type="button" hidden>back</button>
+      <header id="chat-bar" hidden>
+        <button id="sidebar-close" type="button">back</button>
+      </header>
+      <p id="message-unavailable" class="secondary" role="status" hidden>this message is no longer available.</p>
       <section id="chat" class="panel" aria-label="chat">
         <button id="older" hidden>earlier messages</button>
         <div id="messages"></div>
+        <article id="presence-tail" hidden>
+          <div class="stamp"><strong>jarvis</strong><time></time></div>
+          <div class="presence-caption">
+            <span class="presence-point" aria-hidden="true"></span>
+            <span class="presence-words"></span>
+          </div>
+        </article>
       </section>
       <section id="workspace-approval" aria-label="google approval" hidden></section>
       <form id="composer">
@@ -66,6 +85,7 @@
         <div id="receipt" role="status"></div>
       </form>
     </aside>
+    <div id="presence-announcement" class="sr-only" role="status"></div>
     <div id="connection" role="status" hidden></div>
   </body>
 </html>

@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<title>jarvis</title><!-- presence study for adr 0125; the adr wins where they differ -->
+<link rel="icon" id="favicon" href="data:," />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;600&display=swap" />
+<style>
+/* jarvis presence study: the punctum.
+   one sign, one meaning, at every scale. motion is evidence: each pulse is one
+   confirmed poll, so when the line goes quiet the mark goes still by itself. */
+* { box-sizing: border-box; }
+:root {
+  color-scheme: light;
+  --paper: #f4f2ec;
+  --rail: #fbfaf6;
+  --ink: #252621;
+  --muted: #64675f;
+  --line: #d8d9ce;
+  --accent: #43564a;
+  --rubric: #9a3d2b;          /* new token: the rubricator's red, for "waiting on you" only */
+  --stage: #e6e3da;
+  --dev-bg: #ffffff;
+  --dev-ink: #1e1f1b;
+  --dev-line: #a9aaa0;
+  --fav-tile: #28251f;
+  --fav-ink: #f6eedf;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #191b19; --rail: #20221f; --ink: #f3f2e8; --muted: #acafa5;
+    --line: #42453e; --accent: #b5cbb7; --rubric: #e0907a; --stage: #0f110f;
+    --dev-bg: #0b0c0b; --dev-ink: #e7e6dc; --dev-line: #565a52;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #191b19; --rail: #20221f; --ink: #f3f2e8; --muted: #acafa5;
+  --line: #42453e; --accent: #b5cbb7; --rubric: #e0907a; --stage: #0f110f;
+  --dev-bg: #0b0c0b; --dev-ink: #e7e6dc; --dev-line: #565a52;
+}
+:root {
+  --rise: cubic-bezier(.2, 0, 0, 1);       /* fast attack */
+  --decay: cubic-bezier(.3, 0, .1, 1);     /* long tail, a calcium transient */
+  --settle: cubic-bezier(.2, 0, 0, 1);
+  font: 1rem/1.48 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+html, body { margin: 0; height: 100%; }
+body { background: var(--stage); color: var(--ink); overflow: hidden; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: transparent; border: 1px solid var(--line); border-radius: .35rem; padding: .36rem .65rem; }
+button:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+a { color: var(--accent); text-underline-offset: .17em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* stage: full bleed by default, a phone-width frame on request */
+.app { container: app / inline-size; height: 100dvh; background: var(--paper); }
+.app.narrow {
+  width: min(390px, calc(100vw - 32px));
+  height: min(820px, calc(100dvh - 32px));
+  margin: 16px auto;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 6%, transparent), 0 24px 60px -30px color-mix(in srgb, var(--ink) 40%, transparent);
+}
+.shell { position: relative; height: 100%; display: grid; grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr); background: var(--paper); overflow: hidden; }
+
+/* faithful app chrome */
+#workspace { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+#sidebar { grid-column: 1; grid-row: 1; background: var(--rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.bar { display: flex; align-items: center; gap: 1rem; height: 3.9rem; flex-shrink: 0; padding: 0 1.3rem; border-bottom: 1px solid var(--line); min-width: 0; }
+.sig { display: inline-flex; align-items: baseline; min-width: 0; }
+.wordmark { font: normal 2rem/1.1 "Cormorant Garamond", Georgia, serif; letter-spacing: -.055em; text-decoration: none; color: var(--ink); transition: color 600ms var(--settle); }
+.sig[data-stale] .wordmark { color: var(--muted); }
+.sidebar-title { color: var(--muted); }
+#sidebar-open, #sidebar-close { display: none; margin-left: auto; }
+#todos-tab[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+#canvas { flex: 1; min-height: 0; overflow: auto; }
+nav { display: flex; align-items: baseline; flex-wrap: wrap; gap: .3rem; border-bottom: 1px solid var(--line); padding: .65rem 1rem; }
+#phone-alerts { margin-inline-start: auto; color: var(--muted); }
+#phone-alerts summary { cursor: pointer; }
+.panel { flex: 1; min-height: 0; overflow: auto; padding: 1rem 1.2rem; scrollbar-gutter: stable; overscroll-behavior: contain; }
+article { padding: .8rem 0; overflow-wrap: anywhere; }
+.stamp { display: flex; justify-content: space-between; align-items: baseline; font-size: .78rem; color: var(--muted); }
+.stamp time { font-variant-numeric: tabular-nums; }
+.prose { margin: .28rem 0; white-space: pre-wrap; }
+#composer { border-top: 1px solid var(--line); padding: 1rem 1.2rem max(1rem, env(safe-area-inset-bottom)); }
+#message { width: 100%; resize: none; min-height: 3.6rem; max-height: 28vh; background: transparent; border: 0; padding: .25rem; }
+.compose-actions { display: flex; align-items: center; justify-content: space-between; margin: .4rem 0; }
+.attach { font-size: .9rem; color: var(--muted); padding: .35rem .3rem; }
+#send { background: var(--ink); color: var(--rail); border-color: transparent; }
+#receipt, #connection { font-size: .84rem; color: var(--muted); min-height: 1.25em; }
+#connection { position: absolute; z-index: 3; inset: .55rem .65rem auto auto; max-width: calc(100% - 1.3rem); padding: .55rem .8rem; border: 1px solid var(--line); border-radius: .35rem; color: var(--ink); background: var(--rail); min-height: 0; }
+#connection button { margin-left: .5rem; }
+#overview { max-width: 48rem; padding: clamp(1.25rem, 5vw, 4rem); margin: 0 auto; }
+#overview h1, #overview h2, .todo-summary small { color: var(--muted); font: inherit; }
+#overview h1 { font-size: 1rem; margin: 0 0 2rem; }
+#overview h2 { font-weight: 600; font-size: .95rem; margin: 1.5rem 0 .25rem; }
+.todo-row { border-bottom: 1px solid var(--line); }
+.todo-summary { display: grid; grid-template-columns: 1rem 1fr; align-items: baseline; column-gap: .4rem; width: 100%; text-align: start; padding: .65rem 0; border: 0; border-radius: 0; }
+.todo-summary::before { content: ""; width: .45rem; height: .45rem; border: solid currentColor; border-width: 1.5px 1.5px 0 0; transform: rotate(45deg); }
+.todo-summary span { font: normal 1.45rem/1.2 "Cormorant Garamond", Georgia, serif; }
+.todo-summary small { grid-column: 2; font-size: .85rem; }
+.proposal { padding: .65rem .8rem; margin: .8rem 0; border-inline-start: 2px solid var(--rubric); }
+.proposal .secondary { color: var(--muted); margin: .2rem 0 .5rem; font-size: .9rem; }
+
+/* ───────── the punctum ─────────
+   a point set after the name like a full stop. grammar:
+     none            idle, or truth unknown
+     ring (accent)   received, not yet begun
+     you             working for you: full point, a bloom on every confirmation
+     silent          working on its own: an ordinary full stop that barely swells
+     rubric ¶        waiting on you: still, red, larger, clickable
+     ring-muted      stopped with a known horizon: standby, retrying, paused   */
+.pm { position: relative; border: 0; padding: 0 .1em 0 .05em; margin: 0; background: none; border-radius: .2rem; font: normal 2rem/1 "Cormorant Garamond", Georgia, serif; color: inherit; cursor: default; vertical-align: baseline; }
+.pm:hover { background: none; }
+.pm[data-state="none"] { pointer-events: none; }
+.pm[data-state="rubric"] { cursor: pointer; }
+.cell { display: inline-block; position: relative; width: .4em; height: .3em; vertical-align: baseline; }
+.cell > i { position: absolute; left: .02em; bottom: .005em; display: block; border-radius: 50%; opacity: 0; transition: opacity 240ms var(--settle), transform 240ms var(--settle); }
+.dot, .ring, .bloom { width: .22em; height: .22em; }
+.dot { background: var(--accent); transform: scale(.6); }
+.ring { border: max(1px, .028em) solid var(--accent); transform: scale(.9); }
+.bloom { background: radial-gradient(circle, color-mix(in srgb, var(--accent) 60%, transparent) 0 35%, transparent 70%); transform: scale(1); }
+.pil { font-style: normal; font-size: .64em; line-height: 1; width: auto !important; height: auto !important; border-radius: 0 !important; bottom: -.06em !important; left: 0 !important; color: var(--rubric); transform: translateY(.04em); }
+
+.pm[data-state="you"] .dot { opacity: 1; transform: scale(1); }
+.pm[data-state="silent"] .dot { opacity: 1; transform: scale(.62); background: var(--muted); }
+/* louder silent work: a fuller grey point and a faint grey echo. same grammar, other ink. */
+.pm[data-state="silent"] .bloom { background: radial-gradient(circle, color-mix(in srgb, var(--muted) 50%, transparent) 0 35%, transparent 70%); }
+html[data-silent="louder"] .pm[data-state="silent"] .dot { transform: scale(.86); }
+html[data-silent="louder"] .pm[data-state="silent"][data-beat="a"] .dot { animation: hum-a 1600ms both; }
+html[data-silent="louder"] .pm[data-state="silent"][data-beat="b"] .dot { animation: hum-b 1600ms both; }
+html[data-silent="louder"] .pm[data-state="silent"][data-beat="a"] .bloom { animation: echo-a 2000ms cubic-bezier(.15, .6, .25, 1) both; }
+html[data-silent="louder"] .pm[data-state="silent"][data-beat="b"] .bloom { animation: echo-b 2000ms cubic-bezier(.15, .6, .25, 1) both; }
+@keyframes hum-a { 0% { transform: scale(.86); animation-timing-function: var(--rise); } 14% { transform: scale(1.06); animation-timing-function: var(--decay); } 100% { transform: scale(.86); } }
+@keyframes hum-b { 0% { transform: scale(.86); animation-timing-function: var(--rise); } 14% { transform: scale(1.06); animation-timing-function: var(--decay); } 100% { transform: scale(.86); } }
+@keyframes echo-a { 0% { opacity: .5; transform: scale(1); } 100% { opacity: 0; transform: scale(3); } }
+@keyframes echo-b { 0% { opacity: .5; transform: scale(1); } 100% { opacity: 0; transform: scale(3); } }
+
+.pm[data-state="ring"] .ring { opacity: 1; transform: scale(1); }
+.pm[data-state="ring-muted"] .ring { opacity: 1; transform: scale(.85); border-color: var(--muted); }
+.pm[data-state="rubric"] .pil { opacity: 1; transform: none; transition-duration: 400ms; }
+
+/* beats: two identically shaped keyframes, alternated per confirmed poll so the
+   animation restarts without reflow. compositor-only: transform, opacity. */
+@keyframes beat-a { 0% { transform: scale(1); animation-timing-function: var(--rise); } 11% { transform: scale(1.34); animation-timing-function: var(--decay); } 100% { transform: scale(1); } }
+@keyframes beat-b { 0% { transform: scale(1); animation-timing-function: var(--rise); } 11% { transform: scale(1.34); animation-timing-function: var(--decay); } 100% { transform: scale(1); } }
+@keyframes bloom-a { 0% { opacity: .85; transform: scale(1); } 100% { opacity: 0; transform: scale(4.4); } }
+@keyframes bloom-b { 0% { opacity: .85; transform: scale(1); } 100% { opacity: 0; transform: scale(4.4); } }
+@keyframes swell-a { 0% { transform: scale(.62); animation-timing-function: var(--rise); } 20% { transform: scale(.76); animation-timing-function: var(--decay); } 100% { transform: scale(.62); } }
+@keyframes swell-b { 0% { transform: scale(.62); animation-timing-function: var(--rise); } 20% { transform: scale(.76); animation-timing-function: var(--decay); } 100% { transform: scale(.62); } }
+@keyframes dim-a { 0% { opacity: 1; } 18% { opacity: .45; } 100% { opacity: 1; } }
+@keyframes dim-b { 0% { opacity: 1; } 18% { opacity: .45; } 100% { opacity: 1; } }
+.pm[data-state="you"][data-beat="a"] .dot { animation: beat-a 1200ms both; }
+.pm[data-state="you"][data-beat="b"] .dot { animation: beat-b 1200ms both; }
+.pm[data-state="you"][data-beat="a"] .bloom { animation: bloom-a 1800ms cubic-bezier(.15, .6, .25, 1) both; }
+.pm[data-state="you"][data-beat="b"] .bloom { animation: bloom-b 1800ms cubic-bezier(.15, .6, .25, 1) both; }
+.pm[data-state="silent"][data-beat="a"] .dot { animation: swell-a 1600ms both; }
+.pm[data-state="silent"][data-beat="b"] .dot { animation: swell-b 1600ms both; }
+html[data-motion="reduce"] .pm[data-beat] .bloom { animation: none !important; opacity: 0; }
+html[data-motion="reduce"] .pm[data-state="you"][data-beat="a"] .dot { animation: dim-a 900ms ease both; }
+html[data-motion="reduce"] .pm[data-state="you"][data-beat="b"] .dot { animation: dim-b 900ms ease both; }
+html[data-motion="reduce"] .pm[data-state="silent"][data-beat] .dot { animation: none; }
+
+/* the caption has two modes. stopped states (waiting, standby, retrying, paused,
+   offline) carry a fact you need, so it sits inline and stays. working states
+   are explained by the tail or deliberately quiet, so it is a hover/focus/tap note
+   that never moves the header. */
+.sig { position: relative; }
+/* every presence word is written on the header's hairline, legend-style, under the name.
+   it is absolutely placed, so it never takes layout space and nothing beside it moves. */
+.pm-caption { position: absolute; z-index: 4; left: -.4rem; top: calc(100% + .85rem); transform: translateY(-50%); max-width: calc(100cqi - 2rem); padding: 0 .4rem; background: var(--paper); font: italic 400 1rem/1.2 "Cormorant Garamond", Georgia, serif; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; opacity: 0; transition: opacity 220ms var(--settle); font-variant-numeric: tabular-nums; }
+.pm-caption[data-show] { opacity: 1; }
+.pm-caption:empty { display: none; }
+.pm-caption[data-tone="rubric"] { color: var(--rubric); }
+.sidebar-sig { display: none; align-items: baseline; gap: 0; min-width: 0; }
+.sidebar-sig .pm { font-size: 1.55rem; }
+
+/* fades for text that changes in place */
+.swap { transition: opacity 220ms var(--settle); }
+.swap.out { opacity: 0; transition-duration: 140ms; }
+
+/* the tail: jarvis's reply, present before it has words */
+.tail .tbody { display: grid; }
+.tail .tbody > * { grid-area: 1 / 1; }
+.act { display: flex; align-items: baseline; gap: .1rem; margin: .22rem 0; font: italic 400 1.14rem/1.32 "Cormorant Garamond", Georgia, serif; color: var(--muted); min-width: 0; transition: opacity 160ms var(--settle); }
+.act .pm { font-size: 1.5rem; flex-shrink: 0; margin-left: -.06em; }
+.act-text { min-width: 0; }
+.act a { margin-left: .5rem; font-style: italic; }
+.act[data-tone="rubric"] .act-text { color: var(--rubric); }
+.tail.leaving .act, .tail .act.leave { opacity: 0; }
+@keyframes ink-in { from { opacity: 0; } to { opacity: 1; } }
+.prose.enter { animation: ink-in 280ms var(--settle) both; }
+.owner-pending time { font-style: italic; }
+.tail-out { animation: ink-in 200ms var(--settle) reverse both; }
+html[data-motion="reduce"] .prose.enter { animation-duration: 120ms; }
+html[data-motion="reduce"] .swap, html[data-motion="reduce"] .act, html[data-motion="reduce"] .cell > i { transition-duration: 120ms; }
+
+/* narrow: the real app's ≤720px behaviour, keyed to the frame not the window */
+@container app (max-width: 720px) {
+  .shell { display: block; }
+  #workspace, #sidebar { height: 100%; }
+  .bar { gap: .45rem; padding-inline: .65rem; }
+  #sidebar { display: none; position: absolute; inset: 0; border: 0; z-index: 2; }
+  .shell[data-panel="open"] #sidebar { display: flex; }
+  .shell[data-panel="open"] #workspace { visibility: hidden; }
+  #sidebar-open, #sidebar-close { display: block; flex-shrink: 0; }
+  .sidebar-sig { display: inline-flex; }
+  .sidebar-title { display: none; }
+  #todos-tab { flex-shrink: 0; }
+  .sig { flex: 1 1 auto; }
+}
+
+/* ───────── study controls: deliberately not of the app's language ───────── */
+#dev { position: fixed; z-index: 10; right: 16px; bottom: 16px; width: 19.5rem; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); overflow: auto; font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--dev-ink); background: var(--dev-bg); border: 1px dashed var(--dev-line); border-radius: 6px; box-shadow: 0 10px 30px -18px #000; }
+#dev summary { cursor: pointer; padding: 8px 10px; list-style: none; display: flex; justify-content: space-between; gap: 8px; }
+#dev summary::-webkit-details-marker { display: none; }
+#dev summary span { opacity: .6; }
+#dev .body { padding: 0 10px 10px; display: grid; gap: 10px; }
+#dev fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+#dev legend { width: 100%; padding: 0 0 3px; opacity: .6; text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+#dev button { font: inherit; padding: 3px 7px; border: 1px solid var(--dev-line); border-radius: 3px; color: var(--dev-ink); }
+#dev button[aria-pressed="true"] { background: var(--dev-ink); color: var(--dev-bg); border-color: var(--dev-ink); }
+#dev .note { opacity: .62; margin: 0; }
+#dev #clock { font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) {
+  #dev { right: 8px; bottom: auto; top: 4.4rem; width: calc(100vw - 16px); }
+  #dev:not([open]) { width: auto; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="shell" id="shell">
+    <main id="workspace">
+      <header class="bar">
+        <span class="sig" id="sig">
+          <a class="wordmark" href="#" aria-label="jarvis home" aria-describedby="presence-text">jarvis</a>
+          <button class="pm" id="pm-head" type="button" data-state="none" aria-label="" aria-expanded="false"><span class="cell"><i class="bloom"></i><i class="ring"></i><i class="dot"></i><i class="pil">¶</i></span></button>
+          <span class="pm-caption swap" id="pm-caption"></span>
+        </span>
+        <button id="todos-tab" type="button" aria-pressed="true">todos</button>
+        <button id="sidebar-open" type="button" aria-controls="sidebar">conversation</button>
+      </header>
+      <section id="canvas" aria-label="workspace">
+        <section id="overview" aria-label="todos">
+          <h1>todos</h1>
+          <h2>this week</h2>
+          <div class="todo-row"><button class="todo-summary" type="button" aria-expanded="false"><span>move the dentist</span><small>conflicts with thursday's design review · from mail</small></button></div>
+          <div class="todo-row"><button class="todo-summary" type="button" aria-expanded="false"><span>reply to the landlord about the radiator</span><small>due friday</small></button></div>
+          <div class="todo-row"><button class="todo-summary" type="button" aria-expanded="false"><span>renew the car registration</span><small>due 30 november · reminder set</small></button></div>
+          <h2>later</h2>
+          <div class="todo-row"><button class="todo-summary" type="button" aria-expanded="false"><span>book the piano tuner</span><small>before the holidays</small></button></div>
+          <div class="todo-row"><button class="todo-summary" type="button" aria-expanded="false"><span>return the library books</span><small>borges, two volumes · overdue tuesday</small></button></div>
+        </section>
+      </section>
+    </main>
+    <aside id="sidebar" aria-label="conversation">
+      <header class="bar">
+        <span class="sidebar-title">chat</span>
+        <span class="sidebar-sig" aria-hidden="true">
+          <span class="sidebar-title-narrow" style="color:var(--muted)">chat</span>
+          <span class="pm pm-mirror" data-state="none"><span class="cell"><i class="bloom"></i><i class="ring"></i><i class="dot"></i><i class="pil">¶</i></span></span>
+        </span>
+        <button id="sidebar-close" type="button">close</button>
+      </header>
+      <nav aria-label="workspace sections">
+        <details id="phone-alerts"><summary>phone alerts</summary><p>alerts reach this phone.</p></details>
+      </nav>
+      <section id="chat" class="panel" aria-label="chat">
+        <div id="messages">
+          <article><div class="stamp"><strong>you</strong><time>08:12</time></div><p class="prose">what's on tomorrow?</p></article>
+          <article><div class="stamp"><strong>jarvis</strong><time>08:12</time></div><p class="prose">two things. standup at 10:00, and the dentist at 15:30, which collides with the design review you accepted yesterday.</p></article>
+          <article><div class="stamp"><strong>you</strong><time>08:14</time></div><p class="prose">ugh. let me think about it.</p></article>
+        </div>
+      </section>
+      <form id="composer">
+        <label class="sr-only" for="message">message jarvis</label>
+        <textarea id="message" rows="2" placeholder="message jarvis…">move the dentist to friday morning and let them know.</textarea>
+        <div class="compose-actions">
+          <label class="attach">attach</label>
+          <button id="send" type="submit">send</button>
+        </div>
+        <div id="receipt" role="status"></div>
+      </form>
+    </aside>
+    <div id="connection" role="status" hidden></div>
+  </div>
+</div>
+<span id="presence-text" class="sr-only"></span>
+<div id="presence-announce" class="sr-only" role="status" aria-live="polite"></div>
+
+<details id="dev">
+  <summary>study controls <span>not part of the design</span></summary>
+  <div class="body">
+    <fieldset><legend>sequence</legend>
+      <button type="button" data-act="send">send the composer</button>
+      <button type="button" data-act="reset">reset chat</button>
+    </fieldset>
+    <fieldset id="states"><legend>server state (applies on the next poll, forced now)</legend></fieldset>
+    <fieldset><legend>line</legend>
+      <button type="button" data-act="cut" aria-pressed="false">cut the line</button>
+      <span class="note" id="clock"></span>
+    </fieldset>
+    <fieldset id="themes"><legend>theme</legend>
+      <button type="button" data-theme-set="system">system</button><button type="button" data-theme-set="light">light</button><button type="button" data-theme-set="dark">dark</button>
+    </fieldset>
+    <fieldset id="silents"><legend>silent work</legend>
+      <button type="button" data-silent-set="quiet">quiet</button><button type="button" data-silent-set="louder">louder</button>
+    </fieldset>
+    <fieldset id="motions"><legend>motion</legend>
+      <button type="button" data-motion-set="full">full</button><button type="button" data-motion-set="reduce">reduced</button>
+    </fieldset>
+    <fieldset id="views"><legend>frame</legend>
+      <button type="button" data-view="full">window</button><button type="button" data-view="narrow">phone width</button>
+    </fieldset>
+    <p class="note">polls every ~3s. each pulse is one poll that confirmed work. cut the line and the pulses stop at once; "offline" follows after three missed polls.</p>
+  </div>
+</details>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const root = document.documentElement;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const hhmm = (d) => d.toTimeString().slice(0, 5);
+const STALE_MS = 9500;
+
+/* ── copy ── */
+const ACTIVITY = {
+  thinking: "thinking",
+  "gmail-read": "reading mail",
+  "gmail-write": "drafting a reply",
+  calendar: "checking the calendar",
+  drive: "in drive",
+  web: "reading the web",
+  memory: "searching memory",
+  worker: "a worker is on it",
+};
+const TRIGGER = {
+  you: "for you", mail: "from mail", calendar: "from the calendar", todo: "from a reminder",
+  scheduled: "scheduled check", worker: "a worker returned", recovery: "recovering",
+};
+
+/* ── server simulation (the contract, approximately) ── */
+let server = { kind: "idle" };
+let seen = { kind: "idle" };      // what the client last confirmed
+let lastHeard = Date.now();
+let lineCut = false;
+let stale = false;
+let pollTimer = null;
+let token = 0;                    // cancels a running sequence
+let repliedUnseen = false;
+let announced = "";
+
+function setServer(next, force = true) {
+  const sameJob = server.kind === "working" && next.kind === "working" && server.trigger === next.trigger;
+  server = { ...next, startedAt: next.startedAt ?? (sameJob ? server.startedAt : Date.now()) };
+  if (force) poll();
+}
+function poll() {
+  clearTimeout(pollTimer);
+  if (!lineCut) {
+    lastHeard = Date.now();
+    stale = false;
+    const reply = server.reply;
+    if (reply) { server = { kind: "idle" }; }
+    seen = { ...server };
+    render();
+    if (reply) arrive(reply);
+    if (seen.kind === "working") beat();
+  }
+  pollTimer = setTimeout(poll, 3000 + Math.round((Math.random() - 0.5) * 500));
+}
+
+/* ── derive one view from (seen, stale) ── */
+function derive() {
+  const s = seen;
+  const you = s.trigger === "you";
+  if (stale) return { mark: "none", caption: "last heard " + hhmm(new Date(lastHeard)), show: true, title: "offline · jarvis", tail: "last heard " + hhmm(new Date(lastHeard)), tailMark: "none", label: "jarvis is out of contact", fav: "stale" };
+  switch (s.kind) {
+    case "queued": {
+      const t = s.ahead ? "queued · " + s.ahead + " ahead" : "received";
+      return { mark: "ring", caption: t, title: t + " · jarvis", tail: t, tailMark: "ring", label: "jarvis has your message, " + t, fav: "ring" };
+    }
+    case "working": {
+      const what = s.progress || ACTIVITY[s.activity] || "working";
+      if (you) return { mark: "you", caption: ACTIVITY[s.activity] || "working", title: (ACTIVITY[s.activity] || "working") + " · jarvis", tail: what, tailMark: "you", label: "jarvis is " + (ACTIVITY[s.activity] || "working") + " for you", fav: "you", elapsed: true };
+      const loud = root.dataset.silent === "louder";
+      return { mark: "silent", caption: TRIGGER[s.trigger] + " · " + (ACTIVITY[s.activity] || "working"), show: loud, quiet: true, title: loud ? "· jarvis" : "jarvis", label: "jarvis is working on its own, " + TRIGGER[s.trigger] + ", " + (ACTIVITY[s.activity] || "working"), fav: "silent", silent: true };
+    }
+    case "waiting": {
+      const t = s.need === "question" ? "asked you something" : "needs your approval";
+      return { mark: "rubric", caption: "waiting on you", tone: "rubric", show: true, title: "¶ waiting on you · jarvis", tail: t, tailMark: "rubric", tailLink: s.need === "question" ? null : "review the draft", label: "jarvis is waiting on you: " + t, fav: "rubric", say: "jarvis is waiting on you. " + t + "." };
+    }
+    case "standby": {
+      const t = "out of quota until " + s.until;
+      return { mark: "ring-muted", caption: t, show: true, title: "out of quota · jarvis", tail: t, tailMark: "ring-muted", label: "jarvis is " + t, fav: "ring-muted", say: "jarvis is " + t + "." };
+    }
+    case "retrying": {
+      const t = "retrying until " + s.until;
+      return { mark: "ring-muted", caption: t, show: true, title: "retrying · jarvis", tail: t, tailMark: "ring-muted", label: "jarvis is " + t, fav: "ring-muted", say: "jarvis is " + t + "." };
+    }
+    case "paused":
+      return { mark: "ring-muted", caption: "paused", show: true, title: "paused · jarvis", tail: "paused", tailMark: "ring-muted", label: "jarvis is paused", fav: "ring-muted", say: "jarvis is paused." };
+    default:
+      return { mark: "none", caption: "", title: "jarvis", label: "jarvis is idle", fav: "idle" };
+  }
+}
+
+/* ── render ── */
+function swapText(node, text) {
+  if (node.textContent === text) return;
+  if (root.dataset.motion === "reduce" || !node.textContent) { node.textContent = text; return; }
+  node.classList.add("out");
+  clearTimeout(node._swap);
+  node._swap = setTimeout(() => { node.textContent = text; node.classList.remove("out"); }, 140);
+}
+function setMark(pm, state) {
+  if (pm.dataset.state !== state) { pm.dataset.state = state; delete pm.dataset.beat; }
+}
+let captionPinned = false;
+function render() {
+  const v = derive();
+  const head = $("pm-head");
+  setMark(head, v.mark);
+  for (const m of document.querySelectorAll(".pm-mirror")) setMark(m, v.mark);
+  head.setAttribute("aria-label", v.label);
+  head.title = v.label;
+  $("presence-text").textContent = v.label;
+  const cap = $("pm-caption");
+  cap.dataset.tone = v.tone || "";
+  swapText(cap, v.caption + (v.elapsed && elapsedText() ? " · " + elapsedText() : ""));
+  cap.toggleAttribute("data-inline", Boolean(v.show));
+  cap.toggleAttribute("data-silent", Boolean(v.quiet));
+  if (v.show || captionPinned || head.matches(":hover")) cap.dataset.show = ""; else delete cap.dataset.show;
+  $("sig").toggleAttribute("data-stale", stale);
+  document.title = repliedUnseen ? "replied · jarvis" : v.title;
+  favicon(repliedUnseen ? "you-done" : v.fav);
+  $("connection").hidden = !stale;
+  if (stale) $("connection").replaceChildren("jarvis is offline. your draft is here. last checked " + hhmm(new Date(lastHeard)) + ".", retryButton());
+  renderTail(v);
+  if (stale) say("offline", true);       // #connection speaks for itself
+  else if (v.say) say(v.say);
+  else announced = "";                   // leaving a spoken state re-arms it
+}
+function retryButton() {
+  const b = document.createElement("button");
+  b.type = "button"; b.textContent = "retry";
+  b.onclick = () => { setCut(false); };
+  return b;
+}
+function say(text, silentKey) {
+  if (announced === text) return;
+  announced = text;
+  if (silentKey) return;
+  $("presence-announce").textContent = text;
+}
+
+/* tail lives under the owner's last message while jarvis works for them */
+function ownerJob() {
+  return seen.trigger === "you" && ["queued", "working", "waiting", "standby", "retrying", "paused"].includes(seen.kind);
+}
+function renderTail(v) {
+  let tail = $("tail");
+  const want = ownerJob() || (stale && tail);
+  if (!want) {
+    if (tail && !tail.dataset.arriving) {
+      tail.id = ""; tail.classList.add("tail-out");
+      setTimeout(() => tail.remove(), root.dataset.motion === "reduce" ? 0 : 200);
+    }
+    return;
+  }
+  if (!tail) tail = makeTail();
+  const act = tail.querySelector(".act");
+  setMark(tail.querySelector(".pm"), stale ? "none" : v.tailMark);
+  act.dataset.tone = v.tailMark === "rubric" ? "rubric" : "";
+  swapText(tail.querySelector(".act-text"), v.tail);
+  const link = tail.querySelector(".act a");
+  link.hidden = !v.tailLink;
+  if (v.tailLink) link.textContent = v.tailLink;
+  tickElapsed();
+}
+function makeTail() {
+  const a = document.createElement("article");
+  a.className = "tail"; a.id = "tail";
+  a.innerHTML = '<div class="stamp"><strong>jarvis</strong><time class="swap"></time></div>' +
+    '<div class="tbody"><p class="act"><span class="pm" data-state="none" aria-hidden="true"><span class="cell"><i class="bloom"></i><i class="ring"></i><i class="dot"></i><i class="pil">¶</i></span></span>' +
+    '<span class="act-text swap"></span><a href="#" hidden></a></p></div>';
+  a.querySelector(".act a").onclick = (e) => { e.preventDefault(); showApproval(); };
+  $("messages").append(a);
+  pin();
+  return a;
+}
+function elapsedText() {
+  if (seen.kind !== "working" || !seen.startedAt) return "";
+  const s = Math.floor((Date.now() - seen.startedAt) / 1000);
+  if (s < 20) return "";
+  if (s < 3600) return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  return Math.floor(s / 3600) + " h " + String(Math.floor(s / 60) % 60).padStart(2, "0");
+}
+function tickElapsed() {
+  const tail = $("tail");
+  if (!tail) return;
+  const t = tail.querySelector("time");
+  if (stale) { t.style.opacity = ".55"; return; }  // frozen, dimmed: the last known number, not a live one
+  t.style.opacity = "";
+  t.textContent = seen.trigger === "you" && seen.kind === "working" ? elapsedText() : "";
+}
+
+/* one confirmed poll = one beat. no confirmation, no beat. */
+function beat() {
+  if (document.hidden) return;
+  for (const pm of document.querySelectorAll('.pm[data-state="you"], .pm[data-state="silent"]'))
+    pm.dataset.beat = pm.dataset.beat === "a" ? "b" : "a";
+}
+
+/* answer arrives into the tail it was promised in */
+function arrive(text) {
+  const tail = $("tail") || makeTail();
+  tail.dataset.arriving = "1";
+  tail.id = "";
+  const t = tail.querySelector("time");
+  t.style.opacity = "";
+  swapText(t, hhmm(new Date()));
+  const p = document.createElement("p");
+  p.className = "prose enter";
+  p.textContent = text;
+  tail.querySelector(".act").classList.add("leave");
+  tail.querySelector(".tbody").append(p);
+  setTimeout(() => { tail.querySelector(".act")?.remove(); tail.classList.remove("tail"); p.classList.remove("enter"); delete tail.dataset.arriving; }, 300);
+  pin();
+  if (document.hidden) { repliedUnseen = true; document.title = "replied · jarvis"; favicon("you-done"); }
+  announced = "";
+  say("jarvis replied.");
+}
+
+/* chat scrolling: follow the bottom only if the owner is already there */
+function pin(force) {
+  const chat = $("chat");
+  const near = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 96;
+  if (force || near) chat.scrollTo({ top: chat.scrollHeight, behavior: force || root.dataset.motion === "reduce" ? "auto" : "smooth" });
+}
+
+/* ── favicon: never animated; the tile is the app icon, the corner is the state ── */
+function favicon(kind) {
+  const css = getComputedStyle(root);
+  const dark = css.colorScheme.includes("dark");
+  const accent = "#b5cbb7", rubric = "#e0907a", grey = "#8f9289";
+  const tileOpacity = kind === "stale" ? 0.45 : 1;
+  let mark = "";
+  if (kind === "you" || kind === "you-done") mark = `<circle cx="38.5" cy="38.5" r="6.5" fill="${accent}"/>`;
+  if (kind === "silent") mark = `<circle cx="38.5" cy="38.5" r="${root.dataset.silent === "louder" ? 5.4 : 3.6}" fill="${grey}"/>`;
+  if (kind === "ring") mark = `<circle cx="38.5" cy="38.5" r="5.2" fill="none" stroke="${accent}" stroke-width="2.6"/>`;
+  if (kind === "ring-muted") mark = `<circle cx="38.5" cy="38.5" r="5.2" fill="none" stroke="${grey}" stroke-width="2.6"/>`;
+  if (kind === "rubric") mark = `<circle cx="38" cy="38" r="8" fill="${rubric}"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><g opacity="${tileOpacity}"><rect width="48" height="48" rx="10" fill="#28251F"/><path fill="#F6EEDF" d="M14,11H32V13H29V30C29,36 25,39 19,39C15,39 13,37 13,34H16C16,36 18,37 20,37C23,37 25,34 25,30V13H14Z"/></g>${mark}</svg>`;
+  const href = "data:image/svg+xml," + encodeURIComponent(svg);
+  const link = $("favicon");
+  if (link.getAttribute("href") !== href) link.setAttribute("href", href);
+  void dark;
+}
+
+/* ── the send sequence ── */
+function addOwner(text) {
+  const a = document.createElement("article");
+  a.className = "owner-pending";
+  a.innerHTML = '<div class="stamp"><strong>you</strong><time class="swap">sending</time></div><p class="prose"></p>';
+  a.querySelector(".prose").textContent = text;
+  const tail = $("tail");
+  if (tail) tail.before(a); else $("messages").append(a);
+  pin(true);
+  return a;
+}
+async function send() {
+  const text = $("message").value.trim();
+  if (!text) return;
+  const my = ++token;
+  $("message").value = "";
+  const echo = addOwner(text);                               // 0 ms: your words are already in the record
+  const slow = setTimeout(() => { $("receipt").textContent = "sending…"; }, 400);  // only if the network is slow
+  await sleep(700);
+  clearTimeout(slow);
+  if (my !== token) return;
+  $("receipt").textContent = "";
+  echo.classList.remove("owner-pending");
+  swapText(echo.querySelector("time"), hhmm(new Date()));
+  announced = ""; say("received.");
+  setServer({ kind: "queued", trigger: "you", ahead: 0 });  // the 200 is itself the truth; no need to wait for a poll
+  const steps = [
+    [1400, { kind: "working", trigger: "you", activity: "thinking" }],
+    [3600, { kind: "working", trigger: "you", activity: "gmail-read" }],
+    [7000, { kind: "working", trigger: "you", activity: "gmail-write" }],
+    [10500, { kind: "idle", reply: "done. dr. okafor's office has friday 09:30 open; i asked them to move you there and cancelled thursday 15:30. the note is in sent. the design review stays." }],
+  ];
+  for (const [wait, next] of steps) {
+    await sleep(wait);
+    if (my !== token) return;
+    setServer(next, false);                                  // lands on the next natural poll, as in life
+  }
+}
+
+/* ── wiring ── */
+$("composer").onsubmit = (e) => { e.preventDefault(); send(); };
+$("message").onkeydown = (e) => {
+  if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  e.preventDefault(); send();
+};
+$("pm-head").onclick = () => {
+  if (seen.kind === "waiting") { showApproval(); return; }
+  captionPinned = !captionPinned;
+  $("pm-head").setAttribute("aria-expanded", String(captionPinned));
+  render();
+};
+$("pm-head").onmouseenter = () => { $("pm-caption").dataset.show = ""; };
+$("pm-head").onmouseleave = () => { render(); };
+$("pm-head").onfocus = () => { $("pm-caption").dataset.show = ""; };
+$("pm-head").onblur = () => { render(); };
+$("sidebar-open").onclick = () => { $("shell").dataset.panel = "open"; pin(true); };
+$("sidebar-close").onclick = () => { delete $("shell").dataset.panel; };
+
+function showApproval() {
+  $("shell").dataset.panel = "open";
+  let card = $("approval");
+  if (!card) {
+    card = document.createElement("section");
+    card.id = "approval"; card.className = "proposal"; card.tabIndex = -1;
+    card.innerHTML = '<strong>send to dr. okafor\'s office</strong><p class="secondary">draft · move thursday 15:30 to friday 09:30</p><button type="button">approve</button> <button type="button">reply</button>';
+    card.querySelector("button").onclick = () => { card.remove(); setServer({ kind: "working", trigger: "you", activity: "gmail-write" }); };
+    ($("tail") || $("messages").lastElementChild).append(card);
+  }
+  card.scrollIntoView({ block: "nearest", behavior: root.dataset.motion === "reduce" ? "auto" : "smooth" });
+  card.focus({ preventScroll: true });
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && repliedUnseen) { repliedUnseen = false; render(); }
+});
+
+setInterval(() => {
+  const was = stale;
+  stale = !lineCut ? false : Date.now() - lastHeard > STALE_MS;
+  if (stale !== was) render();
+  if (document.hidden) return;
+  tickElapsed();
+  if (seen.kind === "working" && seen.trigger === "you" && !stale) {
+    const cap = $("pm-caption"), e = elapsedText();
+    const text = (ACTIVITY[seen.activity] || "working") + (e ? " · " + e : "");
+    if (cap.textContent !== text && !cap.classList.contains("out")) cap.textContent = text;
+  }
+  $("clock").textContent = lineCut ? "silent for " + Math.floor((Date.now() - lastHeard) / 1000) + "s" : "last poll " + Math.floor((Date.now() - lastHeard) / 1000) + "s ago";
+}, 1000);
+
+/* ── study controls ── */
+const until = () => hhmm(new Date(Date.now() + 40 * 60000));
+const STATES = [
+  ["idle", () => ({ kind: "idle" })],
+  ["received", () => ({ kind: "queued", trigger: "you", ahead: 0 })],
+  ["queued · 2", () => ({ kind: "queued", trigger: "you", ahead: 2 })],
+  ["you · thinking", () => ({ kind: "working", trigger: "you", activity: "thinking" })],
+  ["you · mail", () => ({ kind: "working", trigger: "you", activity: "gmail-read" })],
+  ["you · 4 min in", () => ({ kind: "working", trigger: "you", activity: "web", startedAt: Date.now() - 245000 })],
+  ["you · own words", () => ({ kind: "working", trigger: "you", activity: "gmail-read", progress: "three threads from the dentist; the latest offers friday" })],
+  ["on its own · mail", () => ({ kind: "working", trigger: "mail", activity: "calendar" })],
+  ["on its own · scheduled", () => ({ kind: "working", trigger: "scheduled", activity: "web" })],
+  ["waiting · approval", () => ({ kind: "waiting", trigger: "you", need: "approval" })],
+  ["waiting · question", () => ({ kind: "waiting", trigger: "you", need: "question" })],
+  ["standby", () => ({ kind: "standby", trigger: "you", until: until() })],
+  ["retrying", () => ({ kind: "retrying", trigger: "you", until: until() })],
+  ["paused", () => ({ kind: "paused", trigger: "you" })],
+];
+for (const [name, make] of STATES) {
+  const b = document.createElement("button");
+  b.type = "button"; b.textContent = name;
+  b.onclick = () => {
+    token++;
+    const last = $("messages").lastElementChild;
+    if (make().trigger === "you" && !$("tail") && last?.querySelector("strong")?.textContent !== "you") {
+      const echo = addOwner("is the dentist sorted?");
+      echo.classList.remove("owner-pending");
+      echo.querySelector("time").textContent = hhmm(new Date());
+    }
+    setServer(make());
+  };
+  $("states").append(b);
+}
+function setCut(on) {
+  lineCut = on;
+  document.querySelector('[data-act="cut"]').setAttribute("aria-pressed", String(on));
+  if (!on) poll();
+}
+document.querySelector("#dev").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.act === "send") { $("message").value ||= "move the dentist to friday morning and let them know."; send(); }
+  if (b.dataset.act === "reset") { token++; for (const n of [...$("messages").children].slice(3)) n.remove(); setServer({ kind: "idle" }); $("message").value = "move the dentist to friday morning and let them know."; }
+  if (b.dataset.act === "cut") setCut(!lineCut);
+  if (b.dataset.themeSet) applyTheme(b.dataset.themeSet);
+  if (b.dataset.motionSet) applyMotion(b.dataset.motionSet);
+  if (b.dataset.silentSet) applySilent(b.dataset.silentSet);
+  if (b.dataset.view) applyView(b.dataset.view);
+});
+function press(group, attr, value) {
+  for (const b of document.querySelectorAll("#" + group + " button")) b.setAttribute("aria-pressed", String(b.dataset[attr] === value));
+}
+function store(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function recall(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function applyTheme(t) {
+  if (t === "system") delete root.dataset.theme; else root.dataset.theme = t;
+  press("themes", "themeSet", t); store("study-theme", t);
+}
+function applySilent(s) { root.dataset.silent = s; press("silents", "silentSet", s); store("study-silent", s); render(); }
+function applyMotion(m) { root.dataset.motion = m; press("motions", "motionSet", m); store("study-motion", m); }
+function applyView(v) {
+  $("app").classList.toggle("narrow", v === "narrow");
+  if (v === "narrow") $("shell").dataset.panel = "open"; else delete $("shell").dataset.panel;
+  press("views", "view", v); store("study-view", v); pin(true);
+}
+applyTheme(recall("study-theme") || "system");
+applyMotion(recall("study-motion") || (matchMedia("(prefers-reduced-motion: reduce)").matches ? "reduce" : "full"));
+applyView(recall("study-view") || "full");
+applySilent(recall("study-silent") || "louder");
+if (innerWidth > 900) $("dev").open = true;
+render();
+pin(true);
+poll();
+/* deep links for review: ?state=waiting%20·%20approval&theme=dark&view=narrow&send=1 */
+const q = new URLSearchParams(location.search);
+if (q.get("theme")) applyTheme(q.get("theme"));
+if (q.get("view")) applyView(q.get("view"));
+if (q.get("motion")) applyMotion(q.get("motion"));
+if (q.get("state")) [...$("states").querySelectorAll("button")].find((b) => b.textContent === q.get("state"))?.click();
+if (q.get("send")) send();
+</script>
+</body>
+</html>

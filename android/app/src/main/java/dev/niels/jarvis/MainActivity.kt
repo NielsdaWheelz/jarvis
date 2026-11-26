@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -40,6 +41,10 @@ class MainActivity : ComponentActivity() {
             }
             val holder = rememberSaveableStateHolder()
             val incoming by destination.collectAsState()
+            val access = remember { Access.get(this@MainActivity) }
+            val api = remember { HomeApi(this@MainActivity) }
+            val authRevision by access.revision.collectAsState()
+            val presence = rememberPresence(api, authRevision)
 
             // a repeated address is a new visit. back restores the actual origin.
             val depth = trail.lastIndex
@@ -88,7 +93,8 @@ class MainActivity : ComponentActivity() {
                     entry = Routes.parse(Uri.parse(address)) ?: Route.Home,
                     onNavigate = ::navigate, onResolve = ::resolve,
                     todoReads = { todoReads.getOrPut(visit, ::TodoReads) },
-                    onBack = if (trail.size > 1) ::back else null
+                    onBack = if (trail.size > 1) ::back else null,
+                    api = api, authRevision = authRevision, presence = presence,
                 )
             }
         }

@@ -48,6 +48,7 @@ type NativeProviderConfiguration = (
     ProviderConfiguration | AntigravityProviderConfiguration
 )
 INCLUDED_EXHAUSTED = frozenset({"included_exhausted", "credits_available"})
+_OPENING_FAILED = "opening_failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +63,10 @@ class DeferredRoute:
     reason: str
     observed_at: datetime
     reset_at: datetime | None = None
+
+    @classmethod
+    def opening_failure(cls, route: NativeRoute) -> DeferredRoute:
+        return cls(route, _OPENING_FAILED, datetime.now(UTC))
 
 
 class RouteSelector:
@@ -81,6 +86,7 @@ class RouteSelector:
         self._paid_ready = paid_ready
         self._paid_provider = paid_provider
         self._primary_available: tuple[datetime, int, int] | None = None
+        self._last_personal: CodexAllowance | DeferredRoute | None = None
         self._status: dict[tuple[CodexRole, NativeRoute | None], tuple[str, str]] = {}
 
     async def observe_personal(self) -> CodexAllowance | DeferredRoute:
@@ -96,11 +102,18 @@ class RouteSelector:
                 allow_existing_credits=account.allow_existing_credits,
             )
         except (AgentRuntimeDefect, AgentRuntimeError, OSError):
+            result = DeferredRoute(
+                "personal", "allowance_unverified", datetime.now(UTC)
+            )
+        else:
+            if result.profile != "personal":
+                result = DeferredRoute(
+                    "personal", "identity_unverified", datetime.now(UTC)
+                )
+        self._last_personal = result
+        if isinstance(result, DeferredRoute):
             self._primary_available = None
-            return DeferredRoute("personal", "allowance_unverified", datetime.now(UTC))
-        if result.profile != "personal":
-            self._primary_available = None
-            return DeferredRoute("personal", "identity_unverified", datetime.now(UTC))
+            return result
         if result.state == "available":
             try:
                 socket = account.socket.stat()
@@ -115,6 +128,24 @@ class RouteSelector:
         elif result.state != "unavailable":
             self._primary_available = None
         return result
+
+    def describe_deferral(
+        self, route: DeferredRoute, pinned: NativeRoute | None
+    ) -> DeferredRoute:
+        """Project the reason of this cohort without exposing admission evidence."""
+        personal = self._last_personal
+        if (
+            route.reason != _OPENING_FAILED
+            and pinned in {None, "personal"}
+            and isinstance(personal, CodexAllowance)
+            and personal.state in INCLUDED_EXHAUSTED | {"workspace_limit"}
+        ):
+            return replace(route, reason="quota", reset_at=personal.reset_at)
+        return replace(
+            route,
+            reason="quota" if route.reason == "prepaid_depleted" else "unavailable",
+            reset_at=None,
+        )
 
     async def included_exhausted(self, route: NativeRoute) -> bool:
         if route != "personal":

@@ -129,6 +129,7 @@ from jarvis.ownership import (
     maintenance_ownership,
 )
 from jarvis.phone import PHONE_DIRECTORY, PhoneSlot
+from jarvis.presence import Presence
 from jarvis.proactivity import WorkWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
@@ -700,6 +701,7 @@ async def _serve(
                         PHONE_DIRECTORY / "slot.json",
                         lambda: service.request_delivery(),
                     )
+                    presence = Presence(database, settings.owner_scope)
                     action_recovery = ActionRecovery(
                         actions=actions,
                         work=work,
@@ -711,6 +713,7 @@ async def _serve(
                         plan=definitions.plans["main"],
                         source_conversation_id=settings.owner_scope,
                         delegation_changed=agents.delegations.notify_changed,
+                        presence=presence,
                     )
 
                     async def recover_original(
@@ -733,6 +736,7 @@ async def _serve(
                         neon_control=neon_control,
                         definitions=definitions,
                         actions=actions,
+                        presence=presence,
                         dispatcher_factory=lambda checkpoint, journal: (
                             WriteToolDispatcher(
                                 checkpoint=checkpoint,
@@ -746,6 +750,7 @@ async def _serve(
                                 attachments=composition.attachments,
                                 mail_files=composition.mail_files,
                                 agents=agents,
+                                presence=presence,
                                 read=ReadToolDispatcher(
                                     host_secrets=settings.host_secrets,
                                     recorder=PostgresReadRecorder(
@@ -790,6 +795,7 @@ async def _serve(
                         work_timer=work_timer,
                         event_poller=composition.event_poller,
                         attachments=composition.attachments,
+                        presence=presence,
                     )
                     events.publication_allowed = service.events_publication_allowed
                     events.notify_input = service.request_work
@@ -818,6 +824,7 @@ async def _serve(
                         submit=service.submit,
                         pages=DEFAULT_EXPORT,
                         phone=phone,
+                        presence=service.presence,
                         workspace_approvals=composition.workspace_approvals,
                         source_enrollment=tokens.enrollment,
                         mail_editor=editor,

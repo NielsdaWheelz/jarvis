@@ -94,6 +94,7 @@ from jarvis.citation_sources import bind_sources
 from jarvis.codex_config import NATIVE_ROUTES, PAID_ROUTES
 from jarvis.db import (
     action,
+    active_native_attempt,
     message,
     native_attempt,
     native_input_delivery,
@@ -392,6 +393,7 @@ class PostgresNativeJournal:
         neon_control: NeonControl | None = None,
         antigravity: AntigravityLease | None = None,
         workspace_grant: WorkspaceEnrollment | None = None,
+        on_armed: Callable[[UUID], None] | None = None,
     ) -> None:
         self.database = database
         self.definition = definition
@@ -401,6 +403,7 @@ class PostgresNativeJournal:
         self.neon_control = neon_control
         self.antigravity = antigravity
         self.workspace_grant = workspace_grant
+        self.on_armed = on_armed
         self.neon_lease: NeonLease | None = None
         self.sdk_upstream_entries: int | None = None
 
@@ -604,8 +607,7 @@ class PostgresNativeJournal:
             existing = await connection.scalar(
                 select(native_attempt.c.id).where(
                     native_attempt.c.conversation_id == request.permit.scope_id,
-                    native_attempt.c.fenced_at.is_(None),
-                    native_attempt.c.product_outcome.is_(None),
+                    active_native_attempt,
                 )
             )
             if existing is not None:
@@ -680,6 +682,8 @@ class PostgresNativeJournal:
                     recovery_pending=True,
                 )
             )
+            if self.on_armed is not None:
+                self.on_armed(UUID(request.attempt_id))
 
     async def close_neon(self, attempt_id: str) -> NeonFirstSampleRefusal | None:
         lease, self.neon_lease = self.neon_lease, None

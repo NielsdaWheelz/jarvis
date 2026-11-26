@@ -3,6 +3,13 @@ package dev.niels.jarvis
 import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -17,6 +24,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,6 +35,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -36,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
@@ -51,6 +61,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import org.json.JSONException
 import org.json.JSONObject
@@ -59,11 +70,11 @@ import org.json.JSONObject
 internal fun JarvisHome(
     entry: Route, onNavigate: (Route) -> Unit, onResolve: (Route) -> Unit,
     todoReads: () -> TodoReads, onBack: (() -> Unit)?,
+    api: HomeApi, authRevision: Int, presence: Presence,
 ) {
     val context = LocalContext.current
     val activity = context as Activity
     val access = remember { Access.get(context) }
-    val api = remember { HomeApi(context) }
     val drafts = remember { Drafts.get(context) }
     val scope = rememberCoroutineScope()
     // Keep the home visit even when it resolves to the same address as a direct link.
@@ -83,8 +94,12 @@ internal fun JarvisHome(
     }
     BackHandler(enabled = draftId == null && (showDrafts || chat), onBack = closeOverlay)
     var refresh by remember { mutableIntStateOf(0) }
-    val authRevision by access.revision.collectAsState()
     val reload = refresh to authRevision
+    var sent by rememberSaveable { mutableStateOf<String?>(null) }
+    val chatOpen = chat && !showDrafts && draftId == null
+    LaunchedEffect(presence, chatOpen) { if (chatOpen) presence.requestChat() }
+    var revealPresence by remember(presence.mark) { mutableStateOf(false) }
+    val refreshPresence = { presence.requestChat(reload = true) }
     val signIn = { access.signIn(activity) }
     val setupHome = entry == Route.Home && route != Route.Home && !chat && !showDrafts && draftId == null
     val phone = remember { PhoneAlerts.get(context) }
@@ -118,15 +133,36 @@ internal fun JarvisHome(
             if (currentDraft != null) {
                 DraftComposer(currentDraft, onReturn = { draftId = null }) { messageId ->
                     draftId = null
-                    refresh++
-                    onNavigate(Route.Message(messageId))
+                    chat = true
+                    showDrafts = false
+                    sent = messageId
+                    presence.accepted()
                 }
             } else {
                 FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PresenceWordmark(
+                        presence, route == Route.Home && !chat && !showDrafts,
+                        openHome = {
+                            if (entry != Route.Home) onNavigate(Route.Home) else closeOverlay()
+                        },
+                        activate = {
+                            when (presence.mark) {
+                                PresenceMark.OWED -> {
+                                    val owed = presence.nextOwed(if (chat) Route.Home else route)
+                                    if (owed != null) onNavigate(owed) else {
+                                        showDrafts = false
+                                        chat = true
+                                    }
+                                }
+                                PresenceMark.OWNER -> revealPresence = !revealPresence
+                                else -> refreshPresence()
+                            }
+                        },
+                        reveal = { revealPresence = it },
+                    )
                     val back = if (chat || showDrafts) closeOverlay else onBack
                     back?.let { TextButton(onClick = it) { Text("back") } }
                     val destinations = listOf(
-                        "jarvis" to Route.Home,
                         "todos" to Route.Todos,
                         "artifacts" to Route.Artifacts,
                         "files" to Route.Files,
@@ -155,9 +191,12 @@ internal fun JarvisHome(
                         chat = true
                     }) { Text("chat") }
                     if (!showDrafts) TextButton(onClick = { showDrafts = true }) { Text("drafts") }
-                    if (!showDrafts) TextButton(onClick = { refresh++ }) { Text("refresh") }
+                    if (!showDrafts) TextButton(onClick = {
+                        refresh++
+                        refreshPresence()
+                    }) { Text("refresh") }
                 }
-                HorizontalDivider()
+                PresenceDivider(presence, revealPresence)
                 if (setupHome) PhoneSetupAction(phone, signIn)
                 localError?.let { BodyStatus(it) }
                 val pane = when {
@@ -171,7 +210,8 @@ internal fun JarvisHome(
                 panes.SaveableStateProvider(pane) {
                     when {
                         showDrafts -> DraftList(drafts, { draftId = it }, { newDraft(null) })
-                        chat -> Conversation(api, reload, signIn, onNavigate, newDraft)
+                        chat -> Conversation(api, reload, signIn, onNavigate, newDraft, presence, sent,
+                            refreshPresence, { sent = null })
                         else -> when (route) {
                             Route.Home -> Read("home", reload, signIn, api::selectedHome) { selected ->
                                 LaunchedEffect(selected) { resolve(selected?.route() ?: Route.Todos) }
@@ -235,6 +275,11 @@ private fun DraftList(drafts: Drafts, open: (String) -> Unit, newDraft: () -> Un
     }
 }
 
+private sealed interface ConversationEnd {
+    data class Waiting(val tail: PresenceTail) : ConversationEnd
+    data class Reply(val message: JSONObject) : ConversationEnd
+}
+
 @Composable
 private fun Conversation(
     api: HomeApi,
@@ -242,25 +287,81 @@ private fun Conversation(
     signIn: () -> Unit,
     navigate: (Route) -> Unit,
     discuss: (DiscussionRef?) -> Unit,
+    presence: Presence,
+    sent: String?,
+    refresh: () -> Unit,
+    onSentVisible: () -> Unit,
 ) {
     var before by rememberSaveable { mutableStateOf<String?>(null) }
-    val path = "/api/messages" + (before?.let { "?before=${Uri.encode(it)}" } ?: "")
-    Read(path, reload, signIn, { api.read(path) }) { page ->
-        LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item("heading") { Heading("chat") }
-            item("write") { TextButton(onClick = { discuss(null) }) { Text("new message") } }
-            if (before != null) item("latest") { TextButton(onClick = { before = null }) { Text("latest messages") } }
-            page?.string("next_before")?.let { edge ->
-                item("previous") { TextButton(onClick = { before = edge }) { Text("earlier messages") } }
-            }
-            val messages = page?.objects("items").orEmpty()
-            val deliveries = messages.associateWith { it.deliveries() }
-            val editions = deliveries.values.flatten().filterIsInstance<DiscussionRef.Artifact>()
-            if (messages.isEmpty()) item("empty") { Text("no messages here") }
-            items(messages, key = { it.getString("id") }) { message ->
-                MessageEntry(message, navigate, discuss, deliveries.getValue(message), editions)
-                TextButton(onClick = { navigate(Route.Message(message.getString("id"))) }) { Text("open exact message") }
-                HorizontalDivider()
+    LaunchedEffect(sent) { if (sent != null) before = null }
+    val edge = before
+    val read = if (edge == null) presence.latest else {
+        val path = "/api/messages?before=${Uri.encode(edge)}"
+        remember(edge) { ReadState<JSONObject>() }.apply { load(path, reload) { api.read(path) } }
+    }
+    val scroll = rememberLazyListState()
+    var pinned by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(scroll) {
+        snapshotFlow { scroll.isScrollInProgress }.drop(1).collect { moving ->
+            pinned = !moving && !scroll.canScrollForward
+        }
+    }
+    read.status(signIn, retry = refresh.takeIf { edge == null })
+    if (!read.received) return
+
+    val page = read.data
+    val messages = page?.objects("items").orEmpty()
+    val tail = presence.tail.takeIf { edge == null }
+    // A backdated reply keeps its chronological row and the tail fades in place.
+    val final = messages.lastOrNull()?.takeIf { tail == null && edge == null && it.string("id") == presence.handoff }
+    val end = tail?.let(ConversationEnd::Waiting) ?: final?.let(ConversationEnd::Reply)
+    val transition = rememberPresenceTransition(end, "reply handoff")
+    val showEnd = transition.currentState != null || end != null
+    val reduced = !android.animation.ValueAnimator.areAnimatorsEnabled()
+    val deliveries = messages.associateWith { it.deliveries() }
+    val editions = deliveries.values.flatten().filterIsInstance<DiscussionRef.Artifact>()
+    val showMessage: @Composable (JSONObject) -> Unit = { message ->
+        MessageEntry(message, navigate, discuss, deliveries[message] ?: message.deliveries(), editions)
+        TextButton(onClick = { navigate(Route.Message(message.getString("id"))) }) { Text("open exact message") }
+        HorizontalDivider()
+    }
+    val previous = page?.string("next_before")
+    val count = 2 + (if (edge != null) 1 else 0) + (if (previous != null) 1 else 0) +
+        messages.size.coerceAtLeast(1) - (if (final != null) 1 else 0) + (if (showEnd) 1 else 0)
+    val layout = Triple(page, count, transition.currentState != transition.targetState)
+    var positioned by remember { mutableStateOf<Triple<JSONObject?, Int, Boolean>?>(null) }
+    SideEffect {
+        val sentVisible = edge == null && sent != null && messages.any { it.string("id") == sent }
+        if (sentVisible || (edge == null && pinned && positioned != layout)) {
+            scroll.requestScrollToItem(count - 1)
+            pinned = true
+        }
+        positioned = layout
+        if (sentVisible) onSentVisible()
+    }
+    LazyColumn(state = scroll, contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item("heading") { Heading("chat") }
+        item("write") { TextButton(onClick = { discuss(null) }) { Text("new message") } }
+        if (edge != null) item("latest") { TextButton(onClick = { before = null }) { Text("latest messages") } }
+        if (previous != null) item("previous") { TextButton(onClick = { before = previous }) { Text("earlier messages") } }
+        if (messages.isEmpty()) item("empty") { Text("no messages here") }
+        items(if (final == null) messages else messages.dropLast(1), key = { it.getString("id") }) { message ->
+            showMessage(message)
+        }
+        if (showEnd) item("tail") {
+            transition.AnimatedContent(
+                transitionSpec = {
+                    (fadeIn(tween(if (reduced) 120 else 280)) togetherWith
+                        fadeOut(tween(if (reduced) 120 else if (targetState == null) 200 else 160)))
+                        .using(SizeTransform(clip = false) { _, _ -> snap() })
+                },
+                contentKey = { if (it is ConversationEnd.Reply) it.message.getString("id") else it?.javaClass },
+            ) { content ->
+                when (content) {
+                    is ConversationEnd.Waiting -> ProvisionalReply(content.tail, presence.beat)
+                    is ConversationEnd.Reply -> Column { showMessage(content.message) }
+                    null -> Unit
+                }
             }
         }
     }
@@ -379,40 +480,44 @@ internal class ReadState<T> {
     val received get() = checked != null
     private var error by mutableStateOf<String?>(null)
     val settled get() = received || error != null
+    val signedOut get() = error == "sign in"
     private var attempt by mutableIntStateOf(0)
 
-    @Composable
-    fun load(key: Any, reload: Pair<Int, Int>, read: suspend () -> T?) {
-        LaunchedEffect(this, key, reload, attempt) {
-            try {
-                data = read()
-                checked = Instant.now()
-                error = null
-            } catch (_: SignInRequired) {
-                data = null
-                checked = null
-                error = "sign in"
-            } catch (update: ViewerUpdateRequired) {
-                data = null
-                checked = null
-                error = update.message
-            } catch (_: IOException) {
-                error = "could not refresh"
-            } catch (_: JSONException) {
-                error = "could not read this response"
-            }
+    suspend fun refresh(read: suspend () -> T?): Boolean {
+        error = try {
+            data = read()
+            checked = Instant.now()
+            null
+        } catch (update: ViewerUpdateRequired) {
+            data = null
+            checked = null
+            update.message
+        } catch (_: SignInRequired) {
+            data = null
+            checked = null
+            "sign in"
+        } catch (_: IOException) {
+            "could not refresh"
+        } catch (_: JSONException) {
+            "could not read this response"
         }
+        return error == null
     }
 
     @Composable
-    fun status(signIn: () -> Unit, signInLabel: String = "sign in to continue") {
+    fun load(key: Any, reload: Pair<Int, Int>, read: suspend () -> T?) {
+        LaunchedEffect(this, key, reload, attempt) { refresh(read) }
+    }
+
+    @Composable
+    fun status(signIn: () -> Unit, signInLabel: String = "sign in to continue", retry: (() -> Unit)? = null) {
         val problem = error
         if (problem != null) {
             val message = if (problem == "sign in") signInLabel else problem
             Column(Modifier.padding(horizontal = 20.dp)) {
                 BodyStatus(message + (checked?.let { " · last checked ${formattedTime(it.toString())}" } ?: ""))
                 if (problem == "sign in") TextButton(onClick = signIn) { Text("sign in") }
-                else if (problem != UpdateViewerMessage) TextButton(onClick = { attempt++ }) { Text("retry") }
+                else if (problem != UpdateViewerMessage) TextButton(onClick = { if (retry != null) retry() else attempt++ }) { Text("retry") }
             }
         } else if (!received) CircularProgressIndicator(Modifier.padding(20.dp))
     }

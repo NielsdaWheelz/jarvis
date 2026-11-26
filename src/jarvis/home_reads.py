@@ -7,8 +7,9 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
+from hashlib import sha256
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -66,13 +67,16 @@ _DRAFT_REFS = """
     ORDER BY ref.slot
 """
 
-# Extract only owner-facing columns. In particular, never load a native request.
 # Older control replies have the transaction's start time. Their receipt records
 # when the command was applied.
+_CHAT_TIME = """CASE WHEN m.source = 'native_control'
+    THEN COALESCE(m.processed_at, m.created_at) ELSE m.created_at END"""
+_CHAT_MEMBERSHIP = """m.source_conversation_id = :scope
+  AND m.role IN ('assistant','owner') AND m.source != 'initialize_state'"""
+
+# Extract only owner-facing columns. In particular, never load a native request.
 _MESSAGES = f"""
-SELECT m.id, m.role, m.source,
-       CASE WHEN m.source = 'native_control' THEN COALESCE(m.processed_at, m.created_at)
-            ELSE m.created_at END AS at, m.text,
+SELECT m.id, m.role, m.source, {_CHAT_TIME} AS at, m.text,
        m.home->'ref' AS ref, m.home->'present' AS present,
        CASE WHEN m.role = 'assistant' AND m.source = 'native_final'
             THEN m.home->'sources_v1' END AS sources,
@@ -123,9 +127,60 @@ LEFT JOIN action saved
  AND saved.origin_message_id::text=m.home #>> '{{todo_result,request_id}}'
  AND EXISTS (SELECT FROM message origin WHERE origin.id=saved.origin_message_id
              AND origin.source_conversation_id=m.source_conversation_id)
-WHERE m.source_conversation_id = :scope AND m.role IN ('assistant','owner')
-  AND m.source != 'initialize_state'
+WHERE {_CHAT_MEMBERSHIP}
 """
+
+_OWED = """
+SELECT id, CASE WHEN approval THEN 'approval' ELSE 'owner_input' END AS kind
+FROM (
+    SELECT final.id, final.created_at,
+        final.home->'proposal_ids' ?| ARRAY(
+            SELECT a.id::text FROM action a
+            JOIN message origin ON origin.id = a.origin_message_id
+            WHERE a.status = 'awaiting_approval'
+              AND origin.source_conversation_id = :scope
+              AND origin.processing_parked_at IS NULL
+              AND origin.wait_reason IS DISTINCT FROM 'configuration'
+        ) AS approval,
+        final.trace->>'native_attempt_id' IN (
+            SELECT waiting.trace->>'native_attempt_id' FROM message waiting
+            WHERE waiting.source_conversation_id = :scope
+              AND waiting.request_state = 'waiting'
+              AND waiting.wait_reason = 'owner_input'
+        ) AS owner_input
+    FROM message final
+    WHERE final.source_conversation_id = :scope
+      AND final.role = 'assistant' AND final.source = 'native_final'
+      AND final.created_at >= COALESCE((
+          SELECT max(reply.created_at) FROM message reply
+          WHERE reply.source_conversation_id = :scope
+            AND reply.role = 'owner' AND reply.request_state = 'pending'
+      ), '-infinity'::timestamptz)
+) waits
+WHERE approval OR owner_input
+ORDER BY created_at DESC, id DESC
+"""
+
+
+async def owed_messages(
+    connection: AsyncConnection, scope: str
+) -> tuple[tuple[UUID, Literal["approval", "owner_input"]], ...]:
+    rows = await connection.execute(text(_OWED), {"scope": scope})
+    return tuple((row.id, row.kind) for row in rows)
+
+
+async def conversation_token(connection: AsyncConnection, scope: str) -> str:
+    result = await connection.execute(
+        text(
+            f"""SELECT {_CHAT_TIME} AS at, m.id, count(*) OVER () AS size
+            FROM message m WHERE {_CHAT_MEMBERSHIP}
+            ORDER BY at DESC, m.id DESC LIMIT 1"""
+        ),
+        {"scope": scope},
+    )
+    head = result.one_or_none()
+    identity = "" if head is None else f"{head.at.isoformat()}~{head.id}~{head.size}"
+    return sha256(identity.encode()).hexdigest()
 
 
 def _cursor(before: str) -> tuple[datetime, UUID]:
@@ -208,7 +263,13 @@ async def conversation(
     for item in page:
         item["sources"] = _source_metadata(item, source_grant)
         item["proposals"] = proposals[item["id"]]
-    return {"items": page[::-1], "next_before": before}
+    owed = [identifier for identifier, _ in await owed_messages(connection, scope)]
+    return {
+        "items": page[::-1],
+        "next_before": before,
+        "owed": owed,
+        "owed_total": len(owed),
+    }
 
 
 async def todo_results(

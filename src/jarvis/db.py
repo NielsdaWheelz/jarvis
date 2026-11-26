@@ -475,14 +475,15 @@ native_attempt = Table(
         )
     ),
 )
+active_native_attempt = native_attempt.c.fenced_at.is_(
+    None
+) & native_attempt.c.product_outcome.is_(None)
+
 Index(
     "uq_native_attempt_active",
     native_attempt.c.conversation_id,
     unique=True,
-    postgresql_where=(
-        native_attempt.c.fenced_at.is_(None)
-        & native_attempt.c.product_outcome.is_(None)
-    ),
+    postgresql_where=active_native_attempt,
 )
 
 Index(

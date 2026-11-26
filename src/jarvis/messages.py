@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.db import (
     action,
+    active_native_attempt,
     control_sequence,
     message,
     native_attempt,
@@ -39,6 +40,17 @@ _recovery_kind = message.c.trace["native_retry"]["kind"].as_string()
 native_recovery_input = (
     (message.c.role == "host") & (message.c.source == CATCHUP_SOURCE)
 ) | func.coalesce(_recovery_kind == "read_only", False)
+
+pending_input_order = (
+    case((message.c.request_state == "pending", 0), else_=1),
+    case(
+        ((message.c.role == "owner") & ~native_recovery_input, 0),
+        (message.c.role == "owner", 1),
+        else_=2,
+    ),
+    message.c.created_at,
+    message.c.id,
+)
 
 
 # A capacity refusal retains its origin but only explicit pins steer admission.
@@ -660,8 +672,7 @@ class MessageStore:
                     select(native_attempt.c.id)
                     .where(
                         native_attempt.c.conversation_id == scope,
-                        native_attempt.c.fenced_at.is_(None),
-                        native_attempt.c.product_outcome.is_(None),
+                        active_native_attempt,
                     )
                     .order_by(native_attempt.c.id)
                     .with_for_update()
@@ -796,20 +807,7 @@ class MessageStore:
             rows = (
                 (
                     await connection.execute(
-                        query.order_by(
-                            case((message.c.request_state == "pending", 0), else_=1),
-                            case(
-                                (
-                                    (message.c.role == "owner")
-                                    & ~native_recovery_input,
-                                    0,
-                                ),
-                                (message.c.role == "owner", 1),
-                                else_=2,
-                            ),
-                            message.c.created_at,
-                            message.c.id,
-                        ).limit(limit)
+                        query.order_by(*pending_input_order).limit(limit)
                     )
                 )
                 .mappings()

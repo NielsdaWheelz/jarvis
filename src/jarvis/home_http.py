@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from hashlib import sha256
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -13,7 +14,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from llm_tools import DeclaredToolFailure
+from llm_tools import DeclaredToolFailure, canonical_json_bytes
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
@@ -58,6 +59,7 @@ from jarvis.phone import (
     StalePhone,
     canonical_uuid,
 )
+from jarvis.presence import Presence
 from jarvis.work import WorkStore
 from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_mcp import WorkspaceApprovals
@@ -99,6 +101,7 @@ def create_home_app(
     submit: Submit,
     pages: Path,
     phone: PhoneSlot,
+    presence: Presence,
     workspace_approvals: WorkspaceApprovals | None = None,
     drive_reader: DriveReader | None = None,
     mail_editor: MailEditor | None = None,
@@ -221,6 +224,20 @@ def create_home_app(
 
     async def approvals() -> list[dict[str, object]]:
         return [] if workspace_approvals is None else workspace_approvals.pending()
+
+    async def read_presence(request: Request) -> Response:
+        if request.query_params:
+            raise HTTPException(422, "presence takes no query")
+        as_of, state = await presence.read(workspace_approvals)
+        tag = '"' + sha256(canonical_json_bytes(state)).hexdigest() + '"'
+        headers = {"ETag": tag}
+        if any(
+            value.strip().removeprefix("W/") in {tag, "*"}
+            for field in request.headers.getlist("If-None-Match")
+            for value in field.split(",")
+        ):
+            return Response(status_code=304, headers=headers)
+        return JSONResponse({"as_of": as_of, **state}, headers=headers)
 
     async def choose(identifier: UUID, body: WorkspaceChoice) -> Response:
         if workspace_approvals is None:
@@ -441,6 +458,7 @@ def create_home_app(
     app.add_api_route("/api/submissions/{submission_id}", submission, methods=["GET"])
     app.add_api_route("/api/messages", history, methods=["GET"])
     app.add_api_route("/api/messages/{identifier}", one_message, methods=["GET"])
+    app.add_api_route("/api/presence", read_presence, methods=["GET"])
     app.add_api_route(
         "/api/messages/{identifier}/sources/{slot}", evidence, methods=["GET"]
     )

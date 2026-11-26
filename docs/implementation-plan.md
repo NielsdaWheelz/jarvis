@@ -268,6 +268,84 @@ remains open.
    installed sidebar on wide and narrow web. record candidate and installed
    outcomes separately.
 
+## new, shown and owed in chat
+
+[adr 0125](decisions/0125-new-shown-and-owed.md) records the accepted design.
+nothing is implemented. two cuts: the first changes clients and one read-only
+projection; the second is a stopped schema cut.
+
+serialize both against the actual merges of
+[0118](decisions/0118-chat-reading-and-approvals.md),
+[0122](decisions/0122-chat-sidebar-and-phone-alerts.md),
+[0123](decisions/0123-artifact-library.md) and
+[0124](decisions/0124-citations-and-viewer-delivery.md). they own the same
+transcript, sidebar, android list and client files. build on whichever reader
+and sidebar have landed; do not fork them.
+
+on november 26, independent claude opus 5.5 at high effort held the first
+draft on eight findings, chiefly an owed rule that followed the latest
+attempt, an undo that permanent receipts could not support, and a sweep that
+cancelled unshown question alerts. it closed all eight on the revision and
+set three conditions, applied as worded: failure notices and parked requests
+are not owed, a retry is not owed until it asks again, and an owed message
+outside the loaded pages opens by its exact link. it accepted the clean slate
+at the second cut as a stated tradeoff. reviewed adr sha256
+`de5336c452291d3ffdc1fb796e4a94649933f741692834ebf129e9ae21646350`. both
+reviews and the frozen drafts are in
+`~/.local/state/jarvis/qualification/adr0125-design/`. after review, the
+owner approved scanning beyond the displayed pages for exact local totals
+and using document focus for the web assistive-reading gate.
+
+first cut, no schema:
+
+1. witness the two opening faults on real clients before changing them:
+   narrow web opening at the oldest loaded message, and android opening at
+   the top of the newest fifty.
+2. add `owed` and `owed_total` beside the items in `home_reads.py`. freeze
+   the rule with examples for approval, owner input, a wait re-recorded by an
+   unrelated wake, an answered question, a question with no wait, a parked
+   request whose failure notice repeats the proposal, and a retry.
+3. web: one new module under `static/home/` owns the shown set, the timing
+   and the marks, backed by `localStorage`. wire it into the existing merge,
+   message read and refresh paths. add the boundary, the ledge, the owed
+   words, the `--rubric` token and the opening and arrival rules. fix
+   narrow-web placement and scroll to the bottom on send.
+4. android: give the conversation a list state anchored by message id,
+   prepend earlier pages and read every three seconds while resumed. add the
+   same set, timing, marks, boundary and ledge, backed by private
+   preferences. in `Push.kt`, hold a notice while chat is on screen, group
+   replies, keep questions separate and sweep on resume from the local set.
+5. qualify journeys 1–11 of the adr on desktop and narrow browsers and the
+   signed s22+ candidate against an isolated service. stage the packaged
+   shell, the service and the same-signer android update together. tell the
+   owner that phone and laptop will disagree until the second cut.
+6. let the owner use it for at least a week. change the definition of shown
+   here, where it costs nothing, if marks linger or dry wrongly.
+
+second cut, stopped:
+
+1. wait for the [drive files cut](issues/drive-files-deploy.md): schema
+   `0027` must be installed first. then add `owner_shown` at the next free
+   migration with its guarded grants and the `cutover` receipts. add the
+   `Table` and move `APPLICATION_SCHEMA_REVISION` in `db.py`, extend
+   `STOPPED_TABLE_KEYS` and `SCHEMA_REVISION` in `deploy/memory_snapshot.py`,
+   and add a cut verifier. rehearse a restore on macbook.
+2. add the page `new` set and `new_total`, `POST /api/shown`, clear through
+   a message and the narrow hidden-tab read. set a new viewer contract value,
+   serialized with any value 0123 sets.
+3. replace the inside of each client's set module with the service contract
+   and delete both local stores. android sweeps notifications from the page
+   it was served. the web shell serves the three favicon files.
+4. qualify journey 12 and repeat 1–11. stage service, shell and the signed
+   app. the owner reads what is new first, because marks restart from the
+   cut. close old clients, switch the service, update the phone and reload
+   web before resuming use. record candidate and installed outcomes
+   separately.
+
+two follow-ups stay open and outside both cuts:
+[stale phone alerts](issues/stale-phone-alerts.md) and
+[crossed questions](issues/crossed-questions.md).
+
 ## chat composer attachments
 
 [adr 0116](decisions/0116-chat-composer-attachments.md) owns the interaction,
@@ -277,6 +355,44 @@ acceptance](decisions/0116-chat-composer-attachments.md#implementation-evidence-
 use the normal web release and signed app update for delivery. record
 one installed gesture-to-receipt check on each client. both use the existing
 api and can be released independently.
+
+## presence
+
+[adr 0126](decisions/0126-presence.md) owns the states, words, motion and
+acceptance and [candidate evidence](decisions/0126-presence.md#qualification-on-macbook).
+adr 0125 (new, shown and owed) owns the red, favicon, arrival
+announcements, hidden-tab reads and transcript movement that presence relies
+on. presence is additive: no schema, prompt, model binding or stopped cut.
+one writer per path. freeze the read specimens before client work.
+
+1. **design review.** independent opus re-review of the corrected adr. fix
+   findings before red.
+2. **a · service.** new `src/jarvis/presence.py` (record and read),
+   `service.py` (owns the record, clears the attempt), `native_runtime.py`
+   (arming, the combined stock hook, `NativeRunOutcome.deferral`), `kernel.py`
+   (last personal allowance), `write_dispatch.py` (effect entry and exit),
+   `home_reads.py` (0125's owed query, if presence lands first), `cli.py`
+   (wiring), `home_http.py` (route, etag). freeze json specimens for
+   idle, owner work, a steered follow-up, silent mail work, an approved effect,
+   owed, quota and non-quota standby, paused and workers. prove acceptance 1 on
+   macbook against postgres 16 with temporary probes.
+3. **b · web.** `static/home/{index.html,home.js,home-dom.js,home.css}` and
+   `static/home/fonts/` (cormorant garamond regular and italic, latin subset,
+   ofl). make `refresh()` read presence before chat. build against the frozen
+   specimens and a stub, then the real service. prove acceptance 2.
+4. **c · android.** `Home.kt` (header, after-send route, tail), `HomeApi.kt`,
+   a `Presence.kt` for the mark and poller, and `res/font`. prove acceptance 3
+   on an emulator, then the S22+.
+5. **integration.** rebase on whichever of 0123, 0124 and 0125 lands first.
+   they own the destinations, viewer and transcript paths that b and c attach
+   to. the rule legend anchors to the header bar, not the wordmark, so wrapped
+   destinations need no special case. if 0125 has not landed, define
+   `--rubric` with its values. run `scripts/verify` and opus review of the
+   evidence, then delete probes and record cleanup.
+6. **release.** normal service release, which carries the web shell, and a
+   signed app update with a higher version code. either may lead: an old client
+   never reads presence, and a new client treats 404 as unknown. record the
+   installed journeys in `docs/issues/presence-installed.md` until observed.
 
 ## exact draft revisions from chat
 

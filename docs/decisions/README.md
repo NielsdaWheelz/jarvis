@@ -163,6 +163,8 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0122](0122-chat-sidebar-and-phone-alerts.md) | chat sidebar and phone alerts | implemented. transcript-first chat and optional native enrollment. installed acceptance pending. |
 | [0123](0123-artifact-library.md) | artifact library and workspace addresses | one row per published work, pinned editions, recorded deliveries and a matched web/android cut. |
 | [0124](0124-citations-and-viewer-delivery.md) | citations and work in the viewer | retained mail/calendar evidence, expanded chat tables and portable reports. |
+| [0125](0125-new-shown-and-owed.md) | new, shown and owed in chat | accepted. device-local rehearsal precedes shared receipts. |
+| [0126](0126-presence.md) | show when jarvis is working | implemented. additive presence read, web and android mark. installed acceptance open. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 the two decisions numbered 0114 likewise retain their distinct titles and paths.

@@ -503,12 +503,14 @@ fi
 # Retain the preimage and exact target in the named hold. A repair takes
 # custody of the same directory and can continue a verified partial cut.
 catalog_plan="$held/artifact-catalog.json"
+"$custody" check "$change"
 if [[ ! -f "$source_release/src/jarvis/convert_artifact_catalog.py" &&
       ! -f "$catalog_plan" ]]; then
   [[ "$phase" == held ]] || refuse "held $change. artifact catalog preimage is missing"
-  "$custody" check "$change"
   catalog_writer plan >"$scratch/artifact-catalog.json"
   persist "$scratch/artifact-catalog.json" "$catalog_plan"
+elif [[ ! -f "$catalog_plan" ]]; then
+  catalog_reader check
 fi
 
 if [[ "$phase" == held && -f "$scratch/source-check.json" ]]; then
@@ -517,11 +519,8 @@ else
   "$custody" applying "$change"
 fi
 if [[ -f "$catalog_plan" ]]; then
-  "$custody" check "$change"
   catalog_writer apply <"$catalog_plan"
   catalog_reader verify <"$catalog_plan"
-else
-  catalog_reader check
 fi
 if [[ "$source_schema" != "$target_schema" ]]; then migration migrate "$qualification"; fi
 "$release/deploy/install-contained-host" --held "$change" "$commit" "$mapping_source"

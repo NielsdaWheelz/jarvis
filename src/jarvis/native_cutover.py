@@ -133,12 +133,12 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             .where(
                 native_attempt.c.conversation_id == conversation_id,
                 or_(
-                    native_attempt.c.request["schema_version"].as_string().is_distinct_from(
-                        NATIVE_REQUEST_SCHEMA
-                    ),
-                    native_attempt.c.request["output"]["name"].as_string().is_distinct_from(
-                        NATIVE_OUTPUT_NAME
-                    ),
+                    native_attempt.c.request["schema_version"]
+                    .as_string()
+                    .is_distinct_from(NATIVE_REQUEST_SCHEMA),
+                    native_attempt.c.request["output"]["name"]
+                    .as_string()
+                    .is_distinct_from(NATIVE_OUTPUT_NAME),
                 ),
                 native_attempt.c.product_outcome.is_(None),
                 or_(

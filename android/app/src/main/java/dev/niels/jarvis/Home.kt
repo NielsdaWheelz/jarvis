@@ -457,7 +457,7 @@ private fun Conversation(
         }
     }
 
-    viewport.Observe(history, line)
+    viewport.Observe(history, line, history.newTotal > history.newAbove)
     val visible = list.layoutInfo.visibleItemsInfo
     val onScreen = visible.mapTo(mutableSetOf()) { it.key }
     val firstIndex = visible.firstOrNull()?.index ?: 0
@@ -590,7 +590,7 @@ private fun MessageDetail(
         val viewport = remember { ChatViewport() }
         val scroll = rememberScrollState()
         val headingInset = with(LocalDensity.current) { 64.dp.roundToPx() }
-        viewport.Observe(history, with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.lineHeight.toPx() })
+        viewport.Observe(history, with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.lineHeight.toPx() }, history.isNew(row))
         Column(
             Modifier.fillMaxSize().onGloballyPositioned { viewport.viewport = it }.verticalScroll(scroll).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),

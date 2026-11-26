@@ -8,6 +8,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -136,6 +138,8 @@ internal class PhoneNotices private constructor(private val context: Context) {
     private val held = context.getSharedPreferences("held-chat-notices", Context.MODE_PRIVATE)
     private var foreground = false
     private var revision = 0L
+    private val groupHandler = Handler(Looper.getMainLooper())
+    private val reconcileGroup = Runnable { updateGroup() }
     private val issued = mutableMapOf<String, Long>()
 
     internal data class BeforeRead(val active: List<StatusBarNotification>, val revision: Long)
@@ -202,7 +206,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
             val kind = notice.notification.channelId
             if (kind == REPLY || (kind == QUESTION && message.id !in page.owed)) {
                 manager.cancel(tag, notice.id)
-                replies.remove(tag)
+                if (replies.remove(tag)) reconcileGroupAfterQueue()
             }
         }
         updateGroup(replies.size)
@@ -219,7 +223,14 @@ internal class PhoneNotices private constructor(private val context: Context) {
         val tag = messageNoticeTag(id)
         issued[tag] = ++revision
         manager.notify(tag, 0, notice.build())
+        if (kind == REPLY) reconcileGroupAfterQueue()
         return true
+    }
+
+    // Posting and cancelling are queued by Android. Recount once from the manager after the burst.
+    private fun reconcileGroupAfterQueue() {
+        groupHandler.removeCallbacks(reconcileGroup)
+        groupHandler.postDelayed(reconcileGroup, 250)
     }
 
     private fun replyTags() = manager.activeNotifications.filter {

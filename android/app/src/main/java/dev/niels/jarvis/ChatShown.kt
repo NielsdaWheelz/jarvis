@@ -47,14 +47,13 @@ internal class ChatShown(context: Context) {
         }
     private data class Receipts(val start: Instant, val cleared: Instant?, val ids: Map<String, Instant>)
 
-    @Volatile
-    private var receipts = Receipts(
+    private var receipts by mutableStateOf(Receipts(
         preferences.getString("start", null)?.let(Instant::parse) ?: enrolled,
         preferences.getString("cleared", null)?.let(Instant::parse),
         preferences.getStringSet("ids", emptySet()).orEmpty().associate { entry ->
             entry.substringAfter(' ') to Instant.parse(entry.substringBefore(' '))
         },
-    )
+    ))
 
     val start get() = receipts.start
     fun isNew(stamp: ChatStamp): Boolean = receipts.let { stamp.at > it.start && stamp.id !in it.ids }
@@ -96,11 +95,10 @@ internal class ChatPage(page: JSONObject) {
 internal class ChatHistory(private val shown: ChatShown) {
     private val reads = Mutex()
     private var outside by mutableStateOf(emptyList<ChatStamp>())
-    private var revision by mutableIntStateOf(0)
     private val learned = mutableMapOf<String, Long>()
     private val timings = mutableMapOf<String, Dwell>()
     private val observations = mutableStateMapOf<String, ChatStamp>()
-    val reportPending get() = observations.values.any(::isNew)
+    val reportPending get() = observations.values.any(::canRecord)
     private var readProblem by mutableStateOf<String?>(null)
     private var writeProblem by mutableStateOf<String?>(null)
     val problem get() = readProblem ?: writeProblem
@@ -136,11 +134,11 @@ internal class ChatHistory(private val shown: ChatShown) {
     val newTotal get() = newAbove + rows.count(::isNew)
 
     fun isNew(message: ChatMessage) = message.tracked && isNew(message.stamp)
-    private fun isNew(stamp: ChatStamp): Boolean {
-        @Suppress("UNUSED_VARIABLE")
-        val current = revision
-        return (pendingClear?.through?.at?.let { stamp.at > it } ?: true) && shown.isNew(stamp)
-    }
+    private fun isNew(stamp: ChatStamp) =
+        canRecord(stamp) && (stamp.id !in observations || writeProblem != null)
+
+    private fun canRecord(stamp: ChatStamp) =
+        (pendingClear?.through?.at?.let { stamp.at > it } ?: true) && shown.isNew(stamp)
 
     fun learnedAt(id: String) = learned.getOrPut(id, SystemClock::elapsedRealtime)
 
@@ -252,7 +250,6 @@ internal class ChatHistory(private val shown: ChatShown) {
         writeProblem = if (saved) null else "could not save shown messages"
         if (saved) {
             observations.entries.removeAll { !shown.isNew(it.value) }
-            revision++
         }
         pendingClear = null
     }
@@ -262,7 +259,7 @@ internal class ChatHistory(private val shown: ChatShown) {
     }
 
     suspend fun flushObserved() {
-        val batch = observations.values.filter(::isNew)
+        val batch = observations.values.filter(::canRecord)
         if (batch.isEmpty()) return
         withContext(NonCancellable) {
             completeReport(batch, withContext(Dispatchers.IO) { shown.record(batch) })
@@ -270,7 +267,7 @@ internal class ChatHistory(private val shown: ChatShown) {
     }
 
     fun flushBeforeLeaving() {
-        val batch = observations.values.filter(::isNew)
+        val batch = observations.values.filter(::canRecord)
         if (batch.isNotEmpty()) completeReport(batch, shown.record(batch))
     }
 
@@ -278,7 +275,6 @@ internal class ChatHistory(private val shown: ChatShown) {
         writeProblem = if (saved) null else "could not save shown messages"
         if (saved) {
             for (stamp in batch) observations.remove(stamp.id)
-            revision++
         }
     }
 
@@ -321,11 +317,11 @@ internal class ChatViewport {
     val cards = mutableMapOf<String, Pair<ChatMessage, LayoutCoordinates>>()
 
     @Composable
-    fun Observe(history: ChatHistory, line: Float) {
+    fun Observe(history: ChatHistory, line: Float, hasNew: Boolean) {
         val view = LocalView.current
         val accessibility = view.context.getSystemService(AccessibilityManager::class.java)
-        LaunchedEffect(this, history.attending, line) {
-            if (!history.attending) return@LaunchedEffect
+        LaunchedEffect(this, history.attending, hasNew, line) {
+            if (!history.attending || !hasNew) return@LaunchedEffect
             try {
                 while (true) withFrameMillis { now ->
                     val inner = viewport?.screenRect()

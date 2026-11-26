@@ -1,6 +1,6 @@
 # agy native parity
 
-**held · november 26, 2026 utc.** the first [0111 gate](../decisions/0111-native-antigravity-neon.md#a--provider-and-paid-boundary) is red on agy 1.5.17 and the owner-approved local sdk 0.1.24. adapter, routing, release composition and paid qualification await a passing gate.
+**held · november 26, 2026 utc.** the owner chose fresh native children in [0111](../decisions/0111-native-antigravity-neon.md). the fork and resume-copy results below describe the prior qualification target. the observed cli 1.5.17 and sdk 0.1.24 children still lack the required authority binding and explicit effort selection. adapter, routing, release composition and paid qualification await a passing gate.
 
 ## cli 1.5.17
 
@@ -36,4 +36,4 @@ the sdk probes used the published wheel and local fixtures. the attempt homes an
 | `gate-sdk-persistence-contract-o9UGUJ/SHA256SUMS` | `62c91f553b01903d568de0e31f71354904d01c1c358a51ee4383182dc14e7a06` |
 | `feature-a-VMB1fd/opus-sdk-resume.txt` | `5e3cf5b4610df526757bd17fafd2f493013db76d3737a2e2a2010f0047eb76d7` |
 
-close when the pinned harness proves a genuine trajectory fork, explicit child effort and independently bound parentage. require stable logical sample identity, demonstrable retry control and one upstream entry per sample, then run full synthetic parity. a future candidate needs supported structured context inheritance, per-child effort and pre-inference authority from the provider. fixture evidence establishes local client behavior. live google model behavior, billing and installed containment remain unqualified. [cli acp](https://antigravity.google/docs/ide/extensions/acp/) · [cli subagents](https://antigravity.google/docs/subagents/) · [sdk retry controls](https://github.com/google-antigravity/antigravity-sdk-python/blob/97c5c53d0741c601ea8c2401497cad3b5ee8dc98/skills/google-antigravity-sdk/examples/getting_started/customizing_retries.md)
+close when the pinned harness proves fresh native children with explicit effort and independently bound parentage. require stable logical sample identity, demonstrable retry control and one upstream entry per sample, then run the amended synthetic gate. fixture evidence establishes local client behavior. live google model behavior, billing and installed containment remain unqualified. [cli acp](https://antigravity.google/docs/ide/extensions/acp/) · [cli subagents](https://antigravity.google/docs/subagents/) · [sdk retry controls](https://github.com/google-antigravity/antigravity-sdk-python/blob/97c5c53d0741c601ea8c2401497cad3b5ee8dc98/skills/google-antigravity-sdk/examples/getting_started/customizing_retries.md)

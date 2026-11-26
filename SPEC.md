@@ -24,6 +24,13 @@ audience: product, engineering, design, operations, and future coding agents
 
 ## private web home
 
+[adr 0122](docs/decisions/0122-chat-sidebar-and-phone-alerts.md) adopts a
+transcript-first web sidebar, a contextual back control and viewer-owned todos.
+it retires phone status and manual disconnect on web and android. android owns
+explicit enrollment, replacement and repair on the phone, and system notification
+preferences govern display. source is implemented.
+[installed acceptance](docs/issues/chat-sidebar-phone-alerts-installed.md) is separate.
+
 [adr 0124](docs/decisions/0124-citations-and-viewer-delivery.md) specifies
 one-tap inspection of the recorded mail passage or calendar occurrence in a
 new reply, full-width reading of a chat table, and delivery of reusable work

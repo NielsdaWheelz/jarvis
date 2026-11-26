@@ -91,20 +91,16 @@ function inline(parent, tokens, m, prefix) {
       linkDepth++;
       const raw = token.attrGet("href");
       const slot = /^#source-([1-9][0-9]*)$/.exec(raw);
-      let href = null, unavailable = false;
-      if (slot) {
-        if (m?.role === "assistant" && Array.isArray(m.sources)) {
-          const number = Number(slot[1]);
-          const found = m.sources.find(source => source.slot === number);
-          if (found?.state === "available") href = "/m/" + m.id + "/source/" + number;
-          else unavailable = true;
-        }
-      } else href = destination(raw);
-      const node = href ? link(undefined, href) : el("span");
+      const citation = slot && m?.role === "assistant" && Array.isArray(m.sources);
+      const href = slot ? null : destination(raw);
+      const node = href ? link(undefined, href) : el(citation ? "a" : "span");
       if (href && !href.startsWith("/")) { node.target = "_blank"; node.rel = "noopener noreferrer"; }
-      if (slot && href) node.dataset.readerAnchor = prefix + "-" + i;
       current.append(node);
-      if (unavailable) current.append(" · source unavailable");
+      if (citation) {
+        node.dataset.sourceSlot = slot[1];
+        node.dataset.readerAnchor = prefix + "-" + i;
+        current.append(el("span", " · source unavailable"));
+      }
       stack.push(node);
     } else if (token.nesting > 0) {
       const node = el(token.tag);
@@ -115,6 +111,21 @@ function inline(parent, tokens, m, prefix) {
     else if (token.type === "softbreak" || token.type === "hardbreak") current.append(el("br"));
     else if (token.type === "image") current.append(markdown.renderer.renderInlineAsText(token.children || [], markdown.options, {}));
     else current.append(token.content);
+  }
+}
+
+export function updateCitations(root, m) {
+  for (const anchor of root.querySelectorAll("[data-source-slot]")) {
+    const slot = Number(anchor.dataset.sourceSlot);
+    const available = m.sources?.some(source => source.slot === slot && source.state === "available");
+    if (available) {
+      anchor.href = "/m/" + m.id + "/source/" + slot;
+      anchor.removeAttribute("tabindex");
+    } else {
+      anchor.removeAttribute("href");
+      anchor.tabIndex = -1;
+    }
+    anchor.nextElementSibling.hidden = Boolean(available);
   }
 }
 
@@ -168,5 +179,6 @@ export function renderMarkdown(m, parsed, tableNumber = null) {
       parent.append(pre);
     } else if (token.type === "html_block") parent.append(el("div", token.content, "literal"));
   }
+  updateCitations(root, m);
   return root;
 }

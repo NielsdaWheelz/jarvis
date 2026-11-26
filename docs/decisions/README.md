@@ -160,6 +160,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0119](0119-owner-gmail-draft-editor.md) | owner gmail draft editor | one human-operated editor for verified jarvis drafts. installation and live qualification separate. |
 | [0120](0120-drive-files.md) | drive files and documents | implemented; live qualification and the stopped cut remain open. |
 | [0121](0121-exact-chat-draft-revisions.md) | exact draft revisions from chat | immutable revision reader and matched client cut. installed qualification pending. |
+| [0122](0122-chat-sidebar-and-phone-alerts.md) | chat sidebar and phone alerts | implemented. transcript-first chat and optional native enrollment. installed acceptance pending. |
 | [0124](0124-citations-and-viewer-delivery.md) | citations and work in the viewer | retained mail/calendar evidence, expanded chat tables and portable reports. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.

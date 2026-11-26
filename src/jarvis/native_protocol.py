@@ -14,16 +14,13 @@ from llm_tools import (
     FrozenToolPlan,
     Native,
     ProfileId,
-    PromptSection,
-    PromptSectionKind,
-    PromptSections,
-    PromptText,
     ToolCatalog,
     ToolEffect,
     ToolGrant,
     ToolId,
     ToolPlan,
 )
+from provider_runtime.agent_runtime import TextContent
 from pydantic import model_validator
 
 from jarvis import terminal
@@ -60,24 +57,18 @@ def workspace_check_native(
 def foreground_recovery_native(
     main: NativeDefinition, main_plan: FrozenToolPlan, catalog: ToolCatalog
 ) -> tuple[NativeDefinition, FrozenToolPlan]:
-    instructions = PromptSection(
-        PromptSectionKind("foreground_recovery"),
-        (),
-        PromptText(
-            "recover only the delivered input's independently useful result. "
-            "use original receipts for prior effects. distinguish the missing answer "
-            "from an unknown "
-            "effect. report only observed coverage and keep any request whose outcome "
-            "remains unfinished open. do not propose a new action or publish progress."
-        ),
+    instructions = TextContent(
+        "recover only the delivered input's independently useful result. "
+        "use original receipts for prior effects. distinguish the missing answer "
+        "from an unknown "
+        "effect. report only observed coverage and keep any request whose outcome "
+        "remains unfinished open. do not propose a new action or publish progress."
     )
     main = replace(
         main,
-        role=replace(
-            main.role,
-            instructions=PromptSections(
-                (*main.role.instructions.sections, instructions)
-            ),
+        provider=replace(
+            main.provider,
+            developer=(*main.provider.developer, instructions),
         ),
     )
     return _read_only_native(

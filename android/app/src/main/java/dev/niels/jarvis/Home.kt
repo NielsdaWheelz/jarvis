@@ -57,8 +57,8 @@ import org.json.JSONObject
 
 @Composable
 internal fun JarvisHome(
-    route: Route, onNavigate: (Route) -> Unit, onResolve: (Route) -> Unit,
-    todoReads: () -> TodoReads, onBack: (() -> Unit)?, onAlerts: () -> Unit,
+    entry: Route, onNavigate: (Route) -> Unit, onResolve: (Route) -> Unit,
+    todoReads: () -> TodoReads, onBack: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     val activity = context as Activity
@@ -66,6 +66,12 @@ internal fun JarvisHome(
     val api = remember { HomeApi(context) }
     val drafts = remember { Drafts.get(context) }
     val scope = rememberCoroutineScope()
+    // Keep the home visit even when it resolves to the same address as a direct link.
+    var homeAddress by rememberSaveable { mutableStateOf<String?>(null) }
+    val route = if (entry == Route.Home) homeAddress?.let { Routes.parse(Uri.parse(it)) } ?: entry else entry
+    val resolve: (Route) -> Unit = { target ->
+        if (entry == Route.Home) homeAddress = Routes.url(target).toString() else onResolve(target)
+    }
     var chat by rememberSaveable { mutableStateOf(false) }
     var showDrafts by rememberSaveable { mutableStateOf(false) }
     var draftId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -80,6 +86,9 @@ internal fun JarvisHome(
     val authRevision by access.revision.collectAsState()
     val reload = refresh to authRevision
     val signIn = { access.signIn(activity) }
+    val setupHome = entry == Route.Home && route != Route.Home && !chat && !showDrafts && draftId == null
+    val phone = remember { PhoneAlerts.get(context) }
+    LaunchedEffect(reload, setupHome) { phone.refresh(setupHome) }
     DisposableEffect(activity) {
         val lifecycle = (activity as androidx.lifecycle.LifecycleOwner).lifecycle
         val listener = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh++ }
@@ -141,10 +150,10 @@ internal fun JarvisHome(
                         chat = true
                     }) { Text("chat") }
                     if (!showDrafts) TextButton(onClick = { showDrafts = true }) { Text("drafts") }
-                    TextButton(onClick = onAlerts) { Text("alerts") }
                     if (!showDrafts) TextButton(onClick = { refresh++ }) { Text("refresh") }
                 }
                 HorizontalDivider()
+                if (setupHome) PhoneSetupAction(phone, signIn)
                 localError?.let { BodyStatus(it) }
                 val pane = when {
                     showDrafts -> "drafts"
@@ -164,7 +173,7 @@ internal fun JarvisHome(
                                     Pane { BodyStatus("home unavailable") }
                                 } else {
                                     val selected = DiscussionRef.parse(home.optJSONObject("view")) as? DiscussionRef.Canvas
-                                    LaunchedEffect(selected) { onResolve(selected?.route() ?: Route.Overview) }
+                                    LaunchedEffect(selected) { resolve(selected?.route() ?: Route.Overview) }
                                     Pane { BodyStatus("opening home") }
                                 }
                             }
@@ -181,7 +190,7 @@ internal fun JarvisHome(
                                 TextButton(onClick = { onNavigate(route) }) { Text("open in browser") }
                                 TextButton(onClick = { onNavigate(Route.Message(route.messageId)) }) { Text("open message") }
                             }
-                            is Route.Canvas -> CanvasPane(route, api, reload, signIn, activity, onResolve, newDraft)
+                            is Route.Canvas -> CanvasPane(route, api, reload, signIn, activity, resolve, newDraft)
                         }
                     }
                 }

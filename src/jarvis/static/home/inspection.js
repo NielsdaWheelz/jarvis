@@ -1,5 +1,5 @@
 import { el, link, button } from "./home-dom.js";
-import { parseMessage, renderMarkdown } from "./chat-reader.js";
+import { parseMessage, renderMarkdown, updateCitations } from "./chat-reader.js";
 
 function evidence(value, time) {
   const body = document.createDocumentFragment();
@@ -52,7 +52,7 @@ function evidence(value, time) {
   return body;
 }
 
-export function bindInspection({ object, request, time, restore, refresh }) {
+export function bindInspection({ object, request, time, restore, restoring, refresh }) {
   let active = null;
   function close() {
     if (!active) return;
@@ -79,9 +79,9 @@ export function bindInspection({ object, request, time, restore, refresh }) {
       sheet.id = "inspection";
       sheet.append(back, title, content);
       object.replaceChildren(sheet);
-      active = { path, sheet, content, controller: new AbortController(), rendered: null };
+      active = { path, route, sheet, content, controller: new AbortController(), rendered: null };
       content.append(el("p", route.kind === "source" ? "checking source…" : "opening table…"));
-      if (document.activeElement === document.body || document.activeElement?.dataset.readerAnchor)
+      if (!restoring() && (document.activeElement === document.body || document.activeElement?.dataset.readerAnchor))
         title.focus({ preventScroll: true });
     }
     const view = active;
@@ -129,5 +129,8 @@ export function bindInspection({ object, request, time, restore, refresh }) {
       }
     } finally { view.pending = false; }
   }
-  return { close, show };
+  function updateTable(m) {
+    if (active?.rendered === "table" && active.route.message === m.id) updateCitations(active.content, m);
+  }
+  return { close, show, updateTable };
 }

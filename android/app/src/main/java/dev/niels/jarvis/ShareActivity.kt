@@ -186,7 +186,7 @@ internal fun DraftComposer(id: String, onReturn: () -> Unit, onReceived: (String
     val canSend = !active && !copying && valid && draft.files.none { it.problem != null } &&
         (editor.text.isNotBlank() || draft.files.isNotEmpty()) &&
         draft.state in setOf(DraftState.Editing, DraftState.Frozen) &&
-        transfer !in setOf(Transfer.TooLarge, Transfer.Invalid)
+        transfer !in setOf(Transfer.TooLarge, Transfer.Invalid, Transfer.UpdateRequired)
 
     LaunchedEffect(id, editor) {
         snapshotFlow { editor.text.toString() }.collect { text ->

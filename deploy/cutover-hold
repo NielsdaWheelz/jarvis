@@ -28,7 +28,9 @@ AGENT_STATE = Path("/run/jarvis-skid-state")
 LEGACY_HOLD = SYSTEMD / "jarvis-cutover.hold"
 ASSISTANT = "jarvis.service"
 MEMORY = "jarvis-memory.service"
-NATIVE_HOSTS = tuple(Path(__file__).with_name("native-host-units").read_text().splitlines())
+NATIVE_HOSTS = tuple(
+    Path(__file__).with_name("native-host-units").read_text().splitlines()
+)
 NATIVE = NATIVE_HOSTS[0]
 BACKUP = "jarvis-backup.service"
 UNITS = (ASSISTANT, MEMORY, NATIVE, BACKUP)
@@ -642,6 +644,8 @@ def verify_serving(units, expected):
                             "*",
                             "--unix-socket",
                             "/run/jarvis-home/http.sock",
+                            "--header",
+                            "X-Jarvis-Viewer-Contract: artifact-library",
                             "http://jarvis.nielseriknandal.com/api/home",
                         ],
                         stdout=subprocess.DEVNULL,
@@ -1035,7 +1039,8 @@ def main():
             )
         )
     elif command == "repair-source":
-        binding = check_held(args.id)["binding"]
+        _, receipt = require_held(args.id)
+        binding = receipt["binding"]
         require(
             binding["operation"] == "release",
             "repair must use the original operation type",
@@ -1084,8 +1089,8 @@ def main():
     elif command == "close-native":
         path, receipt = require_held(args.id)
         require(
-            (path / "applying").exists() and NATIVE in receipt["binding"]["units"],
-            "native host is outside the applying operation",
+            NATIVE in receipt["binding"]["units"],
+            "native host is outside the stopped operation",
         )
         guard_units([NATIVE])
         publish(path / NATIVE, b"")

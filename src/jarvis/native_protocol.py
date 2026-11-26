@@ -30,7 +30,7 @@ from jarvis import terminal
 from jarvis.workspace_checks import WorkspaceResult
 
 NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v6"
-NATIVE_OUTPUT_NAME = "jarvis_home_message_v3"
+NATIVE_OUTPUT_NAME = "jarvis_artifact_library_message_v1"
 WORKSPACE_CHECK_PROFILE = ProfileId("workspace_check")
 FOREGROUND_RECOVERY_PROFILE = ProfileId("foreground_recovery")
 
@@ -63,11 +63,10 @@ def foreground_recovery_native(
         PromptSectionKind("foreground_recovery"),
         (),
         PromptText(
-            "recover only the delivered input's independently useful result. "
-            "use original receipts for prior effects. distinguish the missing answer "
-            "from an unknown "
-            "effect. report only observed coverage and keep any request whose outcome "
-            "remains unfinished open. do not propose a new action or publish progress."
+            "recover the delivered input's useful result. use original effect "
+            "receipts. distinguish missing answers and unknown effects. report "
+            "observed coverage, keep unfinished requests open. no new actions "
+            "or progress."
         ),
     )
     main = replace(

@@ -161,6 +161,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0120](0120-drive-files.md) | drive files and documents | implemented; live qualification and the stopped cut remain open. |
 | [0121](0121-exact-chat-draft-revisions.md) | exact draft revisions from chat | immutable revision reader and matched client cut. installed qualification pending. |
 | [0122](0122-chat-sidebar-and-phone-alerts.md) | chat sidebar and phone alerts | implemented. transcript-first chat and optional native enrollment. installed acceptance pending. |
+| [0123](0123-artifact-library.md) | artifact library and workspace addresses | one row per published work, pinned editions, recorded deliveries and a matched web/android cut. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 the two decisions numbered 0114 likewise retain their distinct titles and paths.

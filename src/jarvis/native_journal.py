@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from asyncio import to_thread
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields, is_dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -101,9 +102,9 @@ from jarvis.db import (
     work,
 )
 from jarvis.home_notices import enqueue_notice
-from jarvis.home_pages import DEFAULT_EXPORT
+from jarvis.home_pages import DEFAULT_EXPORT, HomePages
 from jarvis.home_reads import draft_for_request, proposal_presented, reference_context
-from jarvis.home_refs import DraftPresentationRef
+from jarvis.home_refs import DraftPresentationRef, ViewRef
 from jarvis.mail_revisions import VerifiedWorkspaceDraft
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
@@ -122,6 +123,7 @@ from jarvis.messages import (
 from jarvis.native_failure_notice import record_parking_notice
 from jarvis.native_protocol import (
     FOREGROUND_RECOVERY_PROFILE,
+    NATIVE_OUTPUT_NAME,
     NATIVE_REQUEST_SCHEMA,
     JarvisNativeMessage,
     JarvisTerminal,
@@ -238,13 +240,11 @@ def _sections(value: Any) -> PromptSections:
 class _SealedNativeTurn:
     attempt_id: str
     input_ids: tuple[InputId, ...]
-    output: JsonSchemaAgentOutput | None
+    output: JsonSchemaAgentOutput
     terminal: AgentTerminal
     initial_delivery_proven: bool
 
     def decode_final(self) -> JarvisTerminal:
-        if self.output is None:
-            raise NativeDefect("original output schema is absent")
         value = decode_agent_output(self.output, self.terminal)
         return JarvisTerminal.from_seal(self.output.name, thaw_json_value(value))
 
@@ -305,6 +305,14 @@ async def recover_sealed_turn(
         return None
     if row["conversation_id"] != scope:
         raise NativeDefect("sealed inference is outside this conversation")
+    output: dict[str, Any] = row["output"]
+    if row["request_schema"] != NATIVE_REQUEST_SCHEMA or output != {
+        "name": NATIVE_OUTPUT_NAME,
+        "schema": JarvisNativeMessage.model_json_schema(),
+    }:
+        raise NativeDefect(
+            "retired native contract requires original-release settlement"
+        )
     terminal = terminal_from_json(row["terminal"])
     prepared = AgentAttempt(**row["provider_attempt"])
     if (
@@ -313,10 +321,6 @@ async def recover_sealed_turn(
         or prepared.attempt_id != attempt_id
     ):
         raise NativeDefect("product recovery requires original sealed native evidence")
-    if row["request_schema"] != NATIVE_REQUEST_SCHEMA:
-        raise NativeDefect(
-            "retired native request requires original-release settlement"
-        )
     binding = row["native_binding"]
     ref = terminal.evidence.native_ref
     route = row["route"]
@@ -327,13 +331,10 @@ async def recover_sealed_turn(
         or binding != _turn_binding(ref)
     ):
         raise NativeDefect("native terminal changed the prepared account or binding")
-    output = row["output"]
     return _SealedNativeTurn(
         attempt_id,
         tuple(map(InputId, row["input_ids"])),
-        None
-        if output is None
-        else JsonSchemaAgentOutput(output["name"], output["schema"]),
+        JsonSchemaAgentOutput(output["name"], output["schema"]),
         terminal,
         True,
     )
@@ -1797,11 +1798,12 @@ class PostgresNativeJournal:
                 .one_or_none()
             )
             if existing is None:
-                home = await _presentation_home(
+                home = await _delivery_home(
                     connection,
                     self.owner.scope_id,
                     row["id"],
                     value.response.present,
+                    value.response.artifact_links,
                     drive_subject=(
                         None
                         if self.workspace_grant is None
@@ -1899,17 +1901,38 @@ def _request_ancestors(scope: str, attempt_id: UUID, stopping: tuple[UUID, ...])
     )
 
 
-async def _presentation_home(
+async def _delivery_home(
     connection: AsyncConnection,
     scope: str,
     attempt_id: UUID,
     present: Presentation | None,
+    artifact_links: list[ViewRef],
     stopping: tuple[UUID, ...] = (),
     *,
     drive_subject: str | None = None,
-) -> dict[str, object] | None:
+) -> dict[str, object]:
+    refs = artifact_links
+    if present is not None and isinstance(present.ref, ViewRef):
+        refs = [*refs, present.ref]
+    admitted: list[ViewRef] = []
+    if refs:
+        catalog = await to_thread(HomePages(DEFAULT_EXPORT).snapshot)
+        for ref in dict.fromkeys(refs):
+            if catalog.view(ref.slug, ref.rev) is None:
+                LOGGER.warning(
+                    "native artifact link omitted: attempt=%s slug=%s rev=%s "
+                    "reason=unpublished",
+                    attempt_id,
+                    ref.slug,
+                    ref.rev,
+                )
+            else:
+                admitted.append(ref)
+    home: dict[str, object] = {
+        "artifact_links": [ref.model_dump(mode="json") for ref in admitted]
+    }
     if present is None:
-        return None
+        return home
     ancestors = _request_ancestors(scope, attempt_id, stopping)
     request = await connection.scalar(
         select(message.c.id)
@@ -1922,20 +1945,26 @@ async def _presentation_home(
     )
     if request is None:
         reason = "unproven_lineage"
-    elif await reference_context(
-        connection,
-        scope,
-        present.ref.model_dump(mode="json"),
-        DEFAULT_EXPORT,
-        drive_subject=drive_subject,
+    elif (
+        present.ref in admitted
+        if isinstance(present.ref, ViewRef)
+        else await reference_context(
+            connection,
+            scope,
+            present.ref.model_dump(mode="json"),
+            DEFAULT_EXPORT,
+            drive_subject=drive_subject,
+        )
+        is not None
     ):
-        return {"present": present.model_dump(mode="json")}
+        home["present"] = present.model_dump(mode="json")
+        return home
     else:
         reason = "unavailable_target"
     LOGGER.warning(
         "native presentation omitted: attempt=%s reason=%s", attempt_id, reason
     )
-    return None
+    return home
 
 
 async def _todo_result_home(
@@ -2408,16 +2437,19 @@ async def commit_product(
         )
         enrollment = None if workspace is None else workspace.enrollment()
         drive_subject = None if enrollment is None else enrollment.subject
-        home = await _presentation_home(
-            connection,
-            owner.scope_id,
-            attempt["id"],
-            None if isinstance(final.response, Silent) else final.response.present,
-            stopping,
-            drive_subject=drive_subject,
-        )
+        home: dict[str, object] = {}
+        if rendered.content is not None and not isinstance(final.response, Silent):
+            home = await _delivery_home(
+                connection,
+                owner.scope_id,
+                attempt["id"],
+                final.response.present,
+                final.response.artifact_links,
+                stopping,
+                drive_subject=drive_subject,
+            )
         if catchup_result is not None:
-            home = {**(home or {}), "recovery_catchup": catchup_result}
+            home["recovery_catchup"] = catchup_result
         occurrence = None
         if len(inputs) == 1:
             origin = next(iter(inputs.values()))
@@ -2482,6 +2514,7 @@ async def commit_product(
             if not recovering and outcome == "match":
                 workspace_match = occurrence
             home = {
+                **home,
                 "workspace_result": checked,
                 "todo_result": {
                     "todo_id": str(occurrence.work_id),
@@ -2503,7 +2536,7 @@ async def commit_product(
                 drive_subject=drive_subject,
             )
             if link is not None:
-                home = {**(home or {}), "todo_result": link}
+                home["todo_result"] = link
         if rendered.content is not None and not restricted:
             drafts = await _draft_result_home(
                 connection,
@@ -2514,7 +2547,7 @@ async def commit_product(
                 None if isinstance(final.response, Silent) else final.response.present,
             )
             if drafts is not None:
-                home = {**(home or {}), **drafts}
+                home.update(drafts)
         if stopping:
             await cancel_unentered_actions(connection, stopping, timestamp)
         owned: set[UUID] = set()
@@ -2697,7 +2730,7 @@ async def commit_product(
                 raise NativeContentDefect(
                     "unseen proposals require an approval wait and question"
                 )
-            home = {**(home or {}), "proposal_ids": list(map(str, unseen))}
+            home["proposal_ids"] = list(map(str, unseen))
         if rendered.content is not None:
             await connection.execute(
                 insert(message).values(

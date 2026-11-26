@@ -22,8 +22,18 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
-from jarvis.messages import causal_component_ids, current_native_retry, latest_control
-from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA
+from jarvis.messages import (
+    CATCHUP_SOURCE,
+    causal_component_ids,
+    current_native_retry,
+    latest_control,
+    parked_inputs,
+)
+from jarvis.native_protocol import (
+    NATIVE_OUTPUT_NAME,
+    NATIVE_REQUEST_SCHEMA,
+    JarvisNativeMessage,
+)
 from jarvis.ownership import Database, lock_conversation
 from jarvis.write_tools import GMAIL_CREATE_DRAFT_SPEC, WORKSPACE_MAIL_IMPLEMENTATION
 
@@ -128,18 +138,55 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
         )
         if revision != APPLICATION_SCHEMA_REVISION:
             raise NativeActivationDefect("target requires its own application schema")
+        held_catchups = tuple(
+            await connection.scalars(
+                select(message.c.id).where(
+                    message.c.source_conversation_id == conversation_id,
+                    message.c.role == "host",
+                    message.c.source == CATCHUP_SOURCE,
+                    message.c.request_state == "waiting",
+                    message.c.wait_reason == "configuration",
+                    message.c.processing_parked_at.is_not(None),
+                )
+            )
+        )
+        held_attempts = (
+            tuple(
+                park.attempt_id
+                for park in await parked_inputs(
+                    connection, conversation_id, held_catchups
+                )
+                if park.attempt_id is not None
+                and park.reason == "native protocol requires repair"
+            )
+            if held_catchups
+            else ()
+        )
         old_attempt = await connection.scalar(
             select(native_attempt.c.id)
             .where(
                 native_attempt.c.conversation_id == conversation_id,
-                native_attempt.c.request["schema_version"]
-                .as_string()
-                .is_distinct_from(NATIVE_REQUEST_SCHEMA),
-                native_attempt.c.product_outcome.is_(None),
                 or_(
-                    native_attempt.c.terminal_at.is_not(None),
-                    native_attempt.c.recovery_pending,
-                    native_attempt.c.fenced_at.is_(None),
+                    native_attempt.c.request["schema_version"]
+                    .as_string()
+                    .is_distinct_from(NATIVE_REQUEST_SCHEMA),
+                    native_attempt.c.request["output"]["name"]
+                    .as_string()
+                    .is_distinct_from(NATIVE_OUTPUT_NAME),
+                    native_attempt.c.request["output"]["schema"].is_distinct_from(
+                        JarvisNativeMessage.model_json_schema()
+                    ),
+                ),
+                or_(
+                    and_(
+                        native_attempt.c.product_outcome.is_(None),
+                        or_(
+                            native_attempt.c.terminal_at.is_not(None),
+                            native_attempt.c.recovery_pending,
+                            native_attempt.c.fenced_at.is_(None),
+                        ),
+                    ),
+                    native_attempt.c.id.in_(held_attempts),
                 ),
             )
             .limit(1)

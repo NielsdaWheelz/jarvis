@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -31,15 +32,28 @@ class MainActivity : ComponentActivity() {
         val todoReads = ViewModelProvider(this)[TodoVisits::class.java].reads
         setContent {
             val start = Routes.url(initial).toString()
-            var trail by rememberSaveable { mutableStateOf(arrayListOf(start)) }
+            var trail by rememberSaveable {
+                val visits = arrayListOf<String>()
+                if (initial is Route.Artifact) visits.add(Routes.url(Route.Artifacts).toString())
+                visits.add(start)
+                mutableStateOf(visits)
+            }
             val holder = rememberSaveableStateHolder()
             val incoming by destination.collectAsState()
 
             // a repeated address is a new visit. back restores the actual origin.
-            val visit = "${trail.lastIndex} ${trail.last()}"
-            fun discardVisit() {
-                holder.removeState(visit)
-                todoReads.remove(visit)
+            val depth = trail.lastIndex
+            val address = trail.last()
+            val visit = "$depth $address"
+            // A custom tab may have checkpointed this active visit. Drop its saved
+            // snapshot after the provider leaves composition if the stack removed it.
+            DisposableEffect(visit) {
+                onDispose {
+                    if (trail.getOrNull(depth) != address) {
+                        holder.removeState(visit)
+                        todoReads.remove(visit)
+                    }
+                }
             }
 
             fun navigate(route: Route) {
@@ -53,13 +67,11 @@ class MainActivity : ComponentActivity() {
             }
 
             fun resolve(route: Route) {
-                discardVisit()
                 trail = ArrayList(trail.dropLast(1) + Routes.url(route).toString())
             }
 
             fun back() {
                 if (trail.size > 1) {
-                    discardVisit()
                     trail = ArrayList(trail.dropLast(1))
                 }
             }
@@ -73,7 +85,7 @@ class MainActivity : ComponentActivity() {
             BackHandler(enabled = trail.size > 1, onBack = ::back)
             holder.SaveableStateProvider(visit) {
                 JarvisHome(
-                    entry = Routes.parse(Uri.parse(trail.last())) ?: Route.Home,
+                    entry = Routes.parse(Uri.parse(address)) ?: Route.Home,
                     onNavigate = ::navigate, onResolve = ::resolve,
                     todoReads = { todoReads.getOrPut(visit, ::TodoReads) },
                     onBack = if (trail.size > 1) ::back else null

@@ -21,13 +21,14 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${jarvisHost}" />
                 <data android:path="/" />
-                <data android:path="/overview" />
+                <data android:path="/todos" />
                 <data android:pathPrefix="/m/" />
                 <data android:pathPrefix="/t/" />
                 <data android:pathPrefix="/f/" />
                 <data android:path="/files" />
                 <data android:pathPrefix="/files/" />
-                <data android:pathPrefix="/v/" />
+                <data android:path="/artifacts" />
+                <data android:pathPrefix="/artifacts/" />
             </intent-filter>
         </activity>
         <activity android:name=".WorkspaceTapActivity" android:exported="false" android:excludeFromRecents="true" />

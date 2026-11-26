@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Protocol
@@ -21,8 +22,15 @@ from starlette.middleware.base import RequestResponseEndpoint
 from jarvis.attachments import AttachmentStore, SpoolFull, WebUpload
 from jarvis.db import message
 from jarvis.home_drive import DriveReader, mount_drive
-from jarvis.home_pages import HOME_ORIGIN, PAGE_CSP, HomePages
+from jarvis.home_pages import (
+    HOME_ORIGIN,
+    PAGE_CSP,
+    REV_PATTERN,
+    SLUG_PATTERN,
+    HomePages,
+)
 from jarvis.home_reads import (
+    artifact_discussion,
     conversation,
     eligible_draft,
     mail_revision,
@@ -108,9 +116,13 @@ def create_home_app(
         ):
             response = JSONResponse({"detail": "invalid origin"}, status_code=400)
         elif (
-            request.url.path == "/api/messages"
-            or request.url.path.startswith(("/api/messages/", "/api/submissions/"))
-        ) and request.headers.getlist("x-jarvis-viewer-contract") != ["drive-files"]:
+            request.url.path in {"/api/messages", "/api/home", "/api/artifacts"}
+            or request.url.path.startswith(
+                ("/api/messages/", "/api/submissions/", "/api/artifacts/")
+            )
+        ) and request.headers.getlist("x-jarvis-viewer-contract") != [
+            "artifact-library"
+        ]:
             response = JSONResponse(
                 {"detail": "reload the jarvis viewer or update the android app"},
                 status_code=426,
@@ -324,13 +336,27 @@ def create_home_app(
         )
 
     async def home() -> dict[str, dict[str, str] | None]:
-        return {"view": await run_in_threadpool(catalog.home)}
+        snapshot = await run_in_threadpool(catalog.snapshot)
+        return {"view": snapshot.home()}
 
-    async def view(slug: str, rev: str | None = None) -> dict[str, str]:
-        ref = await run_in_threadpool(catalog.view, slug, rev)
+    async def artifacts() -> dict[str, Any]:
+        snapshot = await run_in_threadpool(catalog.snapshot)
+        return {"items": snapshot.listing(), "timezone": owner_timezone}
+
+    async def artifact(slug: str) -> dict[str, Any]:
+        snapshot = await run_in_threadpool(catalog.snapshot)
+        item = snapshot.work(slug)
+        if item is None:
+            raise HTTPException(404)
+        return {**item, "timezone": owner_timezone}
+
+    async def discussion(slug: str, rev: str) -> dict[str, UUID | None]:
+        snapshot = await run_in_threadpool(catalog.snapshot)
+        ref = snapshot.view(slug, rev)
         if ref is None:
             raise HTTPException(404)
-        return ref
+        async with database.connect() as conn:
+            return {"message_id": await artifact_discussion(conn, scope, ref)}
 
     async def content(slug: str, rev: str) -> Response:
         body = await run_in_threadpool(catalog.content, slug, rev)
@@ -346,6 +372,16 @@ def create_home_app(
         return FileResponse(
             _STATIC / "index.html", headers={"Content-Security-Policy": _SHELL_CSP}
         )
+
+    async def artifact_shell(slug: str, request: Request) -> FileResponse:
+        rev = request.path_params.get("rev")
+        if (
+            len(slug) > 64
+            or not re.fullmatch(SLUG_PATTERN, slug)
+            or (rev is not None and not re.fullmatch(REV_PATTERN, rev))
+        ):
+            raise HTTPException(404)
+        return await shell()
 
     app.middleware("http")(private)
     app.add_api_route("/api/messages/{submission_id}", put, methods=["PUT"])
@@ -366,8 +402,11 @@ def create_home_app(
     app.add_api_route(_PHONE_ROUTE, phone_registration, methods=["GET", "PUT"])
     app.add_api_route(_WORKSPACE_APPROVALS, approvals, methods=["GET"])
     app.add_api_route(_WORKSPACE_APPROVALS + "/{identifier}", choose, methods=["POST"])
-    app.add_api_route("/api/views/{slug}", view, methods=["GET"])
-    app.add_api_route("/api/views/{slug}/{rev}", view, methods=["GET"])
+    app.add_api_route("/api/artifacts", artifacts, methods=["GET"])
+    app.add_api_route("/api/artifacts/{slug}", artifact, methods=["GET"])
+    app.add_api_route(
+        "/api/artifacts/{slug}/{rev}/discussion", discussion, methods=["GET"]
+    )
     app.add_api_route("/content/{slug}/{rev}", content, methods=["GET"])
     app.add_api_route("/mail/{message_id}/revision/{action_id}", shell, methods=["GET"])
     app.add_api_route(
@@ -379,7 +418,8 @@ def create_home_app(
     app.add_api_route("/f/{identifier}", shell, methods=["GET"])
     app.add_api_route("/files", shell, methods=["GET"])
     app.add_api_route("/files/{subject}/{identifier}", shell, methods=["GET"])
-    app.add_api_route("/overview", shell, methods=["GET"])
-    app.add_api_route("/v/{slug}", shell, methods=["GET"])
-    app.add_api_route("/v/{slug}/{rev}", shell, methods=["GET"])
+    app.add_api_route("/todos", shell, methods=["GET"])
+    app.add_api_route("/artifacts", shell, methods=["GET"])
+    app.add_api_route("/artifacts/{slug}", artifact_shell, methods=["GET"])
+    app.add_api_route("/artifacts/{slug}/{rev}", artifact_shell, methods=["GET"])
     return app

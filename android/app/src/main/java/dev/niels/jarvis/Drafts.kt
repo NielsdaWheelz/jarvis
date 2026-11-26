@@ -68,6 +68,7 @@ internal data class Draft(
 internal enum class Transfer(val label: String) {
     Sending("sending"),
     Checking("checking receipt"),
+    UpdateRequired(UpdateViewerMessage),
     SignedOut("sign in, then send when ready"),
     Unconfirmed("send unconfirmed · retry this submission"),
     TooLarge("message or files are too large"),
@@ -370,12 +371,16 @@ internal class Drafts private constructor(private val context: Context) {
                     synchronized(this) { save(checkNotNull(load(id)).copy(state = DraftState.Conflict)) }
                     null
                 }
-                413, 422 -> {
+                413, 422, 426 -> {
                     // Rejection establishes this attempt's outcome. An earlier uncertain attempt can still commit.
                     if (firstAttempt) synchronized(this) {
                         save(checkNotNull(load(id)).copy(state = DraftState.Editing))
                     }
-                    if (response.code == 413) Transfer.TooLarge else Transfer.Invalid
+                    when (response.code) {
+                        413 -> Transfer.TooLarge
+                        426 -> Transfer.UpdateRequired
+                        else -> Transfer.Invalid
+                    }
                 }
                 else -> Transfer.Unconfirmed
             }
@@ -403,6 +408,8 @@ internal class Drafts private constructor(private val context: Context) {
             priorEdit?.join()
             val final = try {
                 if ((mutations.value[id]?.failures ?: 0) == failures) run() else null
+            } catch (_: ViewerUpdateRequired) {
+                Transfer.UpdateRequired
             } catch (_: SignInRequired) {
                 Transfer.SignedOut
             } catch (_: IOException) {

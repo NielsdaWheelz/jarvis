@@ -183,6 +183,13 @@ independent claude opus 5.5 passed the original design, its calendar and draft a
 
 ## private web home
 
+[artifact library 0123](decisions/0123-artifact-library.md) implements the
+library, pinned editions, recorded deliveries, and the stopped catalog cut.
+the matched release combines drive and sidebar and rotates the viewer header
+and main output once. [isolated proof](decisions/0123-artifact-library.md#implementation-evidence)
+passed. the [named cut](operations.md#artifact-library-cut) and [installed
+acceptance](issues/artifact-library-installed.md) are separate.
+
 [inline todo viewer](decisions/0117-inline-todo-viewer.md) is implemented
 for web and android. the isolated candidate passed. installed acceptance is
 pending.

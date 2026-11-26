@@ -8,7 +8,7 @@
   standby. presence reports the standby and its reported reset, once per change,
   never as a message;
 - the activity-signal sentence in spec §4.2;
-- one sentence of adr 0125 (new, shown and owed): its drying mark stops being
+- one sentence of [0125](0125-new-shown-and-owed.md) (new, shown and owed): its drying mark stops being
   the application's only animation.
 
 0125 keeps the red, the favicon, arrival announcements, hidden-tab reads and
@@ -195,7 +195,7 @@ instance and `home_http` reads it.
 | `attempt_id` | when the runner arms an attempt | in the `finally` of `_drain` that clears `_active_cancellation`. a `no_work` pass never sets it. |
 | `effects` | an action id on entry to `execute_recorded_action` when `decided_at` is set ([write dispatch](../../src/jarvis/write_dispatch.py)). approved writes run on a detached task started by `approval.respond`, which can outlive its attempt. | in that function's `finally` |
 | `stock` | open stock calls keyed by `tool_call_id` | on each call's `completed` phase, or when the attempt ends |
-| `deferral` | the run outcome's deferral, when every cohort was deferred | when an attempt arms or nothing is pending |
+| `deferral` | replaced by every run outcome, null unless every cohort was deferred | when an attempt arms |
 
 **stock hook.** the runner always passes one synchronous `on_stock_tool`. it
 updates `stock` and forwards to the stock observation writer only when memory
@@ -205,16 +205,19 @@ admits jarvis.
 route selector's reason is dropped, and `blocked` also covers causes that are
 not deferrals.
 
-- add `deferral: DeferredRoute | None` to the outcome. set it only when every
-  cohort was deferred.
-- `RouteSelector` keeps the last personal `CodexAllowance`
-  ([kernel](../../src/jarvis/kernel.py)).
+- add `deferral: DeferredRoute | None` to the outcome. report the first cohort
+  deferred in the pass, only when every cohort was deferred. a cohort abandoned
+  after a failed opening counts as deferred, with reason `unavailable` and null
+  `until`.
+- `RouteSelector` keeps the last `observe_personal` result, whether an allowance
+  or a deferral ([kernel](../../src/jarvis/kernel.py)).
 - the reason is `quota` when either of these holds:
   - personal is `included_exhausted`, `credits_available` or
     `workspace_limit`, and paid is deferred or absent;
   - paid reports `prepaid_depleted`.
 - every other reason is `unavailable`.
-- for `quota`, `until` is the personal `reset_at`, a reported hint.
+- `until` is the personal `reset_at` only when personal exhaustion caused that
+  cohort's deferral. otherwise it is null.
 
 **the read.** `presence.read()` copies the record, then runs one database
 transaction. that transaction:
@@ -265,7 +268,7 @@ action is `queued` or `executing` and none is `awaiting_approval`.
 - the values are `queued`, `working`, `standby`, `retrying` and `paused`.
 - `ahead` counts pending inputs before it in the existing `pending_inputs`
   order.
-- `you` is null when the message is owed, settled or parked.
+- `you` is null when no message qualifies.
 
 **owed.** presence does not restate adr 0125's rule.
 
@@ -292,7 +295,8 @@ that commits with an earlier `at` than the current head still changes it.
 and `private, no-store` headers.
 
 - it returns 200 with a strong `ETag` over the body without `as_of`.
-  `If-None-Match` returns 304.
+  clients send `If-None-Match` explicitly. 304 confirms the retained state
+  and produces one beat when that state is work.
 - the read is additive. it is not one of 0123's or 0124's contract-gated
   handlers and needs no contract value.
 - an older client never calls it.
@@ -317,17 +321,22 @@ and `private, no-store` headers.
   entry time.
 - clients compute elapsed as `as_of − since` plus local time since that read,
   which avoids clock skew.
-- a `google` entry has `href: null`, meaning open chat, where its choices live.
+- owed `kind` is `approval`, `owner_input` or `google`. a `google` entry has
+  `href: null`, meaning open chat, where its choices live.
 
 **order.** every tick requests presence, then requests chat only after the
 presence response arrives. today `refresh()` issues its reads in parallel. a
-chat read therefore contains everything the presence read saw.
+chat read therefore contains everything the presence read saw. a tail decision
+that depends on presence uses only a chat read sent after that presence response
+arrived. if a chat read is already in flight, the tick waits for it, then sends
+one more.
 
-if a chat read contains a `native_final` or `native_failure` id that the
-previous chat read lacked, the reply has arrived. this holds even if it
-committed between the two reads. the reply takes the tail's place, and the
-client reads presence again at once. progress and owner rows never retire the
-tail. clients compare the `chat` token only for equality.
+a chat read with a `native_final` or `native_failure` id the previous chat read
+lacked starts an immediate tick. the tail retires only on a presence read whose
+`you` is null. in the chat read paired with that presence read, the last final
+or failure the tail has not seen takes its place. if there is none, the tail
+fades. otherwise new rows land above the tail, which stays. progress and owner
+rows never retire it. clients compare the `chat` token only for equality.
 
 **web.** run the existing 3 s tick, plus the visibility and `online` refreshes,
 while visible. hidden tabs make no presence read; 0125's hidden read owns that
@@ -359,7 +368,9 @@ green, then record cleanup separately.
      reads idle until its drain arms anew;
    - a follow-up sent mid-turn, into a silent mail turn, reads as owner work in
      that turn;
-   - an approved send reads working while it executes, then idle;
+   - an approved calendar write that outlives its attempt reads working with
+     effects only, activity `calendar` · `write`, and `you.working`. its result
+     turn reads as owner work with triggers `you` and `result`, then idle;
    - an approval waiter after its action leaves `awaiting_approval` never reads
      owed;
    - each waking source maps to its trigger;
@@ -375,6 +386,8 @@ green, then record cleanup separately.
    - send, receipt, tail and handoff, with no shift above the tail and no
      destination movement when the mark or a legend appears;
    - a reply between the presence and chat reads never strands the tail;
+   - an owner message queued behind a workspace check keeps its tail when the
+     check's final lands;
    - a silent mail turn: grey mark and legend, no chat row, no announcement;
    - an owed approval: rubric `¶` that goes to it;
    - network cut: no beat after the last read, stale after about 9 s;

@@ -11,7 +11,13 @@
 
 in the sdk fixture, a public low-level send produced a typed user-input step and reached the next sample while the root remained active. the high-level call waited for the root to finish. the low-level receive queue resets during send, so racing tool and delivery evidence remains unqualified. the sdk's default shell reached private attempt files and shared the runtime's pid, mount and network namespaces. its working shell did not reveal the synthetic credential in the checked locations. its configured sandbox failed to start the shell on the isolated linux fixture.
 
-the next gate is a normal workspace write through the bundled sandbox on the intended linux policy, with credential, private state, proc and control-socket checks in the same run. resume release integration after that passes and the restricted workspace excludes builtin effects.
+a detached noble x86_64 rehearsal tested the exact cli binary with permission bypass absent. a guest-only apparmor profile backed the bundled sandbox. the tool process entered separate pid, network and mount namespaces. it still inherited the fake inference credential in its environment and the explicit workspace write failed. those findings hold the cli path even when the sandbox launches. the assessed private path and socket were fixture locations and are secondary to the direct environment exposure. the check returned red and the guest and scratch workspace were removed.
+
+the sdk 0.1.24 passed the shell check in a matching detached noble rehearsal with an executable-path profile scoped to the bundled localharness. its public sandbox setting allowed an absolute workspace write in the correct cwd. the shell entered separate pid, mount and network namespaces, could not see the private file or connect to the private socket, and could not recover either fixture credential in the checked locations. it could read four regular attempt files. a real jarvis mcp bearer and installed host isolation remain unqualified. the pristine sdk run could not start the isolated shell and announced an unsandboxed mode. release startup must fail closed. dependency versions were pinned for the offline guest install. the sdk wheel and executable were individually hash-verified. the guest and scratch workspace were removed.
+
+the sdk's direct host-tool fixture verified root-only execution using its typed pre-tool decision and runtime step id. the default self child inherited the tool declaration, and a named empty-tool child never saw it. the guard denied the self child even with the parent's identifiers in its model-proposed arguments. the restricted fixture published only its allowed read. exact replay handling, steering with racing receipts, and the installed callback and shell boundary remain open.
+
+the cli remains held at credential isolation. the sdk is a candidate for a separately chosen transport.
 
 the installed stock host uses the distro bubblewrap apparmor profile for its user namespace. the agy tests found that the dev-server restricts unprivileged user namespaces and the bundled shell launcher returns `operation not permitted`. test the exact staged launcher before assigning cause or changing host policy. [installed kernel setup](../operations.md) · [vendor sandbox requirements](https://antigravity.google/docs/sandbox-mode?app=antigravity)
 
@@ -25,8 +31,13 @@ the installed stock host uses the distro bubblewrap apparmor profile for its use
 | `gate-sdk-shell-BRswGF/SHA256SUMS` | `c1a6ae8b3674b0e50aea06d6373196a50f22653d2ada00df6263355596c4b662` |
 | `default-gate-review-aZbX26/opus.txt` | `9e408369eb415b205b445ec364efb6406b7bd4f6b515643ede2ac17b01e78cdc` |
 | `default-gate-review-aZbX26/supplement.txt` | `93a60a7c91586dde350c4c40b6da32315f6d63334390902ec914ad7c7301faa8` |
+| `agy-linux-vm-workspace-7yXBWv/SHA256SUMS` | `a51ce387fd374e2564e28c409e3d6676ef78ac2476339c2ef7786aa412fa4f8c` |
+| `agy-linux-vm-sdk-final-guLNA3/SHA256SUMS` | `24be849d0d5425c03340d5c66d3c4d71401cc96aeec7116d1f60aa9dc5c26181` |
+| `vm-sandbox-review-HQ2ahO/opus.txt` | `7518303e726623dcd640a87659f38464450ae1e5505b3d2a81d4ce339335e426` |
+| `sdk-vm-review-GQtz18/opus.txt` | `b86ae89e38ac5a301df64974baa9bb1a5fea59df30efe2ac2cef834d4e20a734` |
+| `gate-sdk-tool-scope-7vx2Rm/SHA256SUMS` | `2755fcb1d94b34ea26328570a6f361d061cd827b1e0dda0efa048da07ce762de` |
 
-## cli 1.5.17
+## cli 1.5.17 · earlier probes
 
 - **child authority and fork.** mac and linux returned `-32601` for both acp fork methods in both process modes. the linux native child began with fresh context, inherited high and shared the root credential. its schema has no fork option and rejected `ThinkingLevel`. its hook supplied a conversation id without a parent or spawn record. a host marker sent in prompt content survived a retry. that is evidence for sample correlation. child authority still lacks a binding.
 - **transport and seal.** with defaults, linux and mac resent the same neon/high body on 503 and a dropped connection. one linux run per fault showed that the undocumented `AGY_CLI_MODEL_API_MAX_RETRIES=0` prevents retransmission after 503, close before headers and truncated sse. pin upgrades need this fault check. each zero-retry fault published a warning as an ordinary chunk and returned `end_turn` without usage. truncation also published partial text. with retries enabled, it published that partial text plus the retry's final. sealing requires independent terminal evidence.

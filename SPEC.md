@@ -94,6 +94,12 @@ client, explicit todo results on both clients and replacement of discord alert
 delivery by firebase. the installed 0087 contract governs until the recorded
 stopped android cut. preserve the original owner scope and archive addresses.
 
+[adr 0126](docs/decisions/0126-presence.md) shows when jarvis is working.
+only the process running main reports presence, by category, through an
+additional private read. each read that confirms work is one beat of the mark after the
+wordmark. unknown state shows no mark. presence creates no chat row, notice or
+push, and never shows memory maintenance.
+
 [adr 0116](docs/decisions/0116-chat-composer-attachments.md) adds files to
 the open chat draft by drop or paste on web and through the native android
 message field. web attach joins the same ordered list. staging is local until
@@ -1028,7 +1034,8 @@ boundaries.
 
 main uses declared native callbacks and public commentary. useful progress and
 partial findings commit to the canonical outbox before delivery; they do not
-settle owner requests. typing remains an additional activity signal. main has no
+settle owner requests. the home presence read is the activity signal
+([adr 0126](docs/decisions/0126-presence.md)). main has no
 `say`/`call_tool`/`finish` step decoder.
 
 stock codex applies its strict output schema to commentary and final output.

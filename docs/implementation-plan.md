@@ -278,6 +278,43 @@ use the normal web release and signed app update for delivery. record
 one installed gesture-to-receipt check on each client. both use the existing
 api and can be released independently.
 
+## presence
+
+[adr 0126](decisions/0126-presence.md) owns the states, words, motion and
+acceptance. adr 0125 (new, shown and owed) owns the red, favicon, arrival
+announcements, hidden-tab reads and transcript movement that presence relies
+on. presence is additive: no schema, prompt, model binding or stopped cut.
+one writer per path. freeze the read specimens before client work.
+
+1. **design review.** independent opus re-review of the corrected adr. fix
+   findings before red.
+2. **a · service.** new `src/jarvis/presence.py` (record and read),
+   `service.py` (owns the record, clears the attempt), `native_runtime.py`
+   (arming, the combined stock hook, `NativeRunOutcome.deferral`), `kernel.py`
+   (last personal allowance), `write_dispatch.py` (effect entry and exit),
+   `home_reads.py` (0125's owed query, if presence lands first), `cli.py`
+   (wiring), `home_http.py` (route, etag). freeze json specimens for
+   idle, owner work, a steered follow-up, silent mail work, an approved effect,
+   owed, quota and non-quota standby, paused and workers. prove acceptance 1 on
+   macbook against postgres 16 with temporary probes.
+3. **b · web.** `static/home/{index.html,home.js,home-dom.js,home.css}` and
+   `static/home/fonts/` (cormorant garamond regular and italic, latin subset,
+   ofl). make `refresh()` read presence before chat. build against the frozen
+   specimens and a stub, then the real service. prove acceptance 2.
+4. **c · android.** `Home.kt` (header, after-send route, tail), `HomeApi.kt`,
+   a `Presence.kt` for the mark and poller, and `res/font`. prove acceptance 3
+   on an emulator, then the S22+.
+5. **integration.** rebase on whichever of 0123, 0124 and 0125 lands first.
+   they own the destinations, viewer and transcript paths that b and c attach
+   to. the rule legend anchors to the header bar, not the wordmark, so wrapped
+   destinations need no special case. if 0125 has not landed, define
+   `--rubric` with its values. run `scripts/verify` and opus review of the
+   evidence, then delete probes and record cleanup.
+6. **release.** normal service release, which carries the web shell, and a
+   signed app update with a higher version code. either may lead: an old client
+   never reads presence, and a new client treats 404 as unknown. record the
+   installed journeys in `docs/issues/presence-installed.md` until observed.
+
 ## exact draft revisions from chat
 
 apply [adr 0121](decisions/0121-exact-chat-draft-revisions.md) to the later mail

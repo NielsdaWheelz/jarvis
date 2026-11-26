@@ -118,3 +118,54 @@ channel choices and sign-in. this cut needs no database or slot-file migration.
 
 the [implementation plan](../implementation-plan.md#chat-sidebar-and-phone-alerts)
 owns sequence and rollout.
+
+## qualification on macbook
+
+the web shell uses the existing browser history entries. a return restores a
+chat link only when coming back from the visit it opened, including when two
+links have the same address. the selected canvas stays mounted through chat.
+this preserves the draft and live reading position with no second navigation
+stack. a cold message returns to `/` and retains the tab's resolved home.
+
+the android home visit saves its resolved address. an exact visit to that
+address carries its own navigation entry. interrupted setup persists a repair
+hint and needs another tap once the slot is known. the permission result itself
+carries no claim across activity destruction. firebase publishes its verified
+address before waiting on slot reads or writes. the service owns the slot
+generation and rejects a claim after a changed generation.
+
+the packaged predecessor failed the retired delete checks. the wheel from
+`130c938a5cf5d37c03df6a6969f96ce55e9dbf7d` passed 58 product checks and two
+fixture teardown checks over loopback http with postgresql 16 at schema
+`0026`. a controlled firebase transport covered current and stale
+invalidation, retry of pending notices, and single-attempt workspace hints.
+a dropped http response was recovered by installation and address hash.
+
+chromium and webkit passed 30 checks against the packaged frontend. the
+checks exercised desktop and narrow back, exact todo and message links,
+browser traversal, keyboard focus, mail editor cancellation, draft and file
+position, publication scroll and resize. the browser made zero phone
+management requests. the final wheel's assets match the exercised bytes.
+
+on an isolated android 35 emulator, the predecessor let an old permission
+gesture replace an intervening phone. the candidate fenced this through the
+permission dialog and delayed sdk callback. it recovered lost responses,
+failed reads and interrupted setup, retained an existing installation on
+upgrade, and refreshed its own address under system mutes. a controlled
+incoming message became a system notification and opened the exact reply on
+tap. a real chrome custom tab returned to the saved native home after process
+recreation. warm and cold exact publication links offered no setup.
+
+the exact source passed `scripts/verify`. android v7 was built locally and
+verified with the v6 package identity and signer. the signed install and real
+firebase journey on the owner's handset remain in the
+[installed check](../issues/chat-sidebar-phone-alerts-installed.md).
+
+evidence is under `~/.local/state/jarvis/qualification/adr0122/` and
+`~/.local/state/jarvis/qualification/adr0122-android-AR3osv/`. the service
+and browser ran the same wheel, sha-256
+`5feb30575aa44b58efd832100cee07a2b158b4c8cb25e4dd7caf64d962203101`.
+the local signed apk has sha-256
+`8133a824b490d744059be1fe44b9a9c8b0e27724df0c33d3ff80a17c7d4097ea`.
+the detached receipt and the client cleanup records cover the removed probes
+and isolated resources.

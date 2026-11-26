@@ -64,7 +64,7 @@ from jarvis.agent_tools import (
     AgentTargetInput,
 )
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
-from jarvis.attachment_tools import SUBMISSION_WRITE_IDS
+from jarvis.attachment_tools import SUBMISSION_ABANDON_SPEC, SUBMISSION_WRITE_IDS
 from jarvis.attachments import AttachmentStore
 from jarvis.db import message
 from jarvis.event_tools import EVENT_MUTATION_IDS
@@ -289,17 +289,17 @@ class WriteToolDispatcher:
             else None
         )
         authorize = None
-        if tool_id in WRITE_TOOL_IDS:
-            if grant is None:
+        if tool_id in WRITE_TOOL_IDS or tool_id == SUBMISSION_ABANDON_SPEC.id:
+            if tool_id in WRITE_TOOL_IDS and grant is None:
                 return host_rejected("workspace_grant_unavailable")
-            authorize = self._workspace_authority(
+            authorize = self._owner_write_authority(
                 lineage,
                 request_id,
                 tool_id,
-                grant.grant_id,
-                grant.account,
+                None if grant is None else grant.grant_id,
+                None if grant is None else grant.account,
                 cancellation,
-                subject=grant.subject,
+                subject=None if grant is None else grant.subject,
             )
             try:
                 await authorize(None)
@@ -561,13 +561,13 @@ class WriteToolDispatcher:
         self._agents.delegations.notify_changed()
         return result
 
-    def _workspace_authority(
+    def _owner_write_authority(
         self,
         lineage: NativeDispatchLineage,
         owner_id: UUID,
         tool: ToolId,
-        grant_id: UUID,
-        account: str,
+        grant_id: UUID | None,
+        account: str | None,
         cancellation: CancellationToken,
         *,
         decision_for: UUID | None = None,
@@ -590,20 +590,21 @@ class WriteToolDispatcher:
                 )
             ):
                 raise WorkspaceError("owner_required")
-            current = self._workspace_grant()
-            if current is None or (current.grant_id, current.account) != (
-                grant_id,
-                account,
-            ):
-                raise WorkspaceError("grant_unavailable")
-            if tool.startswith(("drive.", "docs.")):
-                if current.subject != subject or DRIVE_SCOPE not in current.scopes:
+            if grant_id is not None:
+                current = self._workspace_grant()
+                if current is None or (current.grant_id, current.account) != (
+                    grant_id,
+                    account,
+                ):
+                    raise WorkspaceError("grant_unavailable")
+                if tool.startswith(("drive.", "docs.")):
+                    if current.subject != subject or DRIVE_SCOPE not in current.scopes:
+                        raise WorkspaceError("scope_missing")
+                if tool in {"gmail.prepare_replacement", "gmail.discard_draft"} and (
+                    "https://www.googleapis.com/auth/gmail.messages.delete"
+                    not in current.scopes
+                ):
                     raise WorkspaceError("scope_missing")
-            if tool in {"gmail.prepare_replacement", "gmail.discard_draft"} and (
-                "https://www.googleapis.com/auth/gmail.messages.delete"
-                not in current.scopes
-            ):
-                raise WorkspaceError("scope_missing")
             if cancellation.cancelled or self._closing:
                 raise WorkspaceError("cancelled")
 
@@ -631,7 +632,7 @@ class WriteToolDispatcher:
                 entry = WorkspaceWriteEntry(
                     frozen,
                     await self._actions.original_invocation(stored),
-                    self._workspace_authority(
+                    self._owner_write_authority(
                         lineage,
                         UUID(decision.owner_message_id),
                         stored.tool_name,

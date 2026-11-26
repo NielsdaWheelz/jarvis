@@ -69,10 +69,15 @@ the app may process and retain the mail-derived content it reads back.
 
 obtain a written determination covering the one-time move, the content
 permissions, and the treatment of existing api-derived histories and locked
-backups. get an applicable written exception for new retention as designed,
-or change the product contract before enrollment. the published text gives
-no basis to carry that design forward unchanged after february 1. no real
-file move, deletion or archive rewrite follows from this review.
+backups under the current terms.
+
+on november 26 the owner said new google-derived history need not survive
+revocation and chose to remove it manually if access ends. do not introduce
+automatic deletion or delay present qualification for it. before the
+february 1 addendum applies, prove what a manual removal can cover, especially
+the locked backups and upstream copies, or revisit that operating contract.
+the comment authorizes no deletion of existing data. the current move and
+provider qualification still need their own evidence.
 
 ## sample-only importer check
 

@@ -14,7 +14,9 @@ attachment hashes. measure the maximum-size upload on the intended host.
 
 then qualify the matching signed android client on a physical s22+ device.
 check browser tab sign-in, the on-screen keyboard with send reachable, and
-back to the originating reply. the isolated emulator proves handoff and return.
+back to the originating reply. verify whether a cold tab closed with back
+warns about unconfirmed edits. the isolated emulator proved handoff, keyboard
+access and return.
 also verify real browser access, provider revocation, credential isolation and
 the protected backup reader. repeat the counts-only historical inventory and
 settle any affected unfinished work before the separately authorized

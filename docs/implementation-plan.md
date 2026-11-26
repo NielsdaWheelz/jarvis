@@ -166,8 +166,12 @@ owner should not have to repeat context or repeatedly initiate obvious follow-up
 ## google workspace access
 
 [owner draft editor 0119](decisions/0119-owner-gmail-draft-editor.md) adopts
-the exact revision reader from 0121. the candidate qualifies source, isolated
-rehearsal, real gmail and matched installed clients separately.
+the exact revision reader from 0121. candidate `b23c185` passed the detached
+chrome journey against the actual home server, postgres and controlled gmail,
+26 browser cases, and the android debug build and emulator journey. opus
+passed the final candidate. the stopped restore procedure and immutable
+historical routes passed separately. the [live issue](issues/owner-gmail-editor-live.md)
+tracks real gmail, the physical phone and installed acceptance.
 
 [workspace connector design](decisions/0107-google-workspace.md) splits the february 2027 google cut into a synthetic-data connector pr and a following [history-permission decision](issues/google-workspace-retention.md). keep ordinary history, fresh mail search/read, draft management, incoming mail and event creation, reading, editing and deletion. qualify [five-minute pending-label reception](issues/gmail-mcp-arrivals.md), the 1,000-unit foreground reserve and draft safety before full cutover. real-account rollout also waits for the history decision.
 

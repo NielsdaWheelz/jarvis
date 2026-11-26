@@ -229,8 +229,11 @@ export function bindPresence({ request, openOwed, keepBottom }) {
         }
         const next = response.status === 304 ? snapshot : response.ok ? await response.json() : null;
         if (version !== requestVersion || document.hidden) return null;
+        const you = next?.you;
         if (!next || !states.has(next.state) || !Number.isFinite(Date.parse(next.as_of)) ||
-            !Array.isArray(next.owed) || (next.state === "working" && !Array.isArray(next.work?.triggers)))
+            !Array.isArray(next.owed) || (next.state === "working" && !Array.isArray(next.work?.triggers)) ||
+            (you !== null && (!states.has(you?.state) || you.state === "idle" ||
+              !Number.isSafeInteger(you.ahead) || you.ahead < 0)))
           throw Error("invalid presence response");
         if (interruptions.has(next.state) && next.state !== snapshot?.state)
           announcer.textContent = interruption(next, next.state) + ".";
@@ -253,10 +256,10 @@ export function bindPresence({ request, openOwed, keepBottom }) {
     return flight;
   }
 
-  function chatChecked(readSnapshot, reply) {
+  function chatChecked(readSnapshot, reply, arriving) {
     if (!readSnapshot || readSnapshot !== snapshot || readSnapshot.you || receipt || tail.hidden) return;
     tailFailures = 0;
-    if (reply && !document.hidden) {
+    if (reply && arriving && !document.hidden) {
       const reader = reply.reader;
       const previous = el("p", words.textContent, "presence-previous");
       previous.setAttribute("aria-hidden", "true");
@@ -273,7 +276,7 @@ export function bindPresence({ request, openOwed, keepBottom }) {
       tail.hidden = true;
     } else if (document.hidden) tail.hidden = true;
     else if (!exit) {
-      exit = fade(tail, 1, 0, 200);
+      exit = reply ? fade(caption, 1, 0, 160) : fade(tail, 1, 0, 200);
       exit.onfinish = () => {
         keepBottom(() => { tail.hidden = true; });
         exit.cancel();

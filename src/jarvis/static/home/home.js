@@ -40,8 +40,11 @@ const presence = bindPresence({
       return;
     }
     openSidebar(control);
+    if (mobile.matches) $("sidebar-close").focus({ preventScroll: true });
+    const landing = document.activeElement;
     await poll("workspace approval", workspaceApproval);
-    if (!$("workspace-approval").hidden) $("workspace-approval").querySelector("button")?.focus();
+    if (document.activeElement === landing && !$("workspace-approval").hidden)
+      $("workspace-approval").querySelector("button")?.focus();
   },
   keepBottom(change) {
     const pinned = chatPinned() && !selectedMessage;
@@ -727,7 +730,7 @@ function merge(items, paired, arriving, prior) {
   }
   if (paired) {
     const terminal = arriving || prior;
-    presence.chatChecked(paired, terminal ? $("msg-" + terminal) : null);
+    presence.chatChecked(paired, terminal ? $("msg-" + terminal) : null, Boolean(arriving));
   }
   if (acceptedMessage && $("msg-" + acceptedMessage)) {
     acceptedMessage = null;

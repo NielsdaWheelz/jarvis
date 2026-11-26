@@ -309,6 +309,8 @@ async def schema_inventory(conn):
             FROM acls CROSS JOIN LATERAL aclexplode(acl)
         """,
     }
+    # Catalog rendering needs a stable path. The same transaction can run DDL after it.
+    search_path = await conn.scalar(text("SHOW search_path"))
     await conn.execute(text("SET LOCAL search_path = pg_catalog, public"))
     facts = {}
     for name, query in queries.items():
@@ -318,6 +320,10 @@ async def schema_inventory(conn):
             rows.sort(key=lambda row: json.dumps(row, ensure_ascii=False))
         wire = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
         facts[name] = hashlib.sha256(wire.encode()).hexdigest()
+    await conn.execute(
+        text("SELECT pg_catalog.set_config('search_path', :search_path, true)"),
+        {"search_path": search_path},
+    )
     return facts
 
 

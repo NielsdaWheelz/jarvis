@@ -547,7 +547,7 @@ def receipt_family(owner: JarvisOwner) -> ToolFamily:
         spec=SPEC,
         execute=Available(partial(_read, owner)),
         replay_policy=ReplayPolicy.ReDispatchable,
-        implementation_revision="jarvis-receipt-read-v2",
+        implementation_revision="jarvis-receipt-read-v3",
         policy_epoch=PolicyEpoch("jarvis-receipt-v1"),
         policy_inputs={
             "scope": "live-delivered-causal-component",

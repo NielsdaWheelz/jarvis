@@ -202,12 +202,11 @@ receipts qualify only their named artifacts and boundaries.
 - the private web home and android client share one conversation. firebase carries phone alerts.
 - Agent runtime: pinned `llm-agent-kernel`, using subscription-backed Codex
   through `provider-runtime` and host tools through `llm-tools`
-- worker contract: [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
-  skid cli and live installed computer state (`JARVIS_AGENT_STATE_DIRECTORY`);
-  [adr 0072](docs/decisions/0072-native-memory-rollout.md) adopts the enrolled
-  `macbook|dev-server|arch` worker names and a read-only id-mapped state mount.
-  [adr 0113](docs/decisions/0113-desktop-worker.md) adds the `desktop` worker.
-  shared memory enrollment remains separate.
+- [worker placement](docs/decisions/0114-skid-worker-placement.md) uses the skid
+  cli and its enrolled roster. jarvis records the machine handle before
+  accepting a start or assignment. [adr 0072](docs/decisions/0072-native-memory-rollout.md)
+  owns the read-only id-mapped state mount (`JARVIS_AGENT_STATE_DIRECTORY`).
+  shared memory enrollment has its own grant.
   [installed service-state reads](docs/universal-memory.md#native-memory-installed-qualification)
   pass on both online hosts; worker observation remains separately qualified
 - cognition: [adr 0065](docs/decisions/0065-native-agent-supervision.md), a separate

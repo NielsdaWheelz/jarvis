@@ -48,7 +48,9 @@ let current = null,
   displayed = "",
   routeVersion = 0,
   overviewPage = null,
-  restoreOverview = false;
+  restoreOverview = false,
+  revealTodo = null;
+const todoRows = new Map();
 let latest = null,
   earliest = null,
   initialized = false,
@@ -70,7 +72,7 @@ function save() {
   const files = draft.files.map(({ name, size, sha256 }) => ({ name, size, sha256 }));
   sessionStorage.setItem(draftKey, JSON.stringify({ ...draft, files }));
 }
-const isDetail = (path) => /^\/[mt]\//.test(path);
+const isDetail = (path) => path.startsWith("/m/");
 
 function changeState(values, path = location.href) {
   history.replaceState({ ...history.state, ...values }, "", path);
@@ -79,19 +81,13 @@ function setPanel() {
   const open = Boolean(history.state?.panel);
   document.body.dataset.panel = open ? "open" : "closed";
   $("sidebar-open").setAttribute("aria-expanded", String(open));
-  const todo = location.pathname.startsWith("/t/") && !history.state?.chat;
-  $("chat").hidden = todo;
-  $("workspace-approval").hidden = todo || !$("workspace-approval").dataset.round;
-  $("records").hidden = !todo;
-  $("chat-tab").setAttribute("aria-pressed", String(!todo));
 }
 function openSidebar() {
   armed = null;
+  rememberOverview();
   if (mobile.matches && !history.state?.panel) {
-    rememberOverview();
     history.pushState({ ...history.state, panel: true, fromCanvas: true }, "", location.href);
   }
-  changeState({ chat: true });
   setPanel();
 }
 function closeSidebar() {
@@ -101,7 +97,7 @@ function closeSidebar() {
     return;
   }
   changeState(
-    { panel: false, chat: false, canvasAddress: null, reading: null, resultCursors: [] },
+    { panel: false, canvasAddress: null, reading: null },
     history.state.canvasAddress || location.href,
   );
   startRoute();
@@ -111,7 +107,7 @@ $("sidebar-open").onclick = () => {
   $("sidebar-close").focus();
 };
 $("sidebar-close").onclick = closeSidebar;
-$("chat-tab").onclick = openSidebar;
+
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   clearDrag();
@@ -841,25 +837,34 @@ function navigate(path, { origin, canvasSelection = path } = {}) {
     return;
   rememberOverview(origin);
   rememberReading();
-  const fromDetail = isDetail(location.pathname);
-  const state = isDetail(path)
-    ? {
-        ...history.state,
-        panel: true,
-        chat: false,
-        fromCanvas: !history.state.panel && !fromDetail,
-        canvasAddress: fromDetail
-          ? history.state.canvasAddress
-          : location.pathname + location.search,
-        reading: null,
-        resultCursors: [],
-      }
-    : { canvasSelection };
+  let state = { canvasSelection };
+  if (path.startsWith("/t/")) {
+    state = { ...todoEntry(path.slice(3)), hasOrigin: true };
+  } else if (isDetail(path)) {
+    state = {
+      ...history.state,
+      panel: true,
+      fromCanvas: true,
+      canvasAddress: isDetail(location.pathname)
+        ? history.state.canvasAddress
+        : location.pathname + location.search,
+      reading: null,
+    };
+  }
   history.pushState(state, "", path);
   startRoute();
 }
-for (const control of document.querySelectorAll(".todos-control"))
-  control.onclick = () => navigate("/", { canvasSelection: todosCanvas });
+function todoEntry(id) {
+  return { canvasSelection: todosCanvas, todoTarget: id, openTodos: { [id]: [] } };
+}
+$("todos-tab").onclick = () => navigate("/", { canvasSelection: todosCanvas });
+$("todo-return").onclick = () => {
+  if (history.state.hasOrigin) history.back();
+  else {
+    history.replaceState({ canvasSelection: "/" }, "", "/");
+    startRoute();
+  }
+};
 document.addEventListener("click", (e) => {
   const a = e.target.closest("a");
   if (
@@ -898,7 +903,9 @@ function startRoute() {
   const path = location.pathname + location.search;
   const detail = isDetail(path);
   if (location.pathname === "/overview") {
-    changeState({ canvasSelection: todosCanvas }, "/");
+    history.replaceState({ canvasSelection: todosCanvas }, "", "/");
+  } else if (path.startsWith("/t/") && history.state?.todoTarget !== path.slice(3)) {
+    history.replaceState(todoEntry(path.slice(3)), "", path);
   } else if (!history.state?.canvasSelection) {
     changeState(
       detail ? { canvasSelection: "/", canvasAddress: "/", panel: true } : { canvasSelection: path },
@@ -907,13 +914,11 @@ function startRoute() {
   $("draft-choice").hidden = true;
   selectedMessage = null;
   document.querySelector(".selected")?.classList.remove("selected");
-  if (detail && document.activeElement === $("message")) $("message").blur();
-  if (location.pathname.startsWith("/t/") && $("records").dataset.item !== path) {
-    $("records").replaceChildren();
-    delete $("records").dataset.version;
-    $("records").dataset.item = path;
-  }
-  restoreOverview = !detail && !history.state.panel;
+  if ((detail || path.startsWith("/t/")) && document.activeElement === $("message")) $("message").blur();
+  restoreOverview = Boolean(history.state.position && !detail && !history.state.panel);
+  revealTodo = path.startsWith("/t/") && !history.state.targetRevealed ? path.slice(3) : null;
+  if (!restoreOverview && !detail && !history.state.panel) $("canvas").scrollTop = 0;
+  $("todo-return").hidden = !path.startsWith("/t/");
   setPanel();
   refresh();
 }
@@ -930,6 +935,7 @@ async function canvasRead(ver) {
     changeState({ canvasSelection: path });
   }
   const overview = path === todosCanvas;
+  $("todos-tab").setAttribute("aria-pressed", String(overview));
   $("overview").hidden = !overview;
   $("object").hidden = overview;
   if (overview) {
@@ -940,9 +946,22 @@ async function canvasRead(ver) {
       $("object").replaceChildren();
       $("object-tools").hidden = true;
     }
-    const page = await read("/api/todos?offset=" + (history.state.offset || 0));
+    if (mobile.matches && history.state.panel) return;
+    renderOverview();
+    const page = await read("/api/todos?all=true");
     if (!same()) return;
-    renderOverview(page);
+    const active = new Set(page?.items?.map((item) => item.id));
+    if (!page || page.offset !== 0 || page.items.length !== page.total || active.size !== page.total)
+      throw new Error("incomplete todo list");
+    overviewPage = page;
+    const open = { ...history.state.openTodos };
+    for (const id of Object.keys(open))
+      if (id !== history.state.todoTarget && !active.has(id)) delete open[id];
+    if (Object.keys(open).length !== Object.keys(history.state.openTodos || {}).length)
+      changeState({ openTodos: open });
+    $("todo-error").hidden = true;
+    renderOverview();
+    refreshTodoRows(false);
     return;
   }
   const url = new URL(path, location.origin);
@@ -1055,11 +1074,6 @@ async function canvasRead(ver) {
   $("object-tools").append(button("discuss this", () => discuss(current)));
 }
 
-const disclosure = button("show more", () => {
-  changeState({ expanded: !history.state.expanded });
-  renderOverview(overviewPage);
-});
-
 function civilDate(value) {
   return new Date(value + "T12:00:00Z")
     .toLocaleDateString("en-US", {
@@ -1070,216 +1084,282 @@ function civilDate(value) {
     .toLowerCase();
 }
 
-function overviewPosition() {
-  const links = [...$("todo-list").querySelectorAll("a")];
+function overviewPosition(origin = document.activeElement) {
+  const rows = [...$("todo-list").querySelectorAll(".todo-row")];
   const top = $("canvas").getBoundingClientRect().top;
-  const first = links.find((a) => a.getBoundingClientRect().bottom > top);
+  const first = rows.find((node) => node.getBoundingClientRect().bottom > top);
+  const focused = origin?.closest?.(".todo-row");
+  const results = first?.querySelector(".todo-body:not([hidden]) .linked-results");
+  const result = results && results.getBoundingClientRect().top <= top
+    ? [...results.querySelectorAll("li")].find((li) => li.getBoundingClientRect().bottom > top)
+    : null;
   return {
     scroll: $("canvas").scrollTop,
     anchor: first?.dataset.id,
+    result: result?.querySelector("a").getAttribute("href"),
+    resultInset: result && result.getBoundingClientRect().top - top,
     inset: first ? first.getBoundingClientRect().top - top : 0,
-    focus: document.activeElement.closest("#todo-list a")?.dataset.id,
-    order: links.map((a) => a.dataset.id),
+    focus: focused?.dataset.id,
+    control: focused && (origin.getAttribute("href") || origin.dataset.control),
+    order: rows.map((node) => node.dataset.id),
   };
 }
+function readingTodos() {
+  return history.state.canvasSelection === todosCanvas && !isDetail(location.pathname) &&
+    !(mobile.matches && history.state.panel) && displayed === todosCanvas;
+}
 function rememberOverview(origin) {
-  if (
-    !restoreOverview &&
-    history.state?.canvasSelection === todosCanvas &&
-    !isDetail(location.pathname) &&
-    !history.state?.panel &&
-    displayed === todosCanvas
-  ) {
-    const position = overviewPosition();
-    if (origin?.matches?.("#todo-list a")) position.focus = origin.dataset.id;
-    changeState({ position });
-  }
+  if (readingTodos() && !restoreOverview)
+    changeState({ position: overviewPosition(origin instanceof Element ? origin : document.activeElement) });
 }
 $("canvas").addEventListener("scrollend", rememberOverview);
-$("todo-list").addEventListener("focusin", rememberOverview);
-function restorePosition(position, rows) {
+$("todo-list").addEventListener("focusin", (event) => rememberOverview(event.target));
+for (const type of ["pointerdown", "wheel", "keydown"])
+  document.addEventListener(type, () => { restoreOverview = false; }, { passive: true });
+
+function restorePosition(position) {
   const closest = (id) => {
     if (!id) return null;
-    if (rows.has(id)) return rows.get(id);
+    if (todoRows.has(id)) return todoRows.get(id);
     const i = position.order.indexOf(id);
     for (let n = 1; n < position.order.length; n++) {
-      const neighbor = rows.get(position.order[i + n]) || rows.get(position.order[i - n]);
+      const neighbor = todoRows.get(position.order[i + n]) || todoRows.get(position.order[i - n]);
       if (neighbor) return neighbor;
     }
     return null;
   };
   const anchor = closest(position.anchor);
-  if (anchor && position.scroll > 0) {
-    $("canvas").scrollTop +=
-      anchor.getBoundingClientRect().top - $("canvas").getBoundingClientRect().top - position.inset;
+  if (anchor && (position.scroll > 0 || position.anchor === history.state.todoTarget)) {
+    const result = position.result && anchor.id === position.anchor && !anchor.body.hidden
+      ? [...anchor.body.querySelectorAll(".linked-results a")].find((a) => a.getAttribute("href") === position.result)
+      : null;
+    const element = result?.closest("li") || anchor.node;
+    const inset = result ? position.resultInset : position.inset;
+    $("canvas").scrollTop += element.getBoundingClientRect().top - $("canvas").getBoundingClientRect().top - inset;
   } else $("canvas").scrollTop = position.scroll;
-  const focus = closest(position.focus);
-  if (focus && document.activeElement !== focus) focus.focus({ preventScroll: true });
-  else if (position.focus && !focus)
-    $("overview").querySelector("h1").focus({ preventScroll: true });
+  if (position.focus) {
+    const row = closest(position.focus);
+    let control = row ? (row.summary.hidden ? row.node : row.summary) : $("overview").querySelector("h1");
+    if (row?.id === position.focus && position.control && !row.body.hidden)
+      control = [...row.body.querySelectorAll("a,button")].find((element) =>
+        element.getAttribute("href") === position.control || element.dataset.control === position.control
+      ) || control;
+    if (control !== document.activeElement) control.focus({ preventScroll: true });
+  }
 }
 
-function renderOverview(page) {
-  const list = $("todo-list");
-  const position = restoreOverview ? history.state.position : overviewPosition();
-  overviewPage = page;
-  if (history.state.offset !== page.offset) changeState({ offset: page.offset });
-  $("todo-error").hidden = true;
-  $("todo-empty").hidden = page.total !== 0;
-  $("checked").textContent = "checked " + time(page.as_of, page.timezone).toLowerCase();
-  $("todo-pages").hidden = page.total <= 50;
-  $("page-number").textContent =
-    page.offset + 1 + "–" + (page.offset + page.items.length) + " of " + page.total;
-  $("previous-page").disabled = page.offset === 0;
-  $("next-page").disabled = page.offset + page.items.length >= page.total;
+function makeTodoRow(id) {
+  const node = el("div", undefined, "todo-row");
+  node.dataset.id = node.dataset.key = id;
+  node.tabIndex = -1;
+  const body = el("div", undefined, "todo-body");
+  body.id = "todo-body-" + id;
+  const summary = button("", () => {
+    const open = { ...history.state.openTodos };
+    if (Object.hasOwn(open, id)) delete open[id];
+    else open[id] = [];
+    row.pending = {};
+    changeState({ openTodos: open });
+    summary.focus({ preventScroll: true });
+    renderOverview();
+    if (Object.hasOwn(open, id)) {
+      readTodoPart(row, "record", true);
+      readTodoPart(row, "results", true);
+    }
+    rememberOverview();
+  });
+  summary.className = "todo-summary";
+  summary.setAttribute("aria-controls", body.id);
+  summary.append(el("span"), el("small"));
+  node.append(summary, body);
+  const row = { id, node, summary, body, pending: {}, checked: {}, errors: {}, cursors: [] };
+  return row;
+}
 
-  const backlog = page.items.filter((item) => item.section === "backlog");
-  // A row moved into the collapsed tail still belongs to the active reader.
-  if (!page.offset && backlog.slice(2).some((item) => item.id === position?.focus))
-    changeState({ expanded: true });
-  const expanded = Boolean(page.offset || history.state.expanded);
+function renderTodoBody(row, open) {
+  row.body.hidden = !open && row.record !== null;
+  if (row.body.hidden) return;
+  const record = row.record;
+  const item = record?.record;
+  const timezone = record?.timezone || overviewPage?.timezone || "UTC";
+  const wake = item?.wake_at && (
+    (Date.parse(item.wake_at) <= Date.parse(record.as_of) ? "jarvis check was due " : "jarvis check scheduled for ") +
+    time(item.wake_at, record.timezone).toLowerCase()
+  );
+  const version = JSON.stringify([record === null, item, wake, timezone, row.results, row.cursors, row.errors]);
+  if (row.version === version) return;
+  row.version = version;
+  const body = row.body;
+  body.replaceChildren();
+  if (record === null) {
+    body.append(prose("this todo is no longer available."));
+  }
+  if (item) {
+    if (item.content) body.append(prose(item.content));
+    if (wake) body.append(el("p", wake));
+    const discussTodo = button("discuss", () => discuss({ kind: "todo", id: row.id }, item.title));
+    discussTodo.dataset.control = "discuss";
+    body.append(discussTodo, link("link to this todo", "/t/" + row.id));
+  }
+  const results = row.results;
+  if (record !== null && results && (results.items.length || row.cursors.length)) {
+    const section = el("section", undefined, "linked-results");
+    section.append(el("h3", "results"));
+    const list = el("ul");
+    for (const result of results.items) {
+      const li = el("li");
+      li.append(link(result.label || "answer", "/m/" + result.message_id),
+        el("time", time(result.at, timezone)));
+      list.append(li);
+    }
+    section.append(list);
+    const pageButton = (label, next) => {
+      const control = button(label, () => {
+        changeState({ openTodos: { ...history.state.openTodos, [row.id]: next } });
+        readTodoPart(row, "results", true);
+      });
+      control.dataset.control = label;
+      section.append(control);
+    };
+    if (row.cursors.length) pageButton("newer results", row.cursors.slice(0, -1));
+    if (results.next_before) pageButton("earlier results", [...row.cursors, results.next_before]);
+    body.append(section);
+  }
+  for (const [part, problem] of Object.entries(row.errors)) {
+    if (record === null && part === "results") continue;
+    const login = problem === "login";
+    const status = el("p");
+    const retry = button(login ? "sign in" : "retry", login
+      ? () => location.reload() : () => readTodoPart(row, part, true));
+    retry.dataset.control = "retry-" + part;
+    status.append(login ? "sign in to check this todo. " :
+      part === "record" ? "couldn’t check this todo. " : "couldn’t check results. ", retry);
+    body.append(status);
+  }
+  if (record === undefined && !row.errors.record) body.prepend(el("p", "loading todo…"));
+}
+
+function renderOverview() {
+  const page = overviewPage;
+  const target = history.state.todoTarget;
+  const open = history.state.openTodos || {};
+  const list = $("todo-list");
+  const position = readingTodos() && (restoreOverview ? history.state.position : overviewPosition());
   const existing = new Map([...list.children].map((node) => [node.dataset.key, node]));
-  const rows = new Map();
   const children = [];
-  let group,
-    backlogIndex = 0;
-  for (const item of page.items) {
+  const ids = new Set();
+  const addRow = (id, item, group) => {
+    let row = todoRows.get(id);
+    if (!row) todoRows.set(id, row = makeTodoRow(id));
+    ids.add(id);
+    children.push(row.node);
+    const record = row.record?.record;
+    const summary = item || record;
+    const title = summary?.title || "todo";
+    const caption = [];
+    if (summary?.due_date) {
+      const closed = summary.state === "done" || summary.state === "cancelled";
+      const when = closed ? "due" : summary.due_date < page?.today ? "overdue" :
+        summary.due_date === page?.today ? "due today" : "due";
+      caption.push(when + " · " + civilDate(summary.due_date));
+    }
+    if (summary?.state && summary.state !== group) caption.push(summary.state.replaceAll("_", " "));
+    if (row.summary.firstChild.textContent !== title) row.summary.firstChild.textContent = title;
+    const text = caption.join(" · ");
+    if (row.summary.lastChild.textContent !== text) row.summary.lastChild.textContent = text;
+    row.summary.lastChild.hidden = !text;
+    const expanded = Object.hasOwn(open, id);
+    row.summary.hidden = row.record === null;
+    row.summary.setAttribute("aria-expanded", String(expanded));
+    renderTodoBody(row, expanded);
+  };
+  if (target && !page?.items.some((item) => item.id === target)) addRow(target);
+  let group;
+  for (const item of page?.items || []) {
     if (item.section !== group) {
       group = item.section;
       const heading = existing.get(group) || el("h2");
       heading.dataset.key = group;
-      heading.textContent =
-        group === "backlog"
-          ? page.backlog_remaining === page.total
-            ? page.total + " in backlog"
-            : page.backlog_remaining + " remaining backlog"
-          : group.replaceAll("_", " ");
+      const headingText = group === "backlog"
+        ? page.backlog_remaining === page.total ? page.total + " in backlog" : page.backlog_remaining + " remaining backlog"
+        : group.replaceAll("_", " ");
+      if (heading.textContent !== headingText) heading.textContent = headingText;
       children.push(heading);
     }
-    if (group === "backlog") backlogIndex++;
-    if (group === "backlog" && !page.offset && backlogIndex === 3) {
-      disclosure.setAttribute("aria-expanded", String(expanded));
-      disclosure.textContent = expanded ? "show less" : "show more";
-      children.push(disclosure);
-    }
-    if (!expanded && backlogIndex > 2) continue;
-    const a = existing.get(item.id) || link("", "/t/" + item.id, "todo-row");
-    a.dataset.key = a.dataset.id = item.id;
-    if (!a.children.length) a.append(el("span"), el("small"));
-    a.classList.toggle("lead", item === page.items[0]);
-    if (a.firstChild.textContent !== item.title) a.firstChild.textContent = item.title;
-    const state = item.state.replaceAll("_", " ");
-    let date = "";
-    if (item.due_date) {
-      const when =
-        item.due_date < page.today ? "overdue" : item.due_date === page.today ? "due today" : "due";
-      date = when + " · " + civilDate(item.due_date);
-    }
-    const caption = [date, group !== item.state ? state : ""].filter(Boolean).join(" · ");
-    if (a.lastChild.textContent !== caption) a.lastChild.textContent = caption;
-    a.lastChild.hidden = !caption;
-    rows.set(item.id, a);
-    children.push(a);
+    addRow(item.id, item, group);
   }
+  for (const id of todoRows.keys()) if (!ids.has(id)) todoRows.delete(id);
   for (let i = 0; i < children.length; i++)
     if (list.children[i] !== children[i]) list.insertBefore(children[i], list.children[i] || null);
   while (list.children.length > children.length) list.lastChild.remove();
-  if (!history.state.panel && !isDetail(location.pathname)) {
-    if (position) restorePosition(position, rows);
-    else if (restoreOverview) {
-      $("canvas").scrollTop = 0;
-      if ($("todo-pages").contains(document.activeElement))
-        (rows.values().next().value || $("overview").querySelector("h1")).focus({
-          preventScroll: true,
-        });
+  $("todo-empty").hidden = page?.total !== 0;
+  $("checked").textContent = page ? "checked " + time(page.as_of, page.timezone).toLowerCase() : "";
+  if (revealTodo && todoRows.has(revealTodo) && readingTodos()) {
+    const row = todoRows.get(revealTodo);
+    const title = row.summary.hidden ? row.node : row.summary;
+    title.scrollIntoView({ block: "nearest" });
+    title.focus({ preventScroll: true });
+    changeState({ targetRevealed: true });
+    revealTodo = null;
+    rememberOverview();
+  } else if (position && (page || todoRows.has(position.anchor))) {
+    restorePosition(position);
+    if (restoreOverview && page && Object.keys(open).every((id) => {
+      const row = todoRows.get(id);
+      return !row || ((row.record !== undefined || row.errors.record) &&
+        (row.errors.results || (row.results !== undefined && row.cursors.at(-1) === open[id].at(-1))));
+    })) {
+      restoreOverview = false;
     }
   }
-  restoreOverview = false;
 }
-function changePage(offset) {
-  changeState({ offset, expanded: false, position: null });
-  restoreOverview = true;
-  routeVersion++;
-  refresh();
+
+function refreshTodoRows(force) {
+  const open = history.state.openTodos || {};
+  for (const [id, row] of todoRows) {
+    if (Object.hasOwn(open, id)) {
+      readTodoPart(row, "record", force);
+      readTodoPart(row, "results", force);
+    } else if (id === history.state.todoTarget && !overviewPage?.items.some((item) => item.id === id)) {
+      // The active index cannot refresh the summary of an addressed, inactive todo.
+      readTodoPart(row, "record", force);
+    }
+  }
 }
-$("previous-page").onclick = () => changePage(Math.max(0, overviewPage.offset - 50));
-$("next-page").onclick = () => changePage(overviewPage.offset + 50);
+
+async function readTodoPart(row, part, force) {
+  const ver = routeVersion;
+  const cursors = history.state.openTodos?.[row.id] || [];
+  const before = part === "results" ? cursors.at(-1) : null;
+  const key = ver + ":" + (before || "");
+  if (row.pending[part]?.key === key || (!force && row.checked[part] === key)) return;
+  const request = { key };
+  row.pending[part] = request;
+  row.checked[part] = key;
+  const current = () => ver === routeVersion && row.pending[part] === request && todoRows.get(row.id) === row;
+  let path = "/api/todos/" + row.id;
+  if (part === "results") path += "/results" + (before ? "?before=" + encodeURIComponent(before) : "");
+  try {
+    const data = await read(path);
+    if (!current()) return;
+    if (part === "results" && !data) throw new Error("results unavailable");
+    row[part] = data;
+    if (part === "results") row.cursors = cursors;
+    delete row.errors[part];
+  } catch (error) {
+    if (!current()) return;
+    row.errors[part] = error.login ? "login" : "failed";
+  } finally {
+    if (current()) {
+      delete row.pending[part];
+      renderOverview();
+    }
+  }
+}
 
 async function detailRead(ver) {
   const [, kind, id] = location.pathname.split("/");
-  if (kind === "t" && !$("records").hidden) {
-    const cursors = history.state.resultCursors || [];
-    const page = cursors.length
-      ? "?before=" + encodeURIComponent(cursors.at(-1))
-      : "";
-    const [data, results] = await Promise.all([
-      read("/api/todos/" + id),
-      read("/api/todos/" + id + "/results" + page),
-    ]);
-    if (ver !== routeVersion || $("records").hidden) return;
-    const pane = $("records");
-    const item = data?.record;
-    const wake = item?.wake_at
-      ? (Date.parse(item.wake_at) <= Date.parse(data.as_of)
-          ? "jarvis check was due "
-          : "jarvis check scheduled for ") + time(item.wake_at, data.timezone).toLowerCase()
-      : "";
-    const version = JSON.stringify([item, wake, results, page]);
-    if (pane.dataset.version === version) return;
-    const focused = pane.contains(document.activeElement) ? document.activeElement : null;
-    const scroll = pane.scrollTop;
-    pane.dataset.version = version;
-    if (!item || !results) {
-      pane.replaceChildren(prose("this item is no longer available."));
-      return;
-    }
-    const title = el("h2", item.title);
-    title.tabIndex = -1;
-    const reply = button("discuss", () => discuss({ kind: "todo", id: item.id }, item.title));
-    reply.dataset.control = "discuss";
-    pane.replaceChildren(
-      title,
-      el("small", item.state.replaceAll("_", " ")),
-      prose(item.content || ""),
-    );
-    if (item.due_date) pane.append(el("p", "due · " + civilDate(item.due_date)));
-    if (wake) pane.append(el("p", wake));
-    pane.append(reply);
-    if (results.items.length || cursors.length) {
-      const section = el("section", undefined, "linked-results");
-      section.append(el("h3", "results"));
-      const list = el("ul");
-      for (const item of results.items) {
-        const row = el("li");
-        row.append(
-          link(item.label || "answer", "/m/" + item.message_id),
-          el("time", time(item.at, data.timezone)),
-        );
-        list.append(row);
-      }
-      section.append(list);
-      const turnPage = (label, next) => {
-        const control = button(label, () => {
-          changeState({ resultCursors: next });
-          routeVersion++;
-          refresh();
-        });
-        control.dataset.control = label;
-        section.append(control);
-      };
-      if (cursors.length) turnPage("newer results", cursors.slice(0, -1));
-      if (results.next_before) turnPage("earlier results", [...cursors, results.next_before]);
-      pane.append(section);
-    }
-    pane.scrollTop = scroll;
-    if (focused || (document.activeElement === document.body && history.state.panel)) {
-      const same = [...pane.querySelectorAll("a, button")].find((node) =>
-        focused?.href ? node.href === focused.href
-          : focused?.dataset.control && node.dataset.control === focused.dataset.control
-      );
-      (same || title).focus({ preventScroll: true });
-    }
-  } else if (kind === "m") {
+  if (kind === "m") {
     const m = await read("/api/messages/" + id);
     if (ver !== routeVersion) return;
     if (!m) {
@@ -1334,6 +1414,8 @@ async function poll(part, load) {
 function refresh() {
   if (document.hidden) return;
   poll("canvas", canvasRead);
+  if (history.state?.canvasSelection === todosCanvas && !(mobile.matches && history.state.panel))
+    refreshTodoRows(true);
   poll("detail", detailRead);
   poll("chat", messages);
   if (!$("chat").hidden && (!mobile.matches || history.state?.panel)) {

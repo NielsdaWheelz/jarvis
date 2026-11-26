@@ -47,6 +47,14 @@ home and todo list. each tab pins its chosen canvas in browser history.
 messages, individual todos, files, pdf pages and published revisions keep
 their own addresses. an incoming `/overview` link opens todos at `/`.
 
+[adr 0117](docs/decisions/0117-inline-todo-viewer.md) adopts one todos tab in
+the web and android viewers. a fresh list shows every active title collapsed.
+each row expands independently in place. exact todo links open their addressed
+row in the viewer, including completed and cancelled work. this supersedes
+the sidebar’s todo controls and record pane, the list pager and the separate
+android todo screen. source and isolated candidate checks passed. installed
+acceptance is separate.
+
 [adr 0105](docs/decisions/0105-native-android.md) owns the native android
 client, explicit todo results on both clients and replacement of discord alert
 delivery by firebase. the installed 0087 contract governs until the recorded

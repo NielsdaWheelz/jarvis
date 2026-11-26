@@ -123,6 +123,7 @@ from jarvis.proactivity import WorkWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
+from jarvis.recovery_catchup import CatchupInventory, queue_catchup
 from jarvis.service import JarvisService
 from jarvis.settings import (
     CutoverSettings,
@@ -662,7 +663,7 @@ async def _serve(
                         mail_files=composition.mail_files,
                         plan=definitions.plans["main"],
                         source_conversation_id=settings.owner_scope,
-                        wait_changed=agents.notify_wait_changed,
+                        delegation_changed=agents.delegations.notify_changed,
                     )
 
                     async def recover_original(
@@ -737,7 +738,7 @@ async def _serve(
                         dreamer=dreamer,
                         action_plan=definitions.plans["main"],
                         action_recovery=action_recovery,
-                        agent_waits=agents,
+                        delegations=agents.delegations,
                         dispatch_lane=dispatch_lane,
                         work_timer=work_timer,
                         event_poller=composition.event_poller,
@@ -747,6 +748,7 @@ async def _serve(
                     events.notify_input = service.request_work
                     if shutdown.is_set():
                         return
+                    await actions.require_worker_cutover_drained()
                     recovered_actions = await recover_startup_actions(
                         action_recovery=action_recovery,
                         paused=paused,
@@ -941,6 +943,16 @@ async def release_parked(
             await MessageStore(database).clear_parked(
                 source_conversation_id=settings.owner_scope, message_ids=message_ids
             )
+    finally:
+        await engine.dispose()
+
+
+async def queue_recovery_catchup(settings: PausedSettings, path: Path) -> UUID:
+    inventory = CatchupInventory.model_validate_json(path.read_bytes())
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            return await queue_catchup(database, settings.owner_scope, inventory)
     finally:
         await engine.dispose()
 
@@ -1790,6 +1802,11 @@ def _parser() -> argparse.ArgumentParser:
         help="release explicitly named parked input after operator correction",
     )
     release.add_argument("message_ids", metavar="MESSAGE_ID", type=UUID, nargs="+")
+    catchup = commands.add_parser(
+        "queue-recovery-catchup",
+        help="queue a reviewed read-only parked mail inventory",
+    )
+    catchup.add_argument("inventory", metavar="INVENTORY", type=Path)
     return parser
 
 
@@ -1826,6 +1843,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if arguments.command == "list-parked":
             print(asyncio.run(list_parked(PausedSettings.from_env())))
+            return 0
+        if arguments.command == "queue-recovery-catchup":
+            identifier = asyncio.run(
+                queue_recovery_catchup(PausedSettings.from_env(), arguments.inventory)
+            )
+            print(identifier)
             return 0
         if arguments.command == "release-parked":
             message_ids = tuple(arguments.message_ids)

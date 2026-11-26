@@ -1,5 +1,10 @@
 # skid follow-through — o9 / slice 3
 
+the source below describes the retired terminal-observation release.
+[adr 0112](decisions/0112-managed-agent-delegation.md) owns the current
+delegation implementation and cutover.
+
+
 source and candidate qualified on 2026-11-15 under
 [adr 0071](decisions/0071-simple-event-driven-v2.md). the
 [production restart journey](runtime-reliability-and-integration.md#restart-catch-up-and-original-send)

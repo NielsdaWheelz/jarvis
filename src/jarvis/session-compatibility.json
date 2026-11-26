@@ -18,10 +18,10 @@
   },
   "application_session_contract_revision": "jarvis-native-antigravity-neon-v1",
   "dependencies": {
-    "llm-agent-kernel": "5f920742036daf472ccceeecf3bd9a20bb548f54",
+    "llm-agent-kernel": "89a14b14c2e8e157d8657f58c2534569d83b93d7",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "2ceb71592a9da040c6b44046931d1839bc26c902",
-    "universal-memory": "6cfdf262e3c342ae4701b0587bf7994c03437459"
+    "provider-runtime": "05b9523d75668e07ee5cb13d50562ade490eab3f",
+    "universal-memory": "dcd1fc514677079ce3d513195ceedee8f3b4af28"
   },
   "google_neon": {
     "catalog_revision": "codex-neon.v1:94da7afcedb26d39312ea45691e2e5c91adc619bedc3ac6d4d0831eb92fb739d",

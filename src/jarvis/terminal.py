@@ -28,7 +28,6 @@ type TerminalOutcome = Literal[
 type ConclusionKind = Literal["conversation", "silent"]
 
 PROGRESS_MAX_BYTES = 2_000
-NATIVE_OUTPUT_NAME = "jarvis_home_message_v2"
 
 
 class _StrictModel(BaseModel):
@@ -209,12 +208,6 @@ class JarvisTerminal(
 ):
     """One validated, terminal Main response."""
 
-    @classmethod
-    def from_seal(cls, name: str, value: object) -> Self:
-        if name != NATIVE_OUTPUT_NAME:
-            raise ValueError("unrecognized native seal contract")
-        return cls.model_validate(value)
-
 
 class JarvisNativeMessage(
     _Message[Progress | Answered | Partial | NeedsInput | Failed | Silent | Waiting]
@@ -280,7 +273,6 @@ def render_terminal(terminal: JarvisTerminal) -> RenderedTerminal:
 
 
 __all__ = [
-    "NATIVE_OUTPUT_NAME",
     "PROGRESS_MAX_BYTES",
     "JarvisNativeMessage",
     "JarvisTerminal",

@@ -8,6 +8,7 @@ if [[ "${1:-}" != --on-host ]]; then
   qualification=none
   reader_image=none
   codex_mapping=none
+  agent_client=none
   if [[ "${1:-}" == --change && $# -ge 3 ]]; then
     change="$2"
     shift 2
@@ -17,6 +18,7 @@ if [[ "${1:-}" != --on-host ]]; then
         --qualification) [[ "$qualification" == none ]]; qualification="$2" ;;
         --reader-image) [[ "$reader_image" == none && "$2" =~ ^sha256:[0-9a-f]{64}$ ]]; reader_image="$2" ;;
         --codex-host-config) [[ "$codex_mapping" == none ]]; codex_mapping="$2" ;;
+        --agent-client) [[ "$agent_client" == none ]]; agent_client="$2" ;;
         *) break ;;
       esac
       shift 2
@@ -25,7 +27,7 @@ if [[ "${1:-}" != --on-host ]]; then
     [[ "$change" =~ $uuid_pattern && ( "$repair_of" == none || "$repair_of" =~ $uuid_pattern ) ]]
   fi
   if [[ $# != 1 || ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
-    printf 'usage: deploy/activate-release --change UUID [--repair-of UUID] [--qualification FILE] [--reader-image DIGEST] [--codex-host-config FILE] TARGET\n' >&2
+    printf 'usage: deploy/activate-release --change UUID [--repair-of UUID] [--qualification FILE] [--reader-image DIGEST] [--codex-host-config FILE] [--agent-client MANIFEST] TARGET\n' >&2
     exit 64
   fi
   commit="$1"
@@ -57,7 +59,13 @@ PYCODE
   if [[ "$codex_mapping" != none ]]; then
     [[ -f "$codex_mapping" && ! -L "$codex_mapping" ]] || exit 64
   fi
-  if [[ "$qualification" != none || "$reader_image" != none || "$codex_mapping" != none ]]; then
+  if [[ "$agent_client" != none ]]; then
+    [[ -f "$agent_client" && ! -L "$agent_client" ]] || {
+      printf 'select a regular agent client manifest\n' >&2
+      exit 64
+    }
+  fi
+  if [[ "$qualification" != none || "$reader_image" != none || "$codex_mapping" != none || "$agent_client" != none ]]; then
     incoming="$(ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy mktemp -d /tmp/jarvis-qualification.XXXXXX)"
     [[ "$incoming" =~ ^/tmp/jarvis-qualification\.[a-zA-Z0-9]+$ ]]
     if [[ "$qualification" != none ]]; then
@@ -68,6 +76,9 @@ PYCODE
     fi
     if [[ "$codex_mapping" != none ]]; then
       scp -q -o BatchMode=yes -o ForwardAgent=no "$codex_mapping" "dev-server-deploy:$incoming/codex-host.json"
+    fi
+    if [[ "$agent_client" != none ]]; then
+      scp -q -o BatchMode=yes -o ForwardAgent=no "$agent_client" "dev-server-deploy:$incoming/agent-client.json"
     fi
   fi
   ssh -T -o BatchMode=yes -o ForwardAgent=no dev-server-deploy \
@@ -89,7 +100,7 @@ if [[ "$6" != none ]]; then
   [[ "$6" =~ ^/tmp/jarvis-qualification\.[a-zA-Z0-9]+$ ]]
   mkdir -p -m 0700 /var/lib/jarvis-cutover
   incoming="$(mktemp -d /var/lib/jarvis-cutover/.qualification-$4.XXXXXX)"
-  for name in rehearsal.json reader.json codex-host.json; do
+  for name in rehearsal.json reader.json codex-host.json agent-client.json; do
     if [[ -e "$6/$name" || -L "$6/$name" ]]; then
       [[ -f "$6/$name" && ! -L "$6/$name" ]]
       install -m 0600 -- "$6/$name" "$incoming/$name"
@@ -119,12 +130,14 @@ custody="$release/deploy/cutover-hold"
 rehearsal=none
 incoming_reader=none
 incoming_mapping=none
+incoming_agent_client=none
 if [[ "$incoming" != none ]]; then
   [[ "$incoming" =~ ^/var/lib/jarvis-cutover/\.qualification-[0-9a-f-]+\.[a-zA-Z0-9]+$ ]]
   trap 'rm -rf -- "$incoming"' EXIT
   if [[ -f "$incoming/rehearsal.json" ]]; then rehearsal="$incoming/rehearsal.json"; fi
   if [[ -f "$incoming/reader.json" ]]; then incoming_reader="$incoming/reader.json"; fi
   if [[ -f "$incoming/codex-host.json" ]]; then incoming_mapping="$incoming/codex-host.json"; fi
+  if [[ -f "$incoming/agent-client.json" ]]; then incoming_agent_client="$incoming/agent-client.json"; fi
 fi
 
 refuse() {
@@ -199,6 +212,7 @@ if [[ "$phase" == committed || "$phase" == not-applied ]]; then
   if [[ "$rehearsal" != none ]]; then retry+=(--qualification "$rehearsal"); fi
   if [[ "$incoming_reader" != none ]]; then retry+=(--reader "$incoming_reader"); fi
   if [[ "$incoming_mapping" != none ]]; then retry+=(--mapping "$incoming_mapping"); fi
+  if [[ "$incoming_agent_client" != none ]]; then retry+=(--agent-client "$incoming_agent_client"); fi
   "$custody" verify-release-retry "$change" "$commit" "$repair_of" "${retry[@]}"
   "$custody" start "$change"
   if [[ "$phase" == committed ]]; then prune_releases; else exit 1; fi
@@ -301,6 +315,22 @@ elif [[ -f "$backup_config" ]]; then
   "$release/.venv/bin/python" "$release/deploy/qualified-reader" current "$release" >/dev/null ||
     refuse "configured backup needs a qualified target --reader-image; installed reader proof is missing or mismatched"
 fi
+stored_agent_client="$held/agent-client-$change.json"
+agent_client="$incoming_agent_client"
+if [[ -f "$stored_agent_client" ]]; then
+  if [[ "$agent_client" != none ]]; then
+    cmp -s "$agent_client" "$stored_agent_client" || refuse "change $change already binds another agent client manifest"
+  fi
+  agent_client="$stored_agent_client"
+fi
+if [[ "$agent_client" != none ]]; then
+  agent_client_options=()
+  if [[ "$phase" == applying ]]; then agent_client_options+=(--applying); fi
+  agent_client_values="$("$custody" agent-client-source "$agent_client" "${agent_client_options[@]}")"
+  mapfile -t agent_client_args <<<"$agent_client_values"
+  agent_client_digest="$(sha256sum "$agent_client" | cut -d' ' -f1)"
+  digest="$(printf '%s\n' "$digest" "$agent_client_digest" | sha256sum | cut -d' ' -f1)"
+fi
 repair=()
 if [[ "$repair_of" != none ]]; then repair=(--repair-of "$repair_of"); fi
 if [[ "$phase" == unknown && "$repair_of" == none ]]; then
@@ -347,7 +377,16 @@ else
   fi
   cmp -s "$scratch/backup.sha256" "$held/backup-before-$change.sha256" || refuse "held $change. backup declaration changed"
 fi
-printf '%s\n' '{"authority_changes":[]}' >"$scratch/unchanged-authority.json"
+if [[ "$agent_client" != none ]]; then
+  if [[ ! -f "$stored_agent_client" ]]; then
+    persist "$agent_client" "$stored_agent_client"
+  fi
+  [[ "$(sha256sum "$stored_agent_client" | cut -d' ' -f1)" == "$agent_client_digest" ]] ||
+    refuse "held $change. agent client manifest changed"
+  printf '%s\n' '{"authority_changes":["worker"]}' >"$scratch/authority.json"
+else
+  printf '%s\n' '{"authority_changes":[]}' >"$scratch/authority.json"
+fi
 preflight_release="$release"
 if ! cmp -s "$mapping" "$mapping_source"; then
   # This is the last stopped check against the predecessor's own account
@@ -375,7 +414,7 @@ if [[ "$source_schema" != "$target_schema" ]]; then
     cmp -s "$rehearsal" "$qualification" || refuse "held $change already binds another qualification receipt"
   fi
 elif [[ "$phase" == held && "$repair_of" == none ]] &&
-    ! check_maintenance "$preflight_release" "$scratch/unchanged-authority.json" "$scratch/source-check.json"; then
+    ! check_maintenance "$preflight_release" "$scratch/authority.json" "$scratch/source-check.json"; then
   if [[ -s "$scratch/source-check.json" ]]; then cat "$scratch/source-check.json"; fi
   if safe_source_return "$scratch/source-check.json" && check_source_activation "$source_release"; then
     "$custody" not-applied "$change" --evidence "$scratch/source-check.json"
@@ -430,14 +469,18 @@ fi
 if [[ "$source_schema" != "$target_schema" ]]; then migration migrate "$qualification"; fi
 "$release/deploy/install-contained-host" --held "$change" "$commit" "$mapping_source"
 if [[ "$repair_of" != none ]]; then
-  check_maintenance "$release" "$scratch/unchanged-authority.json" "$scratch/repair-check.json"
+  check_maintenance "$release" "$scratch/authority.json" "$scratch/repair-check.json"
   "$custody" applying "$change" --evidence "$scratch/repair-check.json"
+fi
+if [[ "$agent_client" != none ]]; then
+  install_selection
+  "$release/deploy/install-agent-client" "$change" "${agent_client_args[@]}"
 fi
 [[ "$(sha256sum "$mapping" | cut -d' ' -f1)" == "$mapping_digest" ]] ||
   refuse "held $change. target native mapping changed"
 [[ "$(check_release_schema "$release")" == "$target_schema" ]] ||
   refuse "held $change. target database schema changed"
-check_maintenance "$release" "$scratch/unchanged-authority.json" "$scratch/target-check.json"
+check_maintenance "$release" "$scratch/authority.json" "$scratch/target-check.json"
 if [[ "$source_schema" != "$target_schema" ]]; then migration verify-target "$qualification"; fi
 if [[ "$reader" != none ]]; then
   "$release/.venv/bin/python" "$release/deploy/qualified-reader" publish "$release" "$stored_reader" "$backup_facts" >/dev/null
@@ -448,7 +491,7 @@ fi
 if [[ -f "$backup_config" ]]; then
   "$release/.venv/bin/python" "$release/deploy/qualified-reader" current "$release" >/dev/null
 fi
-install_selection
+if [[ "$agent_client" == none ]]; then install_selection; fi
 "$custody" commit "$change" --evidence "$scratch/target-check.json"
 "$custody" start "$change"
 prune_releases

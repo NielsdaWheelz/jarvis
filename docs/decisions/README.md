@@ -151,8 +151,12 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0108](0108-codex-quota-standby.md) | ordered codex standby accounts | source and isolated qualification complete. installed acceptance remains open. |
 | [0109](0109-existing-codex-credits.md) | use existing paid codex credits | accepted. amends the billing and selection rules in 0108. |
 | [0111](0111-native-antigravity-neon.md) | native antigravity for paid neon | proposed. full agy main between the two installed routes. |
+| [0113](0113-desktop-worker.md) | desktop worker on the managed skid fleet | v13 predecessor. the v14 placement cut supersedes the fixed roster |
+| [0114](0114-automatic-foreground-recovery.md) | automatic foreground recovery | source and isolated candidate qualified. installed recovery and historical disposition are separate. |
+| [0114](0114-skid-worker-placement.md) | skid worker placement | installed. jarvis captures the enrolled machine when admitting a write. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
+the two decisions numbered 0114 likewise retain their distinct titles and paths.
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

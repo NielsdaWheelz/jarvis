@@ -44,22 +44,24 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.agent_control import classify_agent_receipt
 from jarvis.agent_tools import (
+    AGENT_DELEGATE_ID,
     AGENT_IMPLEMENTATION_REVISION,
     AGENT_INPUT_TYPES,
-    AGENT_LOCAL_IDS,
     AGENT_WRITE_IDS,
     AgentActionEvidence,
-    AgentCancelWaitResult,
     AgentCloseReceipt,
+    AgentDelegateReceipt,
     AgentError,
+    AgentMachineId,
+    AgentPlacement,
     AgentStartInput,
     AgentTargetInput,
-    AgentWaitInput,
-    AgentWaitOutcome,
-    AgentWaitReceipt,
-    AgentWaitState,
     AgentWriteResult,
     AgentWriteTarget,
+    DelegationState,
+    JobDisposition,
+    JobOutcome,
+    JobTerminal,
     WireFailure,
     WireStartResult,
     validate_agent_failure,
@@ -76,6 +78,7 @@ from jarvis.db import (
     native_invocation,
     proven_native_delivery,
 )
+from jarvis.delegation import delegation_evidence
 from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.messages import (
     append_waking_input,
@@ -116,11 +119,19 @@ ActionStatus = Literal[
     "cancelled",
 ]
 TerminalActionStatus = Literal["succeeded", "failed", "uncertain", "cancelled"]
+_JOB_TERMINAL_STATUS: dict[JobDisposition, TerminalActionStatus] = {
+    "answered": "succeeded",
+    "failed": "failed",
+    "interrupted": "failed",
+    "unknown": "uncertain",
+}
+
 
 ACTION_MAX_ATTEMPTS = 2
 _MAX_CONTRACT_TEXT = 256
 _MAX_RESOLUTION_TEXT_BYTES = 262_144
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_LEGACY_DELEGATION_REVISIONS = ("jarvis-agent-control-v12", "jarvis-agent-control-v13")
 _RETIRED_AGENT_REVISIONS = (
     "jarvis-agent-control-v1",
     "jarvis-agent-control-v2",
@@ -132,6 +143,8 @@ _RETIRED_AGENT_REVISIONS = (
     "jarvis-agent-control-v8",
     "jarvis-agent-control-v9",
     "jarvis-agent-control-v10",
+    "jarvis-agent-control-v11",
+    *_LEGACY_DELEGATION_REVISIONS,
 )
 _RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2")
 
@@ -220,6 +233,7 @@ class ExecutionContract(_ExecutionEnvelope):
 
     schema_version: Literal["jarvis.action.v2"]
     agent_target: AgentWriteTarget | None = None
+    agent_placement: AgentPlacement | None = None
     workspace: FrozenWorkspaceWrite | None = None
     workspace_grant_id: UUID | None = None
     workspace_prepare_attempts: Annotated[int, Field(ge=0)] = 0
@@ -233,6 +247,8 @@ class ExecutionContract(_ExecutionEnvelope):
 
     def as_json(self) -> dict[str, object]:
         value = cast(dict[str, object], self.model_dump(mode="json"))
+        if self.agent_placement is None:
+            del value["agent_placement"]
         if self.workspace is None:
             del value["workspace"]
             del value["workspace_prepare_attempts"]
@@ -296,6 +312,13 @@ class StoredAction:
     @property
     def agent_target(self) -> AgentWriteTarget | None:
         return self.current_execution_contract.agent_target
+
+    @property
+    def agent_placement(self) -> AgentPlacement:
+        placement = self.current_execution_contract.agent_placement
+        if placement is None:
+            raise ActionPersistenceDefect("worker action lacks its captured machine")
+        return placement
 
     @property
     def recovered_external_attempts(self) -> int:
@@ -495,6 +518,19 @@ class ActionStore:
                 connection, action_id, source_conversation_id=source_conversation_id
             )
 
+    async def action_for_invocation(self, invocation_id: UUID) -> StoredAction | None:
+        async with self.engine.connect() as connection:
+            action_id = await connection.scalar(
+                select(native_invocation.c.action_id).where(
+                    native_invocation.c.id == invocation_id
+                )
+            )
+            return (
+                None
+                if action_id is None
+                else await recorded_action(connection, action_id)
+            )
+
     async def is_standing_check(self, request_id: UUID) -> bool:
         async with self.engine.connect() as connection:
             origin = (
@@ -581,11 +617,7 @@ class ActionStore:
                                     message.c.processing_parked_at.is_(None),
                                 ),
                             ),
-                            ~(
-                                (action.c.tool_name == "agent.wait")
-                                & action.c.result.is_not(None)
-                                & action.c.result.op("?")("registration_receipt")
-                            ),
+                            ~registered_delegation(),
                         )
                         .order_by(action.c.created_at, action.c.id)
                         .limit(limit)
@@ -718,7 +750,7 @@ class ActionStore:
                 raise ActionPersistenceDefect("BilledOnce work is never readmitted")
             if max_external_attempts == 0 and (
                 stored.tool_name
-                not in (*AGENT_LOCAL_IDS, *WORK_MUTATION_IDS, *EVENT_MUTATION_IDS)
+                not in (AGENT_DELEGATE_ID, *WORK_MUTATION_IDS, *EVENT_MUTATION_IDS)
                 or action_replay_result(stored) is not None
             ):
                 raise ActionPersistenceDefect(
@@ -884,154 +916,148 @@ class ActionStore:
                 )
         return tuple(results)
 
-    async def active_agent_waits(
-        self,
-        *,
-        source_conversation_id: str,
+    async def require_worker_cutover_drained(self) -> None:
+        async with self.engine.connect() as connection:
+            unfinished = await connection.scalar(
+                select(action.c.id)
+                .where(
+                    unfinished_action_or_worker_ack(),
+                    retired_worker_predicate(
+                        action.c.tool_name,
+                        action.c.execution_contract[
+                            "implementation_revision"
+                        ].as_string(),
+                    ),
+                )
+                .limit(1)
+            )
+        if unfinished is not None:
+            raise ActionPersistenceDefect(
+                f"retired unfinished worker action blocks activation: {unfinished}"
+            )
+
+    async def register_delegation(self, job_id: UUID) -> AgentDelegateReceipt:
+        async with self.engine.begin() as connection:
+            stored = await require_locked_action(connection, job_id)
+            if stored.tool_name != AGENT_DELEGATE_ID or stored.status != "executing":
+                raise ActionPersistenceDefect(
+                    "delegation requires entered registration"
+                )
+            receipt = AgentDelegateReceipt(job_id=job_id)
+            await _update_action(
+                connection,
+                job_id,
+                status="queued",
+                result=DelegationState(
+                    registration_receipt=receipt, machine=stored.agent_placement.machine
+                ).model_dump(mode="json"),
+            )
+            return receipt
+
+    async def active_delegations(
+        self, *, source_conversation_id: str
     ) -> tuple[StoredAction, ...]:
         async with self.engine.connect() as connection:
             rows = (
-                (
-                    await connection.execute(
-                        select(action)
-                        .join(message, message.c.id == action.c.origin_message_id)
-                        .where(
-                            message.c.source_conversation_id == source_conversation_id,
-                            action.c.tool_name == "agent.wait",
+                await connection.execute(
+                    select(action)
+                    .join(message, message.c.id == action.c.origin_message_id)
+                    .where(
+                        message.c.source_conversation_id == source_conversation_id,
+                        registered_delegation(),
+                        or_(
                             action.c.status == "queued",
-                            action.c.result.op("?")("registration_receipt"),
-                        )
-                        .order_by(action.c.created_at, action.c.id)
+                            action.c.result["ack_pending"].as_boolean().is_(True),
+                        ),
                     )
+                    .order_by(action.c.created_at, action.c.id)
                 )
-                .mappings()
-                .all()
-            )
+            ).mappings()
         return tuple(map(_stored_action, rows))
 
-    async def finish_agent_wait(
-        self, action_id: UUID, outcome: AgentWaitOutcome, *, source_conversation_id: str
-    ) -> bool:
+    async def enter_delegation_submission(
+        self, job_id: UUID, *, source_conversation_id: str
+    ) -> DelegationState | None:
         async with self.engine.begin() as connection:
-            stored = await require_locked_action(connection, action_id)
-            state = agent_wait_state(stored)
-            if state.wait_outcome is not None:
-                return False
+            await lock_conversation(connection, source_conversation_id)
             if (
-                stored.status != "queued"
-                or outcome.target != state.registration_receipt.target
+                await connection.scalar(latest_control(source_conversation_id))
+                == "pause"
             ):
+                return None
+            stored = await require_locked_action(connection, job_id)
+            state = delegation_state(stored)
+            if state.outcome is not None or state.submission == "confirmed":
                 raise ActionPersistenceDefect(
-                    "wait outcome substituted its registration"
+                    "delegation cannot enter submission on this machine"
                 )
-            updated = state.model_copy(update={"wait_outcome": outcome})
-            settled = await _update_action(
-                connection,
-                action_id,
-                status="cancelled" if outcome.outcome == "cancelled" else "succeeded",
-                completed_at=outcome.recorded_at,
-                result=updated.model_dump(mode="json"),
-            )
-            await _publish_action_outcome(connection, settled, source_conversation_id)
-            return True
-
-    async def cancel_agent_wait(
-        self,
-        action_id: UUID,
-        *,
-        cancellation_action_id: UUID,
-        source_conversation_id: str,
-    ) -> bool:
-        async with self.engine.begin() as connection:
-            stored = await require_locked_action(connection, action_id)
-            if (
-                stored.tool_name != ToolId("agent.wait")
-                or stored.result is None
-                or "registration_receipt" not in stored.result
-            ):
-                raise ValueError("wait is not registered")
-            state = agent_wait_state(stored)
-            cancellation = await require_locked_action(
-                connection, cancellation_action_id
-            )
-            if cancellation.tool_name != ToolId(
-                "agent.cancel_wait"
-            ) or cancellation.payload.get("action_id") != str(action_id):
-                raise ActionPersistenceDefect("cancellation substituted its target")
-            if state.wait_outcome is not None:
-                cancelled = (
-                    state.wait_outcome.cancellation_action_id == cancellation_action_id
-                )
-                receipt = AgentCancelWaitResult(
-                    action_id=action_id,
-                    outcome="cancelled" if cancelled else "already_settled",
-                )
+            if state.submission == "unentered":
+                state = state.model_copy(update={"submission": "entered"})
                 await _update_action(
-                    connection,
-                    cancellation_action_id,
-                    status="succeeded",
-                    completed_at=datetime.now(UTC),
-                    result={
-                        "type": "Success",
-                        "value": receipt.model_dump(mode="json"),
-                    },
+                    connection, job_id, result=state.model_dump(mode="json")
                 )
-                return cancelled
-            now = datetime.now(UTC)
-            outcome = AgentWaitOutcome(
-                target=state.registration_receipt.target,
-                outcome="cancelled",
-                recorded_at=now,
-                cancellation_action_id=cancellation_action_id,
+            return state
+
+    async def confirm_delegation_submission(
+        self, job_id: UUID, *, terminal: JobTerminal | None
+    ) -> DelegationState:
+        async with self.engine.begin() as connection:
+            stored = await require_locked_action(connection, job_id)
+            state = delegation_state(stored)
+            if state.outcome is not None or state.submission != "entered":
+                raise ActionPersistenceDefect("delegation submission was not entered")
+            state = state.model_copy(
+                update={"submission": "confirmed", "terminal": terminal}
             )
-            updated = state.model_copy(update={"wait_outcome": outcome})
+            await _update_action(
+                connection, job_id, result=state.model_dump(mode="json")
+            )
+            return state
+
+    async def finish_delegation(
+        self,
+        job_id: UUID,
+        outcome: JobOutcome,
+        *,
+        terminal: JobTerminal | None,
+        acknowledge: bool,
+        source_conversation_id: str,
+    ) -> None:
+        async with self.engine.begin() as connection:
+            await lock_conversation(connection, source_conversation_id)
+            stored = await require_locked_action(connection, job_id)
+            state = delegation_state(stored)
+            if state.outcome is not None or state.submission == "unentered":
+                raise ActionPersistenceDefect("delegation cannot accept an outcome")
+            if terminal is not None and state.terminal not in (None, terminal):
+                raise ActionPersistenceDefect(
+                    "delegation result substituted its terminal"
+                )
+            state = state.model_copy(
+                update={
+                    "terminal": terminal or state.terminal,
+                    "outcome": outcome,
+                    "ack_pending": acknowledge,
+                }
+            )
             settled = await _update_action(
                 connection,
-                action_id,
-                status="cancelled",
-                completed_at=now,
-                result=updated.model_dump(mode="json"),
+                job_id,
+                status=_JOB_TERMINAL_STATUS[outcome.state],
+                completed_at=datetime.now(UTC),
+                result=state.model_dump(mode="json"),
             )
             await _publish_action_outcome(connection, settled, source_conversation_id)
-            receipt = AgentCancelWaitResult(action_id=action_id, outcome="cancelled")
-            await _update_action(
-                connection,
-                cancellation_action_id,
-                status="succeeded",
-                completed_at=now,
-                result={"type": "Success", "value": receipt.model_dump(mode="json")},
-            )
-            return True
 
-    async def publish_agent_wait_events(self, *, source_conversation_id: str) -> int:
+    async def acknowledge_delegation(self, job_id: UUID) -> None:
         async with self.engine.begin() as connection:
-            rows = (
-                (
-                    await connection.execute(
-                        select(action)
-                        .join(message, message.c.id == action.c.origin_message_id)
-                        .where(
-                            message.c.source_conversation_id == source_conversation_id,
-                            action.c.tool_name == "agent.wait",
-                            action.c.status.in_(("succeeded", "cancelled")),
-                            action.c.result.op("?")("registration_receipt"),
-                            text(
-                                "NOT EXISTS (SELECT 1 FROM message AS event WHERE "
-                                "event.source = 'action' AND event.source_message_id "
-                                "= action.id::text || ':' || action.status)"
-                            ),
-                        )
-                        .order_by(action.c.completed_at, action.c.id)
-                    )
+            stored = await require_locked_action(connection, job_id)
+            state = delegation_state(stored)
+            if state.ack_pending:
+                state = state.model_copy(update={"ack_pending": False})
+                await _update_action(
+                    connection, job_id, result=state.model_dump(mode="json")
                 )
-                .mappings()
-                .all()
-            )
-            for row in rows:
-                await _publish_action_outcome(
-                    connection, _stored_action(row), source_conversation_id
-                )
-            return len(rows)
 
 
 class ActionPositionRecorder:
@@ -1403,34 +1429,6 @@ class ActionPositionRecorder:
                     status=status,
                     completed_at=datetime.now(UTC),
                     result=receipt_result,
-                )
-            elif (
-                stored.tool_name == ToolId("agent.wait")
-                and canonical_result["type"] == "Success"
-            ):
-                receipt = AgentWaitReceipt.model_validate(canonical_result["value"])
-                if (
-                    receipt.action_id != stored.id
-                    or receipt.arguments_digest
-                    != stored.execution_contract.input_digest
-                ):
-                    raise ValueError("wait registration identity changed")
-                request = AgentWaitInput.model_validate(stored.payload)
-                if (
-                    receipt.target != request.target
-                    or receipt.state != request.state
-                    or (receipt.deadline - receipt.recorded_at).total_seconds()
-                    != request.timeout_seconds
-                ):
-                    raise ValueError("wait registration differs from admitted request")
-                await _update_action(
-                    connection,
-                    stored.id,
-                    status="queued",
-                    completed_at=None,
-                    result=AgentWaitState(registration_receipt=receipt).model_dump(
-                        mode="json"
-                    ),
                 )
             else:
                 await _update_action(
@@ -2052,11 +2050,6 @@ async def _lock_new_action(
                 and_(
                     action.c.status == "executing",
                     action.c.attempts > 0,
-                    ~(
-                        (action.c.tool_name == "agent.wait")
-                        & action.c.result.is_not(None)
-                        & action.c.result.op("?")("registration_receipt")
-                    ),
                 ),
             ),
         )
@@ -2456,7 +2449,7 @@ def _validate_new_action(
     if contract.tool_effect is not ToolEffect.Write:
         raise ValueError("actions require the Write effect")
     if not historical and (
-        (tool_name in AGENT_WRITE_IDS and tool_name not in AGENT_LOCAL_IDS)
+        (tool_name in AGENT_WRITE_IDS and tool_name != AGENT_DELEGATE_ID)
         or tool_name in WRITE_TOOL_IDS
     ) != (contract.replay_policy is ReplayPolicy.BilledOnce):
         raise ValueError("write action replay policy differs from its tool family")
@@ -2537,10 +2530,7 @@ def _validate_stored_action(stored: StoredAction) -> None:
         # Original bytes remain audit facts; no current tool interprets them.
         return
     if (
-        (
-            stored.tool_name in AGENT_WRITE_IDS
-            and stored.tool_name not in AGENT_LOCAL_IDS
-        )
+        (stored.tool_name in AGENT_WRITE_IDS and stored.tool_name != AGENT_DELEGATE_ID)
         or stored.tool_name in WRITE_TOOL_IDS
     ) != (stored.execution_contract.replay_policy is ReplayPolicy.BilledOnce):
         raise ValueError("write action replay policy differs from its tool family")
@@ -2554,6 +2544,10 @@ def _validate_stored_action(stored: StoredAction) -> None:
             raise ValueError("workspace action identity changed")
         if stored.status == "succeeded":
             _verify_workspace_receipt(stored, _stored_tool_result(stored)["value"])
+    if (stored.tool_name in ("agent.start", AGENT_DELEGATE_ID)) != (
+        stored.current_execution_contract.agent_placement is not None
+    ):
+        raise ValueError("worker placement capture differs from its operation")
     if str(stored.tool_name).startswith("agent."):
         if (
             stored.tool_name not in AGENT_WRITE_IDS
@@ -2562,7 +2556,7 @@ def _validate_stored_action(stored: StoredAction) -> None:
             or stored.execution_contract.replay_policy
             is not (
                 ReplayPolicy.ReDispatchable
-                if stored.tool_name in AGENT_LOCAL_IDS
+                if stored.tool_name == AGENT_DELEGATE_ID
                 else ReplayPolicy.BilledOnce
             )
         ):
@@ -2570,6 +2564,10 @@ def _validate_stored_action(stored: StoredAction) -> None:
         AGENT_INPUT_TYPES[str(stored.tool_name).removeprefix("agent.")].model_validate(
             stored.payload
         )
+        if stored.payload.get("machine") is not None and (
+            stored.agent_placement.machine != stored.payload["machine"]
+        ):
+            raise ValueError("worker placement label differs from its request")
         addressed = stored.payload.get("target")
         captured = stored.agent_target
         if addressed is not None:
@@ -2580,10 +2578,10 @@ def _validate_stored_action(stored: StoredAction) -> None:
             raise ValueError("unaddressed action has captured worker authority")
     if stored.result is not None:
         if (
-            stored.tool_name == ToolId("agent.wait")
+            stored.tool_name == AGENT_DELEGATE_ID
             and "registration_receipt" in stored.result
         ):
-            agent_wait_state(stored)
+            delegation_state(stored)
         elif stored.status == "uncertain":
             _uncertainty_result(stored, stored.result)
         elif stored.status in {"succeeded", "failed"}:
@@ -2635,7 +2633,8 @@ def _stored_tool_result(stored: StoredAction) -> ToolResult:
         return _tool_result(stored.result)
     if set(stored.result) != {"tool_result", "control"}:
         raise ActionPersistenceDefect("invalid private worker receipt")
-    _agent_evidence(stored, stored.result["control"])
+    if not legacy_managed_worker(stored):
+        _agent_evidence(stored, stored.result["control"])
     value = stored.result["tool_result"]
     if not isinstance(value, dict):
         raise ActionPersistenceDefect("invalid private worker receipt")
@@ -2666,6 +2665,10 @@ async def recorded_action_result(
     if stored is None:
         return None
     if isinstance(stored.execution_contract, _ArchivedExecutionContract):
+        if is_registered_delegation(stored):
+            return _registration_result(stored)
+        if legacy_managed_worker(stored) and stored.status in {"succeeded", "failed"}:
+            return _stored_tool_result(stored)
         if (
             stored.tool_name in _RETIRED_WORKSPACE_REVISIONS
             and stored.status in {"succeeded", "failed"}
@@ -2677,21 +2680,19 @@ async def recorded_action_result(
     return action_replay_result(stored)
 
 
+def _registration_result(stored: StoredAction) -> ToolResult:
+    return {
+        "type": "Success",
+        "value": delegation_state(stored).registration_receipt.model_dump(mode="json"),
+    }
+
+
 def action_replay_result(stored: StoredAction) -> ToolResult | None:
     """Return the immutable callback result, independently of later host outcomes."""
     if isinstance(stored.execution_contract, _ArchivedExecutionContract):
         raise ActionPersistenceDefect("archived actions cannot replay")
-    if (
-        stored.tool_name == ToolId("agent.wait")
-        and stored.result is not None
-        and "registration_receipt" in stored.result
-    ):
-        return {
-            "type": "Success",
-            "value": agent_wait_state(stored).registration_receipt.model_dump(
-                mode="json"
-            ),
-        }
+    if is_registered_delegation(stored):
+        return _registration_result(stored)
     if stored.status == "uncertain" and stored.tool_name in WRITE_TOOL_IDS:
         return {
             "type": "Failure",
@@ -2785,7 +2786,12 @@ def _agent_receipt_resolution(
         if stored.result is None
         else validate_stored_agent_evidence(operation, stored.result).observed
     )
-    result = classify_agent_receipt(operation, value, observed)
+    result = classify_agent_receipt(
+        operation,
+        value,
+        observed,
+        machine_id=stored.agent_placement.machine_id if operation == "start" else None,
+    )
     if result is None:
         return "uncertain", agent_uncertainty_result(stored)
     failed = isinstance(result, AgentError)
@@ -2902,6 +2908,16 @@ def terminal_report_pending() -> ColumnElement[bool]:
     )
 
 
+def unfinished_action_or_worker_ack() -> ColumnElement[bool]:
+    return or_(
+        action.c.status.in_(("queued", "executing", "awaiting_approval")),
+        and_(
+            action.c.tool_name == AGENT_DELEGATE_ID,
+            action.c.result.contains({"ack_pending": True}),
+        ),
+    )
+
+
 def retired_worker_predicate(
     tool: ColumnElement[str], revision: ColumnElement[str]
 ) -> ColumnElement[bool]:
@@ -2941,34 +2957,81 @@ def _agent_evidence(stored: StoredAction, value: object) -> None:
     validate_stored_agent_evidence(operation, value)
 
 
-def agent_wait_state(stored: StoredAction) -> AgentWaitState:
-    if stored.tool_name != ToolId("agent.wait"):
-        raise ActionPersistenceDefect("action is not a wait")
-    state = AgentWaitState.model_validate(stored.result)
-    receipt = state.registration_receipt
-    request = AgentWaitInput.model_validate(stored.payload)
-    if (
-        receipt.action_id != stored.id
-        or receipt.arguments_digest != stored.execution_contract.input_digest
-        or receipt.target != request.target
-        or receipt.state != request.state
-        or (receipt.deadline - receipt.recorded_at).total_seconds()
-        != request.timeout_seconds
+def registered_delegation() -> ColumnElement[bool]:
+    return (
+        (action.c.tool_name == AGENT_DELEGATE_ID)
+        & action.c.result.is_not(None)
+        & action.c.result.op("?")("registration_receipt")
+    )
+
+
+class _LegacyDelegationState(DelegationState):
+    machine_id: AgentMachineId | None
+
+
+def legacy_managed_worker(stored: StoredAction) -> bool:
+    return (
+        stored.execution_contract.implementation_revision
+        in _LEGACY_DELEGATION_REVISIONS
+    )
+
+
+def is_registered_delegation(stored: StoredAction) -> bool:
+    return (
+        stored.tool_name == AGENT_DELEGATE_ID
+        and (
+            legacy_managed_worker(stored)
+            or stored.execution_contract.implementation_revision
+            == AGENT_IMPLEMENTATION_REVISION
+        )
+        and stored.result is not None
+        and "registration_receipt" in stored.result
+    )
+
+
+def followup_placement(prior: StoredAction) -> AgentPlacement | None:
+    if not is_registered_delegation(prior):
+        return None
+    state = delegation_state(prior)
+    if isinstance(state, _LegacyDelegationState):
+        if state.machine_id is None:
+            return None
+        return AgentPlacement(machine=state.machine, machine_id=state.machine_id)
+    return prior.agent_placement
+
+
+def delegation_state(stored: StoredAction) -> DelegationState:
+    if legacy_managed_worker(stored):
+        state = _LegacyDelegationState.model_validate(stored.result)
+    elif (
+        stored.execution_contract.implementation_revision
+        == AGENT_IMPLEMENTATION_REVISION
     ):
-        raise ActionPersistenceDefect("wait registration differs from admitted action")
-    if state.wait_outcome is None:
-        valid = stored.status == "queued" and stored.completed_at is None
+        state = DelegationState.model_validate(stored.result)
+        if state.machine != stored.agent_placement.machine:
+            raise ActionPersistenceDefect("delegation label differs from its placement")
     else:
-        expected = (
-            "cancelled" if state.wait_outcome.outcome == "cancelled" else "succeeded"
+        raise ActionPersistenceDefect("unknown registered delegation revision")
+    if (
+        stored.tool_name != AGENT_DELEGATE_ID
+        or state.registration_receipt.job_id != stored.id
+    ):
+        raise ActionPersistenceDefect("recorded delegation differs from its action")
+    expected = (
+        "queued" if state.outcome is None else _JOB_TERMINAL_STATUS[state.outcome.state]
+    )
+    if (
+        stored.status != expected
+        or (state.outcome is None and state.ack_pending)
+        or (state.outcome is not None and state.submission == "unentered")
+        or (state.terminal is not None and state.submission == "unentered")
+        or (
+            isinstance(state, _LegacyDelegationState)
+            and state.submission != "unentered"
+            and state.machine_id is None
         )
-        valid = (
-            stored.status == expected
-            and stored.completed_at == state.wait_outcome.recorded_at
-            and state.wait_outcome.target == receipt.target
-        )
-    if not valid:
-        raise ActionPersistenceDefect("wait lifecycle disagrees with receipt/outcome")
+    ):
+        raise ActionPersistenceDefect("delegation lifecycle disagrees with its state")
     return state
 
 
@@ -2987,26 +3050,26 @@ def action_resolution_text(stored: StoredAction) -> str:
         "status": stored.status,
     }
     if (
-        stored.tool_name == ToolId("agent.wait")
+        stored.tool_name == AGENT_DELEGATE_ID
         and stored.result is not None
         and "registration_receipt" in stored.result
     ):
-        state = agent_wait_state(stored)
-        context.update(
-            type="agent_wait_event_v1",
-            registration=state.registration_receipt.model_dump(mode="json"),
-            result=None
-            if state.wait_outcome is None
-            else state.wait_outcome.model_dump(mode="json"),
+        return json.dumps(
+            {
+                "type": "agent_delegation_result",
+                "request_ref": str(stored.origin_message_id),
+                **delegation_evidence(delegation_state(stored)),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
         )
-    else:
-        context["result"] = _safe_resolution_result(stored)
+    context["result"] = public_resolution_result(stored)
     return json.dumps(
         context, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     )
 
 
-def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
+def public_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
     if stored.status == "uncertain" and str(stored.tool_name) in GMAIL_WRITE_NAMES:
@@ -3114,7 +3177,6 @@ def _compact_agent_observation(
             "target": target,
             "captured": launch.target is not None,
             "creation": launch.creation,
-            "prompt": launch.prompt,
             "failure": None if launch.failure is None else launch.failure.code,
         }
     fields = value.model_dump(mode="json", exclude_none=True)
@@ -3131,15 +3193,6 @@ async def _publish_action_outcome(
     if stored.completed_at is None:
         raise ActionPersistenceDefect("action has no terminal outcome")
     timestamp = stored.completed_at
-    if (
-        stored.tool_name == ToolId("agent.wait")
-        and stored.result is not None
-        and "registration_receipt" in stored.result
-    ):
-        state = agent_wait_state(stored)
-        if state.wait_outcome is None:
-            raise ActionPersistenceDefect("wait event has no outcome")
-        timestamp = state.wait_outcome.recorded_at
     content = action_resolution_text(stored)
     if not content or len(content.encode()) > _MAX_RESOLUTION_TEXT_BYTES:
         raise ActionPersistenceDefect("action resolution exceeds its content bound")

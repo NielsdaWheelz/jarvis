@@ -16,11 +16,12 @@ from zoneinfo import ZoneInfo
 
 from llm_agent_kernel import NativeDispatchLineage
 from llm_tools import InvocationPosition, ToolId, canonical_json_bytes
-from sqlalchemy import String, case, cast, or_, select
+from sqlalchemy import Row, String, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.admission import JarvisOwner
 from jarvis.db import (
+    action,
     message,
     native_attempt,
     native_input_delivery,
@@ -28,7 +29,8 @@ from jarvis.db import (
     proven_native_delivery,
     work,
 )
-from jarvis.messages import latest_control
+from jarvis.event_tools import EmailAdded
+from jarvis.messages import CATCHUP_SOURCE, latest_control, native_retry_evidence
 from jarvis.ownership import lock_conversation
 from jarvis.workspace_checks import (
     CheckRead,
@@ -38,6 +40,7 @@ from jarvis.workspace_checks import (
 from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_mcp import WorkspaceError
 from jarvis.workspace_reads import Token, WorkspaceReadAccess
+from jarvis.workspace_write_models import CalendarWriteReceipt
 
 # Scope-bearing wire selectors. The adapter owns parsing, presentation and paging.
 _READ_CALLS: dict[str, tuple[str, dict[str, str]]] = {
@@ -271,6 +274,10 @@ class WorkspaceHost:
                     message.c.request_state,
                     message.c.processing_parked_at,
                     message.c.home,
+                    message.c.trace,
+                    case((message.c.source == "email_event", message.c.text)).label(
+                        "email_text"
+                    ),
                     case((message.c.source == "work_wake", message.c.text)).label(
                         "wake_text"
                     ),
@@ -297,12 +304,14 @@ class WorkspaceHost:
     async def permits_local_read(
         self, lineage: NativeDispatchLineage, tool: str, arguments: dict[str, Any]
     ) -> bool:
-        """A check can inspect its own todo and the receipts of its current request."""
+        """Limit restricted sessions to local reads for the delivered request."""
         async with self.owner.database.connect() as connection:
             rows = await self._delivered_inputs(connection, lineage)
         for origin in rows:
             refresh = origin.home and origin.home.get("workspace_refresh")
-            if refresh:
+            if origin.role == "host" and origin.source == CATCHUP_SOURCE:
+                todo_id = None
+            elif refresh:
                 todo_id = refresh["todo_id"]
             elif is_workspace_wake(origin.source, origin.wake_text):
                 todo_id = json.loads(origin.wake_text)["record"]["id"]
@@ -317,11 +326,20 @@ class WorkspaceHost:
                 return False
             if tool == "receipt.read":
                 return arguments.get("request_ref") == str(origin.id)
-            return tool == "work.get" and arguments.get("id") == todo_id
+            return (
+                todo_id is not None
+                and tool == "work.get"
+                and arguments.get("id") == todo_id
+            )
         return True
 
     async def read_access(
-        self, lineage: NativeDispatchLineage, tool: str, arguments: dict[str, Any]
+        self,
+        lineage: NativeDispatchLineage,
+        tool: str,
+        arguments: dict[str, Any],
+        *,
+        recovery: bool = False,
     ) -> NativeWorkspaceRead:
         grant = self.enrollment()
         if grant is None:
@@ -343,6 +361,15 @@ class WorkspaceHost:
                         native_attempt.c.request["control_sequence"]
                         .as_integer()
                         .label("control_sequence"),
+                        native_attempt.c.request["recovery_origins"].label(
+                            "recovery_origins"
+                        ),
+                        native_attempt.c.request["recovery_retries"].label(
+                            "recovery_retries"
+                        ),
+                        native_attempt.c.request["recovery_grant"].label(
+                            "recovery_grant"
+                        ),
                     )
                     .join(
                         native_invocation,
@@ -376,6 +403,33 @@ class WorkspaceHost:
             rows = await self._delivered_inputs(connection, lineage)
             if tuple(str(row.id) for row in rows) != tuple(lineage.input_ids):
                 raise WorkspaceError("workspace_input_changed")
+            if recovery:
+                control = await connection.scalar(
+                    select(
+                        func.coalesce(func.max(message.c.control_sequence), 0)
+                    ).where(message.c.source_conversation_id == self.owner.scope_id)
+                )
+                if (
+                    len(rows) != 1
+                    or control != attempt.control_sequence
+                    or attempt.recovery_grant
+                    != {"account": grant.account, "grant_id": str(grant.grant_id)}
+                ):
+                    raise WorkspaceError("workspace_input_changed")
+                row = rows[0]
+                retry = native_retry_evidence(row.trace)
+                original = retry.get("origin_attempt_id")
+                if (
+                    (original is not None and not isinstance(original, str))
+                    or attempt.recovery_origins != {str(row.id): original}
+                    or attempt.recovery_retries
+                    != {str(row.id): retry.get("attempt_id")}
+                ):
+                    raise WorkspaceError("workspace_input_changed")
+                await self._require_recovery_read(
+                    connection, row, grant, tool, arguments, original
+                )
+                return True
             latest = [row for row in rows if row.delivery_id == rows[-1].delivery_id]
             owners = [
                 row
@@ -484,3 +538,72 @@ class WorkspaceHost:
             source_digest,
             require_current,
         )
+
+    async def _require_recovery_read(
+        self,
+        connection: AsyncConnection,
+        origin: Row[Any],
+        grant: WorkspaceEnrollment,
+        tool: str,
+        arguments: dict[str, Any],
+        original: str | None,
+    ) -> None:
+        from jarvis.recovery_catchup import (
+            CatchupStale,
+            catchup_mail_ids,
+        )
+
+        if (
+            not origin.was_waking
+            or origin.request_state not in {"pending", "waiting"}
+            or origin.processing_parked_at is not None
+        ):
+            raise WorkspaceError("workspace_input_changed")
+        if origin.role == "host" and tool == "gmail.get_message":
+            if origin.source == CATCHUP_SOURCE:
+                try:
+                    allowed = await catchup_mail_ids(
+                        connection,
+                        self.owner.scope_id,
+                        origin.id,
+                        grant.account,
+                        grant.grant_id,
+                    )
+                except CatchupStale as error:
+                    raise WorkspaceError("workspace_input_changed") from error
+                if arguments.get("message_id") in allowed:
+                    return
+            elif origin.source == "email_event":
+                event = EmailAdded.model_validate_json(origin.email_text)
+                if (
+                    event.account == grant.account
+                    and arguments.get("message_id") == event.message_id
+                ):
+                    return
+        if (
+            origin.role == "owner"
+            and tool == "calendar.get_event"
+            and original is not None
+        ):
+            results = await connection.scalars(
+                select(action.c.result)
+                .join(native_invocation, native_invocation.c.action_id == action.c.id)
+                .where(
+                    native_invocation.c.attempt_id == UUID(original),
+                    action.c.origin_message_id == origin.id,
+                    action.c.status == "succeeded",
+                    action.c.tool_name.in_(
+                        ("calendar.create_event", "calendar.update_event")
+                    ),
+                    action.c.result["type"].as_string() == "Success",
+                )
+            )
+            for result in results:
+                proof = CalendarWriteReceipt.model_validate(result["value"])
+                if (
+                    proof.account == grant.account
+                    and arguments.get("calendar_id") == proof.calendar_id
+                    and arguments.get("event_id") == proof.event_id
+                ):
+                    return
+        raise WorkspaceError("recovery_read_outside_input")

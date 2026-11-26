@@ -117,6 +117,13 @@ requests retain their original contracts.
 
 ## accepted native recovery and memory availability target
 
+[adr 0114](docs/decisions/0114-automatic-foreground-recovery.md) governs automatic
+foreground recovery. capacity waits stay pending. the journal settles original
+effects from evidence and admits independent read-only recovery when an
+ordinary retry lacks authority. only actual unresolved effects, exhausted
+actionable work and needed intervention warrant a hold. the same-owner stopped
+historical catch-up and the installed cut have separate acceptance.
+
 [adr 0106](docs/decisions/0106-interrupted-answers-and-parked-work.md) amends
 native completion and parking at schema `0023`. a proved superseded assistant
 draft can coexist with a valid final. each parking operation records one private
@@ -533,9 +540,9 @@ through mcp/api. the core source and online installed rollout are qualified with
 the named profile deferrals. nexus memory access is limited to the owner's chats;
 automated helpers receive no shared-memory tools. [adr 0067](docs/decisions/0067-nexus-owner-chat-memory.md) adds a distinct owner-only
 backend client and tagged note attribution. adr 0070 adds the distinct nexus
-capture source without adding a native lane. the current native rollout includes
-`claude-work2` on each host: eighteen native lanes plus `(devbox, jarvis)`.
-the shared library account contract owns that fixed vocabulary.
+capture source without adding a native lane. macbook, arch, devbox and desktop
+each support three codex and three claude accounts. only devbox also runs the jarvis lane. the shared library owns the
+machine and account vocabulary. the private declaration enables individual lanes.
 the current client/capture handoff and remaining private provisioning are in the
 [consumer handoff](docs/issues/nexus-memory-client.md).
 source implementation does not imply installed activation or external client
@@ -1088,7 +1095,9 @@ waking input gets the one delayed fresh opening specified in adr 0086. another
 loss before its own valid disposition parks it for operator repair. model
 computation may repeat. original actions, paid-read barriers and receipts
 survive every opening. `origin_message_id` is a stable root pointer, not
-sufficient recovery authority. parked input remains operator-only.
+sufficient recovery authority. adr 0114 defines eligible automatic
+continuations before quarantine and the exact, separately authorized historical
+catch-up. ordinary scans exclude parked inputs.
 
 public commentary and final output use distinct persisted messages under the
 phase contract in section 4.2. malformed structured output cannot be replaced
@@ -1166,8 +1175,8 @@ Jarvis acts without approval for:
 - Creating, editing, moving, or deleting no-attendee events on an owner-only
   calendar.
 - Creating or cancelling a `schedule.wake`.
-- owner-directed `agent.start`, `agent.send`, `agent.text`, `agent.keys`,
-  `agent.stop`, `agent.close`, `agent.wait` and `agent.cancel_wait`, grounded by
+- owner-directed `agent.delegate`, `agent.start`, `agent.send`, `agent.text`,
+  `agent.keys`, `agent.stop` and `agent.close`, grounded by
   `AutomaticWriteGate`; explicit
   terminal input may answer worker permission dialogs under existing host-user
   authority. short targets select exact terminal controls; close distinguishes
@@ -1379,19 +1388,15 @@ as opaque host reference, canonical tool name, original validated arguments,
 resolved action state, and safe result/evidence. This is sufficient to continue
 after provider-session loss without replaying the original write.
 
-an action-resolution input must produce a visible owner notice, except a batch
-containing only `agent_wait_event_v1` observations and no owner input. main may
-integrate that intermediate evidence silently; mixed owner input, other action
-resolutions and scheduled wakes keep the visible/fallback rule. If Main returns
+an action-resolution input must produce a visible owner notice. If Main returns
 `silent` or fails before a renderable terminal, Jarvis's terminal-finalization
 adapter persists a deterministic host-authored assistant fallback rendered from
 the action ID, tool, resolved state, and safe normalized result, then processes
 the host row. For `uncertain`, that fallback includes the safe reconciliation
 evidence and the required request for owner inspection. The same rule applies to
 a scheduled-wake input, whose fallback includes the stored reminder instruction.
-silence remains valid for ordinary owner turns and the narrowly defined internal
-worker-wait batch. requested reminders and other asynchronous action results
-retain visible delivery.
+silence remains valid for ordinary owner turns. requested reminders and
+asynchronous action results retain visible delivery.
 
 ### 5.5 Gmail drafts and sending
 
@@ -1651,151 +1656,66 @@ pipeline, never a nested agent.
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |
 | `agent.list`, `agent.info`, `agent.read` | Main | peer agent read; automatic |
-| `agent.start`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, `agent.close`, `agent.wait`, `agent.cancel_wait` | Main | peer agent control; v2 source permits automatic use for admitted owner or host requests |
+| `agent.delegate`, `agent.start`, `agent.send`, `agent.text`, `agent.keys`, `agent.stop`, `agent.close` | Main | assignment and explicit terminal controls with current owner authority |
 | `memory.search`, `memory.open`, `memory.view`, `memory.zoom`, `memory.date` | main, dreamer | Read; automatic |
 | `memory.save_note` | main full plan only | admitted local append; no gate/action |
 
-worker control follows [adr 0064](docs/decisions/0064-simple-worker-orchestration.md),
-amended by [adr 0068](docs/decisions/0068-generalized-skid-consumer.md) and
-[adr 0069](docs/decisions/0069-terminal-only-workers.md) and
-[adr 0072](docs/decisions/0072-native-memory-rollout.md).
-all model inputs and outputs are closed. machines are `macbook|dev-server|arch`;
-profiles are `personal|work|work2|claude-work`. addressed inputs contain
-`target:{machine,handle}`: `t-` plus 16 lowercase hexadecimal characters.
-names are labels. no opaque ref or raw provider/process identity is model-facing.
+[adr 0112](docs/decisions/0112-managed-agent-delegation.md) owns managed jobs.
+[adr 0113](docs/decisions/0113-desktop-worker.md) defines the four-name v13
+predecessor. [adr 0114](docs/decisions/0114-skid-worker-placement.md) specifies
+the accepted v14 target. in v14, worker machine names come from the installed
+skid roster. inventory retains healthy and unavailable peers. the selected
+host's applied skid configuration owns its launch profiles. model-visible
+terminal targets are `{machine,handle}`, with `t-` plus 16 lowercase hex
+characters for the handle.
+exact target refs stay private.
 
-| tool | input | fixed skid command |
+| tool | input | skid entry |
 | --- | --- | --- |
-| agent.list | machine?, group?, unassigned?; group/unassigned exclusive | list [--machine …] [--group … or --unassigned] |
-| agent.info | target | info t-HANDLE --machine … |
-| agent.start | machine, profile, name?, cwd?, group?, prompt? | start [name] --machine … --profile … [--cwd/group …] [--stdin] |
-| agent.read | target, maxBytes default 16384/max 32768 | read HANDLE --machine … --max-bytes … |
-| agent.send | target, text | send --ref CAPTURED --stdin |
-| agent.text | terminal target, text | text --ref CAPTURED --stdin |
-| agent.keys | terminal target, 1–16 keys | keys --ref CAPTURED key… |
-| agent.stop | target | stop --ref CAPTURED |
-| agent.close | terminal target, terminal_only default false | close --ref CAPTURED [--terminal-only] |
-| agent.wait | target, observable state default idle, timeout_seconds default 300/1–86400, maxBytes default 16384/max 32768 | durable local registration; watcher uses wait --ref CAPTURED --state … --timeout CHUNK |
-| agent.cancel_wait | action_id | durable local cancellation; no worker mutation |
+| agent.delegate | machine, profile, cwd, brief, model?, effort? or after, brief | job submit/action id; result and ack by the same id and enrolled machine |
+| agent.list | machine?, group?, unassigned?; group/unassigned exclusive | list |
+| agent.info | target | info |
+| agent.start | machine, profile, name?, cwd?, group?, model?, effort? | v14 start without stdin, by captured machine id |
+| agent.read | target, maxBytes default 16384/max 32768 | read |
+| agent.send | target, text | guarded send with captured ref and stdin |
+| agent.text | target, text | explicit text with captured ref and stdin |
+| agent.keys | target, 1–16 keys | keys with captured ref |
+| agent.stop | target | stop with captured ref |
+| agent.close | target, terminal_only default false | close with captured ref |
 
-all cli commands use fixed `--config STATE_DIRECTORY` and `--json`; the directory
-is skid's live installed computer state, never the retired private client json.
-argv uses no shell and minimal
-`PATH=/usr/bin:/bin`, and literal text through stdin. text/prompt is nonempty,
-at most 32768 utf-8 bytes and contains no nul. keys are enter, escape, ctrl-c,
-up, down, left, right, tab, backspace, page-up and page-down. optional name uses
-skid's 1–64 ascii letter/digit/underscore/hyphen grammar, beginning letter/digit.
-creation model/effort overrides are absent and rejected as unknown fields.
-profile commands own provider defaults. initial input may fail after creation; no
-trust/permission dialog is answered automatically.
+in v14, after live request admission, a fresh delegate or start resolves its
+name against one local skid roster snapshot. exactly one enrolled computer
+must match. jarvis commits its private machine handle with the action before
+returning an accepted assignment or executing a start. unknown or ambiguous
+names and unavailable roster reads return a targeting failure and leave no
+queued work. an eligible follow-up in the same causal component inherits the
+prior assignment's machine and worker. the observer uses the capture for
+submission, reconciliation, result pages and acknowledgement. it admits
+external submission under current ownership and pause, and
+holds a result request beyond main's lifetime. it reopens by id after restart
+or disconnect. it atomically saves exact result bytes and one waking message.
+ack follows that transaction. result evidence grants no new write authority.
+`receipt.read` exposes the live terminal when known and pages the exact answer
+using the `worker_answer` selection. a result wake includes up to 8 kib with
+an explicit preview marker when longer.
 
-raw text admission does not guarantee fit in skid's 65536-byte serialized body.
-locally predictable initial-input overflow must reject before creation; exact
-captured-body overflow retains created/not_sent with target. never truncate input.
+skid cli uses fixed `--config` and `--json`; literal text and job requests go
+through stdin. ordinary terminal calls use the existing bounded 20-second
+child and 64 kib output envelope (one mib for inventory). held results use
+35 seconds and the same envelope with digest-verified byte paging. a valid
+partial receipt survives nonzero exit. stderr is discarded. explicit terminal
+controls capture one exact ref. starts capture the machine handle. both
+retain the `BilledOnce` policy.
+a confirmed terminal write establishes only delivery. job submission
+reconciles by its original uuid and pinned host, with replay allowed only
+on authoritative absence under the idempotent reservation protocol.
 
-under the implemented v2 source contract, every worker write requires current
-deployment admission and a delivered live owner or host request. skid resolves
-`info` to one terminal before action insertion. private
-immutable `execution_contract.agent_target` contains the original opaque ref,
-short target and normalized identity. canonical model arguments are validated,
-default-completed `model_dump(mode="json")`, then stored/hashed unchanged; capture
-is separate. all later execution and recovery use original `--ref`.
-there is no independent registry or
-consumer ref codec. read/info resolve afresh. a short terminal handle can follow
-a current pane, while captured effects/waits retain the original pane/session.
-new observations never renew an existing effect. retain observed profile and
-terminal name as context where known; neither supplies target authority.
-worker prose remains evidence, never owner consent.
-all worker operations use terminals. provider-native conversation ids, target
-variants, source selectors, status, methods, turns and finalized results are absent.
-
-skid wire schemas are closed and decoded before compact projection. current
-session status/handles/process fields are validated, then hidden identities are
-omitted from model results. list preserves empty versus partial/unavailable peers;
-info preserves terminal status/unavailability. read preserves bounded prose and
-`source:"terminal"`, `scope:"terminal_history"|"visible"`, `truncated`.
-send/stop/close preserve admission versus terminal dispatch and independent
-interruption/closure facts. output is evidence, never task success or consent.
-
-parse `{ok:true,result}` or `{ok:false,error:{code,dispatch,target?}}`
-before exit status. compound start result is
-`{label,machine,creation,prompt,target?,handle?,terminal?,failure?}`; target and
-handle are jointly present if and only if creation is created; terminal requires
-that same capture and matching label/machine. optionals are omitted, not null;
-additive/contradictory wire records reject. creation is
-not_sent/created/unknown; prompt not_requested/not_sent/written/unknown.
-`created` requires a capture and permits initial input only after full creation
-success. raw facts stay in private action evidence alongside the concise public
-receipt. definite input failure does not erase creation; unknown creation/input
-settles uncertainty. no-prompt creation remains usable.
-wire failure dispatch is strictly not_sent/unknown. the public `AgentFailure`
-also permits sent when a compound failure retains a known effect: created launch,
-written interruption or closed terminal. definite no-effects failure is not_sent;
-unknown creation/input/interruption/closure remains uncertainty. recovery renders
-the public receipt even when private raw control evidence wraps it; failed
-lifecycle never establishes absence of an effect.
-
-stdout drains concurrently with stdin, capped at one mib inventory or 64 kib
-otherwise. stderr is discarded at the descriptor; diagnostics are neither
-captured nor logged. early stdin closure does not erase an owned receipt.
-each child has 20 seconds around skid's 15-second clock; ordinary reads/start have
-20-second tool fences, addressed controls/registration 45 seconds. cleanup stops
-only that cli child. a valid partial/nonzero result is retained.
-
-external worker mutations remain `BilledOnce`, one executor entry and
-max_attempts=1. spawn/preflight failure is not_sent; post-spawn timeout, overflow,
-malformed/lost replies or unknown dispatch are terminal uncertain unless an owned
-receipt proves otherwise. stage known partial evidence as `agent_control_v5`;
-never automatically resend, relaunch or resolve a successor. terminal written
-proves dispatched bytes, never completion or provider acceptance.
-
-recovery classifies conclusive staged evidence through the same ordinary outcome
-rules: success or definite partial/refusal settles without executor entry.
-missing/unknown evidence remains uncertain and publishes a safe event/fallback,
-including when no observation exists. no recovery classification adds executor
-entry or external effects.
-
-local wait/cancel use `ReDispatchable`, two bounded lifetime executor entries and
-zero external mutation attempts. registration commits immutable
-`result.registration_receipt` and immediately returns watching while action
-stays queued. replay returns that receipt independently of later lifecycle.
-`wait_outcome` is null until matched/timeout/target_changed/unavailable/cancelled;
-a terminal outcome and one source-deduplicated ordinary action event commit
-atomically. cancellation commits its own receipt with the original outcome/event,
-leaving worker execution unchanged. first committed outcome wins. a later read
-is independent of the matched sample and retains failure/truncation.
-
-watchers run outside main's mutex, chunk skid waits at 15 seconds under 20-second
-child fences and retain the same ref/deadline across restart. intermediate chunk
-timeouts continue observation without model polling or writes. overall timeout or
-cancellation does not stop the worker or automatically rearm a wait. administrative
-pause suspends observation while the stored deadline continues; v2 parks affected
-requests without suspending registered observations.
-shutdown cancels only read children and joins database work before ownership
-closes. stranded original inputs are closed without replay even if the event
-committed before the original turn settled. under o6, each observation is an
-ordinary host request delivered to main with its full plan. follow-up worker
-input or another wait needs no new owner message. conversational stop preserves
-its named request state and latest owner intent; it does not suspend registered
-observation, interrupt workers or alter grants for future events.
-
-worker implementation is v10. finalized retired worker revisions v1–v9 are
-classified from the common immutable envelope BEFORE current target decoding.
-retain digest/effect/lineage/state/time checks; archived nested target, arguments
-and results remain opaque and unchanged. unknown revisions and malformed v10
-records receive no archive escape. old nonterminal rows
-block activation. drain effects, interrupted turns, required messages and delivery
-under the old release before coordinated cli/catalog cutover. no legacy receipt
-reader, schema migration or new worker table is added. partial fleet evidence
-retains the existing incompleteness/fallback path.
-
-hard cutover qualifies rollback separately: before new receipts, paired
-code/config/artifact rollback follows ordinary stopped checks. selected-only
-retention under adr 0053 requires rebuilding any discarded jarvis release from
-its exact commit. after v9 writes canonical receipts,
-older readers are unqualified; pause, preserve data and forward-repair. whole-state
-restoration must account for new records and external effects. code rollback alone
-is not data rollback; no legacy reader is added to mask that limitation.
+settled v12 and v13 assignments retain their public receipt and paged answer. older
+opaque worker archives retain their original receipts. unfinished incompatible
+work, including pending result acknowledgements, blocks activation and drains
+under its owning release. deploy the qualified skid and jarvis artifacts together. code
+rollback after new receipts requires the stopped operator procedure and
+preserves their exact evidence.
 
 the [f1 contract](docs/mail-calendar-web-reads.md) owns the current mail/calendar/
 web inputs, results, failures, byte bounds and continuation semantics. the
@@ -2026,6 +1946,12 @@ execution and use its ID as their durable effect identity. Canonical message and
 memory transactions are host bookkeeping and do not pass through `llm-tools`.
 
 ### 7.4 Native main and isolated steps
+
+adr 0114 binds restricted recovery to its exact original attempt and input
+delivery before native entry. its frozen plan permits only scoped reads and
+product settlement. the effective native policy disables shell, files, browser,
+children and workers. a failure or restart retains the restriction. completed
+effects retain their original identities and receipts.
 
 main uses the shared `run_native` contract:
 
@@ -2530,8 +2456,10 @@ validation; current request/source/consent fences govern publication separately.
   `native_attempt.recovery_pending`.
 - `processing_parked_at` is nullable `timestamptz` and canonical
   operator-quarantine control. ordinary input scans exclude parked rows until
-  explicit operator repair clears them.
-  `trace` may record a bounded reason code but is never queried as control state.
+  explicit operator repair or an authorized adr 0114 historical disposition
+  clears them. bounded retry provenance in `trace.native_retry` binds eligible
+  continuation to the original journal and current delivery. a diagnostic
+  reason alone never grants admission authority.
 - `control_kind`, monotonic `control_sequence` and exact `control_targets` record
   owner stop/pause/resume. pause truth lives in these canonical rows, not a file.
 - Assistant messages are inserted before delivery. A null `source_message_id` is
@@ -2590,6 +2518,9 @@ approval, execution, reconciliation, and receipts.
 - `execution_contract.agent_target` privately captures an addressed worker's
   original ref and normalized identity before the gate/action insert. execution
   and observation use that capture; a new lookup grants no replacement target.
+- in v14, a start or assignment captures its enrolled machine handle in the
+  same immutable execution contract. the original tool arguments keep the
+  owner's label or prior job id. a replay uses the stored capture.
 - Within that contract, `policy_revision` covers the deterministic authority
   policy and the AutomaticWriteGate definition fingerprint, including its
   prompt, model configuration, and output contract.
@@ -2602,8 +2533,7 @@ approval, execution, reconciliation, and receipts.
 - Host code resolves the current declaration and validates stored arguments and
   execution contract again before approval rendering and execution.
 - `execute_after` is nullable; null means immediately eligible, while a timestamp
-  supports `schedule.wake` without another table; registered worker waits retain
-  their exact deadline in the immutable registration receipt.
+  supports `schedule.wake` without another table.
 - `approval_message_id` is nullable and unique when present. It points to the
   host-owned approval `message` and is required while status is
   `awaiting_approval`.
@@ -2615,12 +2545,9 @@ approval, execution, reconciliation, and receipts.
   reason, or uncertainty evidence without secrets. A create-schedule result
   preserves an immutable `creation_receipt` while its separate `wake_outcome`
   moves from null to the later terminal wake result.
-- `agent.wait` preserves `registration_receipt` unchanged while a separate
-  `wait_outcome` later settles observation. replay returns the original watching
-  receipt. a registered wait permits owner request completion; it is already
-  dispatched local observation, never an unresolved worker mutation. only an
-  unmixed wait-event batch without owner input may settle silently, with null
-  conclusion/response identity and no invented outbox row.
+- `agent.delegate` retains one immutable acceptance receipt alongside
+  its pinned machine, host disposition, exact native result and ack state.
+  commit the result and one source-deduplicated originating wake together.
 - `supersedes_action_id` links a fresh-consent successor to its cancelled original;
   the original arguments, contract and receipts remain immutable. stopping
   cancels unentered work, never an entered effect's settlement obligation.

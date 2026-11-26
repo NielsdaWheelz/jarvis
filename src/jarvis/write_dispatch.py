@@ -52,14 +52,18 @@ from jarvis.actions import (
     ExecutionContract,
     StoredAction,
     action_replay_result,
+    followup_placement,
     retired_worker_action,
     workspace_owner_live,
 )
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import (
-    AGENT_LOCAL_IDS,
+    AGENT_DELEGATE_ID,
     AGENT_WRITE_IDS,
+    AgentDelegateInput,
+    AgentError,
+    AgentStartInput,
     AgentTargetInput,
 )
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
@@ -240,6 +244,33 @@ class WriteToolDispatcher:
         payload = request.arguments
         if await self._actions.is_standing_check(request_id):
             return host_rejected("workspace_check_read_only")
+        arguments = request.model_dump(mode="json")
+        if tool_id in AGENT_WRITE_IDS and request.existing_action_ref is None:
+            linked = await self._actions.action_for_invocation(
+                UUID(lineage.invocation_id)
+            )
+            if linked is not None:
+                require_current_action_binding(linked, plan)
+                if (
+                    linked.tool_name != tool_id
+                    or linked.origin_message_id != request_id
+                    or linked.arguments != arguments
+                ):
+                    raise ToolDispatchDefect("linked worker action changed its request")
+                if linked.status == "queued" and linked.attempts == 0:
+                    if cancellation.cancelled or self._closing:
+                        raise asyncio.CancelledError
+                    result = await execute_recorded_action(
+                        self._actions,
+                        action_id=linked.id,
+                        binding=binding,
+                        plan=plan,
+                        budgets=budgets,
+                        source_conversation_id=self._source_conversation_id,
+                    )
+                    self._agents.delegations.notify_changed()
+                    return result
+                return _existing_action_result(linked)
         grant = (
             self._workspace_grant()
             if tool_id in WRITE_TOOL_IDS
@@ -321,15 +352,33 @@ class WriteToolDispatcher:
             ReplayPolicy.ReDispatchable,
         }:
             raise ToolDispatchDefect("write replay policy has no action contract")
-        arguments = request.model_dump(mode="json")
         if contains_secret(arguments, self._host_secrets):
             return completed_tool_result(dict(_INVALID_INPUT))
-        target = None
-        if tool_id in AGENT_WRITE_IDS and isinstance(payload, AgentTargetInput):
-            target = await self._agents.locate(tool_id, payload)
         authority = classify_write(tool_id, payload)
         if authority == "rejected":
             return completed_tool_result(dict(_UNAVAILABLE))
+        target = None
+        placement = None
+        if tool_id in AGENT_WRITE_IDS and isinstance(payload, AgentTargetInput):
+            target = await self._agents.locate(tool_id, payload)
+        elif isinstance(payload, AgentDelegateInput | AgentStartInput):
+            if isinstance(payload, AgentDelegateInput) and payload.after is not None:
+                prior = next(
+                    (item for item in previous if item.id == payload.after), None
+                )
+                placement = None if prior is None else followup_placement(prior)
+                if placement is None:
+                    placement = AgentError(code="job_not_found", dispatch="not_sent")
+            else:
+                assert payload.machine is not None
+                placement = await self._agents.resolve_machine(payload.machine)
+            if isinstance(placement, AgentError):
+                return completed_tool_result(
+                    {
+                        "type": "Failure",
+                        "error": placement.model_dump(mode="json", exclude_none=True),
+                    }
+                )
 
         async def check_admitted(connection: AsyncConnection) -> None:
             if authorize is not None:
@@ -418,6 +467,7 @@ class WriteToolDispatcher:
             model_step_ordinal=lineage.ordinal,
             input_message_ids=tuple(map(str, lineage.input_ids)),
             agent_target=target,
+            agent_placement=placement,
             workspace=frozen,
             workspace_prepare_attempts=prepare_attempts,
             workspace_prepare_seconds=prepare_seconds,
@@ -476,7 +526,7 @@ class WriteToolDispatcher:
             )
         if staging and not isinstance(result, DispatchSuspended):
             await _discard_mail_stage(self._mail_files, action_id)
-        self._agents.notify_wait_changed()
+        self._agents.delegations.notify_changed()
         return result
 
     def _retention_access(
@@ -634,7 +684,7 @@ class WriteToolDispatcher:
                     mail_files=self._mail_files,
                     plan=plan,
                     source_conversation_id=self._source_conversation_id,
-                    wait_changed=self._agents.notify_wait_changed,
+                    delegation_changed=self._agents.delegations.notify_changed,
                 ).recover_action(
                     action_id,
                     allow_queued_execution=not cancellation.cancelled
@@ -755,7 +805,7 @@ class ActionRecovery:
         mail_files: MailFiles,
         plan: FrozenToolPlan,
         source_conversation_id: str,
-        wait_changed: Callable[[], None],
+        delegation_changed: Callable[[], None],
     ) -> None:
         self._actions = actions
         self._work = work
@@ -764,7 +814,7 @@ class ActionRecovery:
         self._mail_files = mail_files
         self._plan = plan
         self._source_conversation_id = source_conversation_id
-        self._wait_changed = wait_changed
+        self._delegation_changed = delegation_changed
 
     async def recover(self, *, allow_queued_execution: bool = True) -> int:
         if type(allow_queued_execution) is not bool:
@@ -927,7 +977,7 @@ class ActionRecovery:
                 if await self._events.recover_mutation(current.id) is not None:
                     return
             if current.tool_name in (
-                *AGENT_LOCAL_IDS,
+                AGENT_DELEGATE_ID,
                 *WORK_MUTATION_IDS,
                 *EVENT_MUTATION_IDS,
             ):
@@ -971,7 +1021,7 @@ class ActionRecovery:
             budgets=ExactToolBudgetFactory().create(self._plan),
             source_conversation_id=self._source_conversation_id,
         )
-        self._wait_changed()
+        self._delegation_changed()
         return (
             not isinstance(result, DispatchSuspended)
             or (await self._require(action_id)).status != "queued"

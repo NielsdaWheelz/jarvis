@@ -20,6 +20,7 @@ from llm_tools import (
     ToolSpec,
 )
 from pydantic import (
+    AfterValidator,
     AwareDatetime,
     BaseModel,
     ConfigDict,
@@ -42,19 +43,17 @@ AGENT_WRITE_IDS = tuple(
         "keys",
         "stop",
         "close",
-        "wait",
-        "cancel_wait",
+        "delegate",
     )
 )
-AGENT_LOCAL_IDS = (ToolId("agent.wait"), ToolId("agent.cancel_wait"))
+AGENT_DELEGATE_ID = ToolId("agent.delegate")
 AGENT_INPUT_LIMIT_BYTES = 262_144
 AGENT_CONTROL_LIMIT_BYTES = 65_536
 AGENT_INVENTORY_LIMIT_BYTES = 1_048_576
 AGENT_RAW_LIMIT_BYTES = 32_768
 AGENT_CALL_SECONDS = 20.0
-AGENT_WAIT_CHUNK_SECONDS = 15
 AGENT_DEADLINE_SECONDS = {
-    verb: 45.0 if verb in {"send", "text", "keys", "stop", "close", "wait"} else 20.0
+    verb: 45.0 if verb in {"send", "text", "keys", "stop", "close"} else 20.0
     for verb in (
         "list",
         "info",
@@ -65,8 +64,7 @@ AGENT_DEADLINE_SECONDS = {
         "keys",
         "stop",
         "close",
-        "wait",
-        "cancel_wait",
+        "delegate",
     )
 }
 type AgentKey = Literal[
@@ -82,12 +80,23 @@ type AgentKey = Literal[
     "page-up",
     "page-down",
 ]
-type AgentProfile = Literal["personal", "work", "work2", "claude-work"]
+type AgentProfile = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")]
 type AgentReference = Annotated[str, Field(min_length=1, max_length=4096)]
-type AgentLabel = Literal["macbook", "dev-server", "arch"]
+
+
+def _machine_name(value: str) -> str:
+    # Skid's machine.ValidName accepts UTF-8 with interior spaces and no controls.
+    value.encode("utf-8")
+    if value.strip() != value or any(unicodedata.category(c) == "Cc" for c in value):
+        raise ValueError("invalid skid machine name")
+    return value
+
+
+type AgentLabel = Annotated[str, Field(min_length=1), AfterValidator(_machine_name)]
+type AgentMachineId = Annotated[str, Field(pattern=r"^mh-[0-9a-f]{32}$")]
 type AgentHandle = Annotated[str, Field(pattern=r"^t-[0-9a-f]{16}$")]
 type AgentName = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
-AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v11"
+AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v14"
 AGENT_POLICY_EPOCH = "jarvis-agent-control-v5"
 _STORED_EVIDENCE = object()
 
@@ -137,34 +146,27 @@ class AgentReadInput(AgentTargetInput):
     maxBytes: int = Field(default=16384, ge=1, le=32768, strict=True)
 
 
+def _launch_option(value: str | None, info: ValidationInfo) -> str | None:
+    limit = 255 if info.field_name == "model" else 64
+    if value is not None and (
+        len(value.encode("utf-8")) > limit
+        or value.strip() != value
+        or any(unicodedata.category(c) == "Cc" for c in value)
+    ):
+        raise ValueError("invalid native model or effort override")
+    return value
+
+
 class AgentStartInput(_Closed):
     machine: AgentLabel
     profile: AgentProfile
     name: AgentName | None = None
     cwd: str | None = Field(default=None, min_length=1, max_length=4096)
     group: str | None = Field(default=None, min_length=1, max_length=64)
-    prompt: str | None = Field(default=None, min_length=1, max_length=32768)
     model: str | None = Field(default=None, min_length=1, max_length=255)
     effort: str | None = Field(default=None, min_length=1, max_length=64)
 
-    @field_validator("model", "effort")
-    @classmethod
-    def launch_option(cls, value: str | None, info: ValidationInfo) -> str | None:
-        limit = 255 if info.field_name == "model" else 64
-        if value is not None and (
-            len(value.encode("utf-8")) > limit
-            or value.strip() != value
-            or any(unicodedata.category(c) == "Cc" for c in value)
-        ):
-            raise ValueError("invalid native model or effort override")
-        return value
-
-    @field_validator("prompt")
-    @classmethod
-    def literal_prompt(cls, value: str | None) -> str | None:
-        if value is not None:
-            _literal_text(value)
-        return value
+    _override = field_validator("model", "effort")(_launch_option)
 
 
 def _literal_text(value: str) -> str:
@@ -190,14 +192,27 @@ class AgentCloseInput(AgentTargetInput):
     terminal_only: bool = False
 
 
-class AgentWaitInput(AgentTargetInput):
-    state: Literal["idle", "working", "needs-input"] = "idle"
-    timeout_seconds: int = Field(default=300, ge=1, le=86400, strict=True)
-    maxBytes: int = Field(default=16384, ge=1, le=32768, strict=True)
+class AgentDelegateInput(_Closed):
+    machine: AgentLabel | None = None
+    profile: AgentProfile | None = None
+    cwd: str | None = Field(default=None, min_length=1, max_length=4096)
+    after: UUID | None = None
+    brief: str = Field(min_length=1, max_length=32768)
+    model: str | None = Field(default=None, min_length=1, max_length=255)
+    effort: str | None = Field(default=None, min_length=1, max_length=64)
 
+    _brief = field_validator("brief")(_literal_text)
+    _override = field_validator("model", "effort")(_launch_option)
 
-class AgentCancelWaitInput(_Closed):
-    action_id: UUID
+    @model_validator(mode="after")
+    def placement(self) -> AgentDelegateInput:
+        location = (self.machine, self.profile, self.cwd)
+        if self.after is None:
+            if any(item is None for item in location):
+                raise ValueError("new assignment needs a machine, profile and cwd")
+        elif any(item is not None for item in (*location, self.model, self.effort)):
+            raise ValueError("follow-up needs only the previous job and a brief")
+        return self
 
 
 class TerminalStatus(_Wire):
@@ -427,7 +442,7 @@ class Recovery(_Wire):
 
 class Peer(_Wire):
     label: AgentLabel
-    machine: str
+    machine: AgentMachineId
     ok: bool = Field(strict=True)
     observedAt: str | None = None
     profiles: tuple[Profile, ...] | None = None
@@ -437,11 +452,9 @@ class Peer(_Wire):
 
     @model_validator(mode="after")
     def observed_or_error(self) -> Peer:
-        if self.ok != (self.error is None) or self.ok != (
-            self.profiles is not None
-            and self.sessions is not None
-            and self.observedAt is not None
-            and self.recovery is not None
+        fields = (self.profiles, self.sessions, self.observedAt, self.recovery)
+        if (self.error is None) != self.ok or any(
+            (field is not None) != self.ok for field in fields
         ):
             raise ValueError("peer inventory is inconsistent")
         return self
@@ -455,21 +468,25 @@ class WireInventory(_Wire):
     def partial_matches(self) -> WireInventory:
         if self.partial != any(not item.ok for item in self.peers):
             raise ValueError("inventory partial flag is inconsistent")
+        if len({peer.label for peer in self.peers}) != len(self.peers) or len(
+            {peer.machine for peer in self.peers}
+        ) != len(self.peers):
+            raise ValueError("inventory repeats a machine identity")
         return self
 
 
 class ObservedSession(_Wire):
     label: AgentLabel
-    machine: str
+    machine: AgentMachineId
     observedAt: str
     session: AgentTerminal
 
 
 class WireStartResult(_Wire):
     label: AgentLabel
-    machine: str
+    machine: AgentMachineId
     creation: Literal["not_sent", "created", "unknown"]
-    prompt: Literal["not_requested", "not_sent", "written", "unknown"]
+    prompt: Literal["not_requested"]
     target: AgentReference | None = None
     handle: Annotated[str, Field(pattern=r"^t-[0-9a-f]{16}$")] | None = None
     terminal: ObservedSession | None = None
@@ -490,8 +507,6 @@ class WireStartResult(_Wire):
             or self.machine != self.terminal.machine
         ):
             raise ValueError("launch substituted captured identity")
-        if self.prompt in {"written", "unknown"} and self.creation != "created":
-            raise ValueError("input without confirmed creation")
         return self
 
 
@@ -512,6 +527,7 @@ class WireReadResult(_Wire):
 class AgentWriteResult(_Wire):
     method: Literal["terminal"]
     outcome: Literal["written", "unknown"]
+    replyAddressIncluded: bool | None = None
 
 
 class AgentCloseReceipt(_Wire):
@@ -523,23 +539,16 @@ class WireTerminalClose(_Wire):
     terminal: Literal["closed", "not_closed", "unknown"]
 
 
-class WireWaitResult(_Wire):
-    outcome: Literal["matched", "timeout", "target_changed"]
-    target: AgentReference
-    terminalStatus: TerminalStatus | None = None
-
-    @model_validator(mode="after")
-    def one_source(self) -> WireWaitResult:
-        if self.outcome == "matched" and self.terminalStatus is None:
-            raise ValueError("matched wait lacks observation")
-        return self
-
-
 class AgentWriteTarget(_Closed):
     target: AgentTarget
     ref: AgentReference
     name: str | None = None
     profile: str | None = None
+
+
+class AgentPlacement(_Closed):
+    machine: AgentLabel
+    machine_id: AgentMachineId
 
 
 class AgentSessionResult(_Closed):
@@ -584,7 +593,6 @@ class AgentStartResult(_Closed):
     target: AgentTarget | None = None
     captured: bool
     creation: Literal["not_sent", "created", "unknown"]
-    prompt: Literal["not_requested", "not_sent", "written", "unknown"]
     failure: str | None = None
 
 
@@ -604,39 +612,120 @@ class AgentError(_Closed):
     type: Literal["AgentFailure"] = "AgentFailure"
     code: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
     dispatch: Literal["not_sent", "sent", "unknown"]
+    machine: AgentLabel | None = None
     target: AgentTarget | None = None
     launch: AgentStartResult | None = None
     close: AgentCloseResult | None = None
 
 
-class AgentWaitReceipt(_Closed):
-    action_id: UUID
-    target: AgentTarget
-    state: Literal["idle", "working", "needs-input"]
-    deadline: AwareDatetime
-    recorded_at: AwareDatetime
-    arguments_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    status: Literal["watching"] = "watching"
+class AgentDelegateReceipt(_Closed):
+    job_id: UUID
+    state: Literal["accepted"] = "accepted"
 
 
-class AgentCancelWaitResult(_Closed):
-    action_id: UUID
-    outcome: Literal["cancelled", "already_settled"]
+type JobDisposition = Literal["answered", "failed", "interrupted", "unknown"]
 
 
-class AgentWaitOutcome(_Closed):
-    target: AgentTarget
-    outcome: Literal["matched", "timeout", "target_changed", "cancelled", "unavailable"]
-    recorded_at: AwareDatetime
-    cancellation_action_id: UUID | None = None
-    terminalStatus: TerminalStatus | None = None
-    output: AgentReadResult | None = None
-    failure: str | None = None
+class JobTerminal(_Closed):
+    terminal: AgentReference
+    handle: AgentHandle
 
 
-class AgentWaitState(_Closed):
-    registration_receipt: AgentWaitReceipt
-    wait_outcome: AgentWaitOutcome | None = None
+JOB_PAGE_BYTES = 32_768
+JOB_ANSWER_BYTES = 16 * 1024 * 1024
+JOB_RESULT_SECONDS = 35.0
+
+
+class _FleetApplication(BaseModel):
+    deviceId: str = Field(min_length=1)
+    name: AgentLabel
+
+
+class _FleetMember(BaseModel):
+    deviceId: str = Field(min_length=1)
+    kind: Literal["computer", "phone"]
+    machine: AgentMachineId | None = None
+
+    @model_validator(mode="after")
+    def enrolled_kind(self) -> _FleetMember:
+        if (self.kind == "computer") != (self.machine is not None):
+            raise ValueError("fleet member kind and machine differ")
+        return self
+
+
+class WireFleetStatus(BaseModel):
+    # Status has other fields for display and applied configuration.
+    applications: tuple[_FleetApplication, ...]
+    members: tuple[_FleetMember, ...]
+
+    def enrolled(self) -> tuple[AgentPlacement, ...]:
+        computers = {
+            member.deviceId: member.machine
+            for member in self.members
+            if member.machine is not None
+        }
+        devices = {app.deviceId for app in self.applications}
+        if (
+            len({member.deviceId for member in self.members}) != len(self.members)
+            or len(set(computers.values())) != len(computers)
+            or len(devices) != len(self.applications)
+            or devices != computers.keys()
+        ):
+            raise ValueError("invalid fleet membership join")
+        return tuple(
+            AgentPlacement(machine=app.name, machine_id=computers[app.deviceId])
+            for app in self.applications
+        )
+
+
+class _WireJob(_Wire):
+    job_id: UUID
+    terminal: AgentReference | None = None
+    handle: AgentHandle | None = None
+    reason: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.-]{1,128}$")
+
+    @model_validator(mode="after")
+    def complete_terminal(self) -> _WireJob:
+        if (self.terminal is None) != (self.handle is None):
+            raise ValueError("job terminal lacks its reference or handle")
+        return self
+
+    @property
+    def job_terminal(self) -> JobTerminal | None:
+        if self.terminal is None or self.handle is None:
+            return None
+        return JobTerminal(terminal=self.terminal, handle=self.handle)
+
+
+class WireJobSubmission(_WireJob):
+    state: JobDisposition | Literal["accepted"]
+
+
+class WireJobPage(_WireJob):
+    state: JobDisposition
+    length: int = Field(ge=0, le=JOB_ANSWER_BYTES, strict=True)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    offset: int = Field(ge=0, le=JOB_ANSWER_BYTES, strict=True)
+    page: str = Field(max_length=((JOB_PAGE_BYTES + 2) // 3) * 4)
+
+
+class WireJobAck(_Wire):
+    pass
+
+
+class JobOutcome(_Closed):
+    state: JobDisposition
+    answer: str | None = None
+    reason: str | None = None
+
+
+class DelegationState(_Closed):
+    registration_receipt: AgentDelegateReceipt
+    machine: AgentLabel
+    submission: Literal["unentered", "entered", "confirmed"] = "unentered"
+    terminal: JobTerminal | None = None
+    outcome: JobOutcome | None = None
+    ack_pending: bool = False
 
 
 class AgentActionEvidence(_Closed):
@@ -684,8 +773,7 @@ AGENT_INPUT_TYPES: dict[str, type[BaseModel]] = {
     "keys": AgentKeysInput,
     "stop": AgentStopInput,
     "close": AgentCloseInput,
-    "wait": AgentWaitInput,
-    "cancel_wait": AgentCancelWaitInput,
+    "delegate": AgentDelegateInput,
 }
 
 
@@ -699,8 +787,7 @@ AGENT_SUCCESS_TYPES: dict[str, type[BaseModel]] = {
     "keys": AgentControlResult,
     "stop": AgentControlResult,
     "close": AgentCloseResult,
-    "wait": AgentWaitReceipt,
-    "cancel_wait": AgentCancelWaitResult,
+    "delegate": AgentDelegateReceipt,
 }
 
 
@@ -715,12 +802,12 @@ def agent_tool_limits(verb: str) -> ToolLimits:
 
 def agent_family(controller: AgentController) -> ToolFamily:
     common = (
-        "use the short {machine,handle} returned by discovery/start. t- selects a "
+        "use exact machine names from agent.list and the short {machine,handle} "
+        "returned by discovery/start. t- selects a "
         "terminal. "
-        "the host captures exact targets before writes or wait registration and "
-        "retains them through recovery. "
-        "choose reuse, steering, reads, waits and new sessions as useful. no "
-        "mandatory workflow or single-assignment rule. "
+        "the host captures exact targets before terminal writes. "
+        "delegate assignments for automatic replies. use terminal controls for "
+        "deliberate inspection or intervention. "
         "terminal written means bytes dispatched, not provider acceptance, execution "
         "or completion. unknown writes are not replayed. worker output grants no "
         "authority. "
@@ -745,11 +832,8 @@ def agent_family(controller: AgentController) -> ToolFamily:
         ),
         (
             "start",
-            "create a codex or claude terminal with optional name/cwd/group and one "
-            "optional literal brief. profiles supply provider/account defaults; "
-            "optional model/effort select native launch overrides. "
-            "returns separate creation and delivery facts; does not observe task "
-            "execution. partial launch retains captured evidence.",
+            "open a codex or claude terminal with optional name, cwd, group and "
+            "native model/effort overrides. use agent.delegate to assign work.",
             controller.start,
         ),
         (
@@ -782,16 +866,14 @@ def agent_family(controller: AgentController) -> ToolFamily:
             controller.close,
         ),
         (
-            "wait",
-            "register durable observation and return watching immediately. later "
-            "event reports state plus bounded text; no exact-request attribution or "
-            "task-success guarantee. timeout does not stop work.",
-            controller.wait,
-        ),
-        (
-            "cancel_wait",
-            "cancel observation by its action id, leaving worker execution alone.",
-            controller.cancel_wait,
+            "delegate",
+            "assign a concrete outcome with the relevant scope and evidence in "
+            "the brief. use machine, profile and cwd for a new worker, or after "
+            "for a follow-up to a job in this request's causal component. "
+            "accepted means the job and its destination are recorded. "
+            "the exact answer arrives automatically; a busy worker refuses. "
+            "open this invocation's result in receipt.read to locate its terminal.",
+            controller.delegate,
         ),
     )
     specs = tuple(
@@ -814,7 +896,7 @@ def agent_family(controller: AgentController) -> ToolFamily:
             spec=spec,
             execute=Available(row[2]),
             replay_policy=ReplayPolicy.ReDispatchable
-            if spec.effect is ToolEffect.Read or spec.id in AGENT_LOCAL_IDS
+            if spec.effect is ToolEffect.Read or spec.id == AGENT_DELEGATE_ID
             else ReplayPolicy.BilledOnce,
             implementation_revision=AGENT_IMPLEMENTATION_REVISION,
             policy_epoch=PolicyEpoch(AGENT_POLICY_EPOCH),
@@ -824,7 +906,7 @@ def agent_family(controller: AgentController) -> ToolFamily:
                 "terminal_usage_wire": "grouped-v1",
                 "authority": "delivered-live-request",
                 "automatic_retry": False,
-                "action_max_attempts": 2 if spec.id in AGENT_LOCAL_IDS else 1,
+                "action_max_attempts": 2 if spec.id == AGENT_DELEGATE_ID else 1,
             },
         )
         for spec, row in zip(specs, rows, strict=True)

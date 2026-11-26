@@ -1,4 +1,4 @@
-"""Current native messages and the read-only decoder for predecessor seals."""
+"""Current native message and scoped plan contracts."""
 
 from dataclasses import replace
 from typing import Self
@@ -14,7 +14,12 @@ from llm_tools import (
     FrozenToolPlan,
     Native,
     ProfileId,
+    PromptSection,
+    PromptSectionKind,
+    PromptSections,
+    PromptText,
     ToolCatalog,
+    ToolEffect,
     ToolGrant,
     ToolId,
     ToolPlan,
@@ -26,31 +31,91 @@ from jarvis.workspace_checks import WorkspaceResult
 
 NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v5"
 NATIVE_OUTPUT_NAME = "jarvis_home_message_v3"
+WORKSPACE_CHECK_PROFILE = ProfileId("workspace_check")
+FOREGROUND_RECOVERY_PROFILE = ProfileId("foreground_recovery")
 
 
 def workspace_check_native(
-    main: NativeDefinition, catalog: ToolCatalog
+    main: NativeDefinition, main_plan: FrozenToolPlan, catalog: ToolCatalog
 ) -> tuple[NativeDefinition, FrozenToolPlan]:
     """Publish only named check reads inside the provider's contained session."""
-    tools = (
-        "calendar.get_event",
-        "calendar.list_events",
-        "gmail.get_message",
-        "gmail.read_thread",
-        "gmail.search",
-        "receipt.read",
-        "work.get",
+    return _read_only_native(
+        main,
+        main_plan,
+        catalog,
+        WORKSPACE_CHECK_PROFILE,
+        (
+            "calendar.get_event",
+            "calendar.list_events",
+            "gmail.get_message",
+            "gmail.read_thread",
+            "gmail.search",
+            "receipt.read",
+            "work.get",
+        ),
     )
+
+
+def foreground_recovery_native(
+    main: NativeDefinition, main_plan: FrozenToolPlan, catalog: ToolCatalog
+) -> tuple[NativeDefinition, FrozenToolPlan]:
+    instructions = PromptSection(
+        PromptSectionKind("foreground_recovery"),
+        (),
+        PromptText(
+            "recover only the delivered input's independently useful result. "
+            "use original receipts for prior effects. distinguish the missing answer "
+            "from an unknown "
+            "effect. report only observed coverage and keep any request whose outcome "
+            "remains unfinished open. do not propose a new action or publish progress."
+        ),
+    )
+    main = replace(
+        main,
+        role=replace(
+            main.role,
+            instructions=PromptSections(
+                (*main.role.instructions.sections, instructions)
+            ),
+        ),
+    )
+    return _read_only_native(
+        main,
+        main_plan,
+        catalog,
+        FOREGROUND_RECOVERY_PROFILE,
+        (
+            "calendar.get_event",
+            "gmail.get_message",
+            "receipt.read",
+            "web.read",
+            "web.search",
+        ),
+    )
+
+
+def _read_only_native(
+    main: NativeDefinition,
+    main_plan: FrozenToolPlan,
+    catalog: ToolCatalog,
+    profile_id: ProfileId,
+    tools: tuple[str, ...],
+) -> tuple[NativeDefinition, FrozenToolPlan]:
+    tool_ids = tuple(map(ToolId, tools))
+    if any(catalog.spec(tool_id).effect is not ToolEffect.Read for tool_id in tool_ids):
+        raise ValueError("read-only plan includes a non-read tool")
     profile = CapabilityProfile(
-        ProfileId("workspace_check"),
-        tuple(ToolGrant(ToolId(tool), None) for tool in tools),
-        main.maximum_profile.run_limits,
+        profile_id,
+        tuple(
+            ToolGrant(tool_id, main_plan.grant(tool_id).limits) for tool_id in tool_ids
+        ),
+        main_plan.profile.run_limits,
     ).freeze(catalog)
     plan = ToolPlan(profile.id, Native()).freeze(catalog, profile)
-    if not plan.is_tightening_of(main.maximum_profile):
-        raise ValueError("standing-check plan exceeds main authority")
+    if not plan.is_tightening_of(main_plan.profile):
+        raise ValueError("read-only plan exceeds main authority")
     if not isinstance(main.provider, ProviderConfiguration):
-        raise ValueError("standing-check plan requires the stock main template")
+        raise ValueError("read-only plan requires the stock main template")
     provider = replace(
         main.provider,
         cwd=None,
@@ -78,9 +143,6 @@ class JarvisTerminal(terminal.JarvisTerminal):
 
     @classmethod
     def from_seal(cls, name: str, value: object) -> Self:
-        if name == terminal.NATIVE_OUTPUT_NAME:
-            old = terminal.JarvisTerminal.from_seal(name, value)
-            return cls(**old.model_dump(), workspace_result=None)
         if name != NATIVE_OUTPUT_NAME:
             raise ValueError("unrecognized native seal contract")
         return cls.model_validate(value)

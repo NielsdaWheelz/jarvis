@@ -876,10 +876,23 @@ historical evidence remains in adr 0049. its transport is retired; use the
 
 ## skid-only worker cutover
 
+the [v13 desktop cut](decisions/0113-desktop-worker.md) used a four-name roster.
+for the [v14 placement cut](implementation-plan.md#skid-worker-placement),
+drain the selected release's incompatible actions and outstanding result
+acknowledgements before switching the cli and jarvis together. verify the
+required hosts and desktop's existing enrollment through the service account.
+
 [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) retains the
-historical worker transition. current v11 contracts are terminal-only. settled old
-worker rows remain opaque evidence; unfinished incompatible contracts block
+historical worker transition. [adr 0112](decisions/0112-managed-agent-delegation.md)
+owns managed assignments and explicit terminal controls. settled old worker
+rows remain opaque evidence. unfinished incompatible contracts block
 admission and require disposition under their original release.
+
+for a joint release and worker-client change, provide the exact verified client
+through `deploy/activate-release --change "$id" --agent-client "$manifest" "$to"`.
+the manifest carries `owner`, `state`, `executable` and `sha256`. the release hold
+preserves the enrolled state directory and checks the copied binary before
+service startup. the private environment stays under its existing owner.
 
 `JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_STATE_DIRECTORY` select the qualified
 skid cli and enrolled computer's live state. run `deploy/install-private-state --change "$id"` to install the matching executable and prepare `/run/jarvis-skid-state` as a
@@ -1120,6 +1133,7 @@ service stops are independent. select the owning service before stopping it.
 | --- | --- | --- |
 | `memory status` | neither | read-only status |
 | `list-parked` | neither | read-only owner-scope inventory, jarvis with runtime login |
+| `queue-recovery-catchup INVENTORY` | assistant | jarvis with runtime login. queues a named read-only mail report under [adr 0114](decisions/0114-automatic-foreground-recovery.md) |
 | `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
 | `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
 | schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT --generation 2]` | both, assistant key then memory key | full rebuild uses the migrator and `embedding.env`. node-only rebuild uses the runtime login and compactor, with no embedding credential |
@@ -1171,13 +1185,15 @@ from google. leave balances, credential values and context out of the receipt.
 
 ## antigravity release composition
 
-[adr 0111](decisions/0111-native-antigravity-neon.md) keeps database
-`0024`. under named stopped custody, the original release writes the private
+[adr 0111](decisions/0111-native-antigravity-neon.md) keeps the installed
+database revision `0025`. under named stopped custody, the original release writes the private
 native inventory. the target checks retired openings, unsettled seals and
 releasable old retries before native publication. use the original release
 to settle or disposition any listed blocker. retry the same held change with
 the same staged mapping. finalized receipts and the existing shared funding
-hold remain in canonical storage. the selection changes after target checks.
+hold remain in canonical storage. the selection changes after target checks for a release-only cut. a combined
+worker-client change selects the target before its bound installer runs inside
+the same stopped hold. both paths check retired native data before applying.
 a failure after publishing v8 leaves stopped custody and requires forward
 repair, even if the selection still names the original release. each new
 release needs its own staged mapping with that release's executable path.
@@ -1222,6 +1238,32 @@ leave the november 24 calendar case under its recorded hold.
 [incident and digests](issues/compactor-quota-park.md)
 
 ## Restart and recovery
+
+### automatic foreground recovery
+
+settle predecessor seals, active openings and outstanding retries under their
+original release before an adr 0114 activation. activation rejects retired
+executable native requests, including sealed requests with unsettled product.
+settled originals remain available through their recorded receipts.
+
+on the selected recovery release, capacity waits remain quiet and recheck
+on the service wake. a bounded continuation uses the original effects as
+evidence and runs independently answerable work with read-only authority.
+`list-parked` remains the inventory for holds that need intervention. a
+restricted hold is inspection-only under the generic release command.
+
+for the separately authorized historical mail catch-up, refresh the parked
+inventory while the assistant is stopped. pass a private json file with
+`members`, each carrying `id`, `parked_at`, `attempt_id`, and
+`informational_only`. use the recorded timestamp including its offset.
+give mail from a mixed-owner turn or with an unresolved original action
+informational scope. keep the four calendar-turn inputs under their
+original disposition. run
+`jarvis queue-recovery-catchup INVENTORY` through the existing independent
+maintenance wrapper. the command returns the canonical host input id.
+after restart verify the one logical report, the exact coverage
+dispositions and the absence of new executor entries. do not release the
+mail inputs into ordinary full main for this operation.
 
 Startup first reconciles every queued or executing action whose original turn
 cannot safely resume. Each exact current binding and immutable execution

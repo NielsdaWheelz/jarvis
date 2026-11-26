@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # caller runs as root; installation holds /opt/jarvis/.deploy.lock.
 verify_agent_client() {
-  local cli="$1" state="$2" output status=0 options flag
+  local cli="$1" state="$2" python="$3" options flag
+  local -a status
   [[ -f "$cli" && ! -L "$cli" ]]
   [[ "$(stat -c '%U:%G:%a' "$cli")" == root:root:755 ]]
   [[ "$(stat -c '%U:%G:%a' "$state")" == jarvis:jarvis:700 ]]
@@ -10,7 +11,7 @@ verify_agent_client() {
     case ",$options," in *",$flag,"*) ;; *) return 1 ;; esac
   done
   # The real CLI reads the live mounted state under the application's boundary.
-  output="$(systemd-run --quiet --wait --pipe --collect \
+  if systemd-run --quiet --wait --pipe --collect \
     --property=User=jarvis --property=Group=jarvis \
     --property=ProtectHome=true --property=ProtectSystem=strict \
     --property=PrivateTmp=true --property=PrivateDevices=true \
@@ -19,29 +20,42 @@ verify_agent_client() {
     '--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' \
     --property=RuntimeMaxSec=25 \
     /usr/bin/env -i PATH=/usr/bin:/bin \
-    "$cli" --config "$state" list --json </dev/null 2>/dev/null)" || status=$?
-  printf '%s' "$output" | python3 -c '
-import json
+    "$cli" --config "$state" list --json </dev/null 2>/dev/null |
+    "$python" -I -c '
 import sys
 
-value = json.load(sys.stdin)
-assert value["ok"] is True, "worker inventory failed"
-inventory = value["result"]
-peers = inventory["peers"]
-assert len(peers) == 3 and {p["label"] for p in peers} == {
-    "dev-server", "macbook", "arch"
-}, "worker inventory differs from the enrolled fleet"
-failed = [p for p in peers if p["ok"] is False]
-assert inventory["partial"] is bool(failed), "inconsistent partial inventory"
-assert int(sys.argv[1]) == (1 if failed else 0), "unexpected worker exit status"
-for peer in peers:
-    machine = peer["label"]
-    if peer["ok"] is True:
-        print(f"agent gateway read passed: {machine}")
+from jarvis.agent_control import decode_agent_reply
+from jarvis.agent_tools import AGENT_INVENTORY_LIMIT_BYTES, WireInventory
+
+raw = sys.stdin.buffer.read(AGENT_INVENTORY_LIMIT_BYTES + 1)
+try:
+    if len(raw) > AGENT_INVENTORY_LIMIT_BYTES:
+        raise ValueError("worker inventory exceeds transport bound")
+    inventory = decode_agent_reply(raw, WireInventory)
+except ValueError:
+    sys.exit("malformed worker inventory")
+if not isinstance(inventory, WireInventory):
+    sys.exit("worker inventory failed")
+healthy = {peer.label for peer in inventory.peers if peer.ok}
+for peer in inventory.peers:
+    if peer.ok:
+        print(f"agent gateway read passed: {peer.label}")
     else:
-        assert machine == "arch" and peer["error"]["code"] == "unavailable", (
-            "required worker gateway read failed"
-        )
-        print("agent gateway read deferred: arch unavailable")
-' "$status"
+        assert peer.error is not None
+        print(f"agent gateway read deferred: {peer.label} {peer.error.code}")
+if missing := {"dev-server", "macbook"} - healthy:
+    names = ", ".join(sorted(missing))
+    sys.exit(f"required worker gateway read failed: {names}")
+sys.exit(10 if inventory.partial else 0)
+'; then
+    status=("${PIPESTATUS[@]}")
+  else
+    status=("${PIPESTATUS[@]}")
+  fi
+  # Exit 10 from the decoder means valid partial inventory.
+  case "${status[*]}" in
+    "0 0"|"1 10") return 0 ;;
+    *" 0"|*" 10") printf 'unexpected worker exit status\n' >&2 ;;
+  esac
+  return 1
 }

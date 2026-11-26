@@ -37,6 +37,7 @@ from universal_memory.types import (
     Conversation,
     ConversationReceipt,
     Lane,
+    Machine,
     Occurrence,
 )
 
@@ -50,7 +51,7 @@ from jarvis.memory_capture import (
     Sync,
     SyncResult,
 )
-from jarvis.memory_config import Machine, memory_origin
+from jarvis.memory_config import memory_origin
 
 SWEEP_SECONDS = 30
 REVISIT_SECONDS = 3600

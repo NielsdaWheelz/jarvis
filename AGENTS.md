@@ -392,6 +392,9 @@ These instructions govern all work in this repository.
   transport, roster, refs and receipt codecs of
   adrs 0044/0045/0048/0049. cognition uses adr 0065's separate contained stock
   endpoint; its production activation is separate from worker fleet installation.
+- [adr 0113](docs/decisions/0113-desktop-worker.md) owns the v13 predecessor.
+  [adr 0114](docs/decisions/0114-skid-worker-placement.md) owns the accepted v14
+  target. consume skid's roster and bind placement at action admission.
 - [adr 0069](docs/decisions/0069-terminal-only-workers.md) supersedes worker-native
   conversation control/identity and makes worker control terminal-only. adr 0072
   advances the shared binding to v10 and hard-cuts the worker vocabulary to

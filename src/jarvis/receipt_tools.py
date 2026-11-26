@@ -34,10 +34,20 @@ from sqlalchemy.engine import Row, RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from jarvis.action_requests import CanonicalUuid
-from jarvis.actions import recorded_action_result, retired_worker_predicate
+from jarvis.actions import (
+    archived_worker_action,
+    delegation_state,
+    is_registered_delegation,
+    legacy_managed_worker,
+    public_resolution_result,
+    recorded_action,
+    recorded_action_result,
+)
 from jarvis.admission import JarvisOwner
+from jarvis.agent_tools import AGENT_DELEGATE_ID
 from jarvis.connectors import gmail_headers
 from jarvis.db import native_attempt, native_invocation, read_position
+from jarvis.delegation import delegation_evidence
 from jarvis.messages import causal_component_ids
 from jarvis.ownership import lock_conversation
 from jarvis.read_tools import (
@@ -77,9 +87,20 @@ class OpenSelection(Closed):
     expected_digest: Digest | None
 
 
+class WorkerAnswerSelection(Closed):
+    kind: Literal["worker_answer"]
+    job_id: CanonicalUuid
+    offset: Offset
+    max_bytes: Annotated[int, Field(ge=1, le=32768)]
+    expected_digest: Digest | None
+
+
 class ReceiptInput(Closed):
     request_ref: CanonicalUuid
-    selection: Annotated[ListSelection | OpenSelection, Field(discriminator="kind")]
+    selection: Annotated[
+        ListSelection | OpenSelection | WorkerAnswerSelection,
+        Field(discriminator="kind"),
+    ]
 
 
 class Entry(Closed):
@@ -102,16 +123,24 @@ class ListResult(Closed):
     next_cursor: Cursor | None
 
 
-class OpenResult(Closed):
-    kind: Literal["open"]
-    invocation_id: CanonicalUuid
-    part: Part
+class TextPage(Closed):
     digest: Digest
     total_bytes: Offset
     offset: Offset
     end: Offset
     next_offset: Offset | None
     text: str
+
+
+class OpenResult(TextPage):
+    kind: Literal["open"]
+    invocation_id: CanonicalUuid
+    part: Part
+
+
+class WorkerAnswerResult(TextPage):
+    kind: Literal["worker_answer"]
+    job_id: CanonicalUuid
 
 
 class PartUnavailable(Closed):
@@ -121,14 +150,15 @@ class PartUnavailable(Closed):
 type Failure = InvalidCursor | SourceChanged | PartUnavailable | NotFound
 
 
-type ReceiptResult = ListResult | OpenResult
+type ReceiptResult = ListResult | OpenResult | WorkerAnswerResult
 
 SPEC = ToolSpec[ReceiptInput, ReceiptResult, Failure](
     id=RECEIPT_READ_ID,
     summary="page or open original tool observations for a delivered request.",
     documentation=PromptDocument(
         "list up to 50 at a time. previews locate originals. open arguments, result "
-        "or reply by byte range. use the digest on continuation. counts alone "
+        "or reply by byte range, or select worker_answer by the exact job id. "
+        "use the digest on continuation. counts alone "
         "establish no coverage."
     ),
     input_type=ReceiptInput,
@@ -147,10 +177,6 @@ def receipt_scope(scope: str, component: tuple[UUID, ...]):
             array(tuple(map(str, component)))
         ),
         native_invocation.c.tool_id != RECEIPT_READ_ID,
-        retired_worker_predicate(
-            native_invocation.c.tool_id,
-            native_invocation.c.frozen_contract["implementation_revision"].as_string(),
-        ).is_not(True),
     )
 
 
@@ -165,6 +191,21 @@ async def _result(
     connection: AsyncConnection, row: RowMapping
 ) -> dict[str, Any] | None:
     reply: dict[str, Any] = row["reply"] or {}
+    if row["action_id"] is not None and row["tool_id"].startswith(("agent.", "codex.")):
+        stored = await recorded_action(connection, row["action_id"])
+        if stored is not None and is_registered_delegation(stored):
+            return {
+                "type": "Success",
+                "value": delegation_evidence(delegation_state(stored)),
+            }
+        if stored is not None and archived_worker_action(stored):
+            if (
+                legacy_managed_worker(stored)
+                and stored.result is not None
+                and ("control" in stored.result or "tool_result" in stored.result)
+            ):
+                return public_resolution_result(stored)
+            return stored.result
     if reply.get("type") == "local_result":
         return reply["result"]
     if reply.get("kind") == "host":
@@ -370,14 +411,20 @@ async def _list(
     )
 
 
-def _chunk(content: bytes | None, target: OpenSelection) -> HandlerSuccess[OpenResult]:
+def _chunk(
+    content: bytes | None, target: OpenSelection | WorkerAnswerSelection
+) -> HandlerSuccess[OpenResult | WorkerAnswerResult]:
     if content is None:
         raise DeclaredToolFailure(PartUnavailable(), actual_attempts=0)
-    digest = projection_digest(
-        {"invocation_id": target.invocation_id},
-        target.part,
-        hashlib.sha256(content).hexdigest(),
-    )
+    if isinstance(target, WorkerAnswerSelection):
+        source = {"job_id": target.job_id}
+        part = target.kind
+        identity = {"kind": target.kind, **source}
+    else:
+        source = {"invocation_id": target.invocation_id}
+        part = target.part
+        identity = {"kind": target.kind, "part": part, **source}
+    digest = projection_digest(source, part, hashlib.sha256(content).hexdigest())
     if target.expected_digest is None and target.offset:
         raise BoundaryFailure("InvalidInput", actual_attempts=0)
     if target.expected_digest is not None and target.expected_digest != digest:
@@ -388,22 +435,25 @@ def _chunk(content: bytes | None, target: OpenSelection) -> HandlerSuccess[OpenR
             offset=target.offset,
             total_bytes=len(content),
             max_bytes=target.max_bytes,
-            build=lambda text, end, nxt: dict(
-                kind="open",
-                invocation_id=target.invocation_id,
-                part=target.part,
-                digest=digest,
-                total_bytes=len(content),
-                offset=target.offset,
-                end=end,
-                next_offset=nxt,
-                text=text,
-            ),
+            build=lambda text, end, nxt: {
+                **identity,
+                "digest": digest,
+                "total_bytes": len(content),
+                "offset": target.offset,
+                "end": end,
+                "next_offset": nxt,
+                "text": text,
+            },
             max_output_bytes=RESULT_BYTES,
         )
     except ValueError:
         raise BoundaryFailure("InvalidInput", actual_attempts=0) from None
-    return HandlerSuccess(OpenResult.model_validate(chunk), actual_attempts=0)
+    return HandlerSuccess(
+        WorkerAnswerResult.model_validate(chunk)
+        if isinstance(target, WorkerAnswerSelection)
+        else OpenResult.model_validate(chunk),
+        actual_attempts=0,
+    )
 
 
 async def _read(
@@ -444,6 +494,27 @@ async def _read(
                 current,
                 _keys.where(*scope),
             )
+        if isinstance(target, WorkerAnswerSelection):
+            stored = await recorded_action(
+                connection, UUID(target.job_id), source_conversation_id=owner.scope_id
+            )
+            if (
+                stored is None
+                or stored.tool_name != AGENT_DELEGATE_ID
+                or stored.origin_message_id not in component
+            ):
+                raise DeclaredToolFailure(NotFound(), actual_attempts=0)
+            outcome = (
+                delegation_state(stored).outcome
+                if is_registered_delegation(stored)
+                else None
+            )
+            return _chunk(
+                None
+                if outcome is None or outcome.answer is None
+                else outcome.answer.encode(),
+                target,
+            )
         row = (
             (
                 await connection.execute(
@@ -476,7 +547,7 @@ def receipt_family(owner: JarvisOwner) -> ToolFamily:
         spec=SPEC,
         execute=Available(partial(_read, owner)),
         replay_policy=ReplayPolicy.ReDispatchable,
-        implementation_revision="jarvis-receipt-read-v1",
+        implementation_revision="jarvis-receipt-read-v3",
         policy_epoch=PolicyEpoch("jarvis-receipt-v1"),
         policy_inputs={
             "scope": "live-delivered-causal-component",

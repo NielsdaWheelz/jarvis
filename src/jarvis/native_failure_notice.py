@@ -48,12 +48,19 @@ _DRAFT_WRITES = frozenset(
 )
 _HOST_SOURCES = {
     "action": "operation update",
+    "recovery_catchup": "mail catch-up",
     "attachment": "attachment update",
     "email_event": "mail notice",
     "event_status": "event source update",
     "work_wake": "scheduled check",
 }
 _OPENINGS = {
+    "workspace_recovery_grant_changed": (
+        "workspace access changed while i was recovering this work."
+    ),
+    "mail_catchup_inventory_changed": (
+        "the authorized mail inventory changed before the catch-up could finish."
+    ),
     "native_effects_uncertain": (
         "i lost contact with the model and can't confirm what it did."
     ),
@@ -274,5 +281,11 @@ async def record_parking_notice(
             trace={"native_attempt_id": attempt_id} if attempt_id is not None else {},
         )
     )
-    if not check_only:
+    if not check_only and (
+        requests
+        or operations
+        or uncertain
+        or proposals
+        or any(row["source"] != "email_event" for row in inputs)
+    ):
         await enqueue_notice(connection, identifier)

@@ -23,18 +23,25 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+
+internal class TodoVisits : ViewModel() {
+    val reads = mutableMapOf<String, TodoReads>()
+}
 
 class MainActivity : ComponentActivity() {
     private val destination = MutableStateFlow<Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) destination.value = intent.data
+        val initial = intent.data?.let(Routes::parse) ?: Route.Home
+        val todoReads = ViewModelProvider(this)[TodoVisits::class.java].reads
         setContent {
-            val start = Routes.url(Route.Home).toString()
+            val start = Routes.url(initial).toString()
             var trail by rememberSaveable { mutableStateOf(arrayListOf(start)) }
             var alerts by rememberSaveable { mutableStateOf(false) }
             val holder = rememberSaveableStateHolder()
@@ -48,27 +55,29 @@ class MainActivity : ComponentActivity() {
                 onPauseOrDispose { reconciliation.cancel() }
             }
 
+            // a repeated address is a new visit. back restores the actual origin.
+            val visit = "${trail.lastIndex} ${trail.last()}"
+            fun discardVisit() {
+                holder.removeState(visit)
+                todoReads.remove(visit)
+            }
+
             fun navigate(route: Route) {
-                val target = Routes.url(route).toString()
-                if (trail.last() != target) {
-                    val current = Routes.parse(Uri.parse(trail.last()))
-                    val resolved = current == Route.Home ||
-                        (current is Route.Canvas && current.revision == null &&
-                            route is Route.Canvas && route.slug == current.slug) ||
-                        (current is Route.DraftRevision && trail.size == 1 && route == Route.Message(current.messageId))
-                    val previous = trail.indexOf(target)
-                    trail = ArrayList(when {
-                        previous >= 0 -> trail.take(previous + 1)
-                        resolved -> trail.dropLast(1) + target
-                        else -> trail + target
-                    })
-                }
+                trail = ArrayList(trail + Routes.url(route).toString())
                 alerts = false
+            }
+
+            fun resolve(route: Route) {
+                discardVisit()
+                trail = ArrayList(trail.dropLast(1) + Routes.url(route).toString())
             }
 
             fun back() {
                 if (alerts) alerts = false
-                else if (trail.size > 1) trail = ArrayList(trail.dropLast(1))
+                else if (trail.size > 1) {
+                    discardVisit()
+                    trail = ArrayList(trail.dropLast(1))
+                }
             }
 
             LaunchedEffect(incoming) {
@@ -93,10 +102,12 @@ class MainActivity : ComponentActivity() {
                     if (alerts) {
                         Alerts(onBack = ::back)
                     } else {
-                        holder.SaveableStateProvider(trail.last()) {
+                        holder.SaveableStateProvider(visit) {
                             JarvisHome(
                                 route = Routes.parse(Uri.parse(trail.last())) ?: Route.Home,
                                 onNavigate = ::navigate,
+                                onResolve = ::resolve,
+                                todoReads = { todoReads.getOrPut(visit, ::TodoReads) },
                                 onBack = if (trail.size > 1) ::back else null,
                                 onAlerts = { alerts = true }
                             )

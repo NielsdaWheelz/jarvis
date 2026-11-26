@@ -156,6 +156,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0114](0114-skid-worker-placement.md) | skid worker placement | installed. jarvis captures the enrolled machine when admitting a write. |
 | [0115](0115-web-home-address.md) | web home address | accepted. ordinary navigation stays at the bare domain and exact objects keep their links. |
 | [0116](0116-chat-composer-attachments.md) | attach files to the open chat draft | implemented. isolated web, service and handset acceptance passed. installation pending. |
+| [0117](0117-inline-todo-viewer.md) | inline todo viewer | source and isolated candidate qualified for web and android. every active title opens in place. |
 | [0121](0121-exact-chat-draft-revisions.md) | exact draft revisions from chat | immutable revision reader and matched client cut. installed qualification pending. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.

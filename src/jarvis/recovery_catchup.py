@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from jarvis.codex_config import NATIVE_ROUTES
 from jarvis.db import (
     action,
     message,
@@ -22,9 +23,19 @@ from jarvis.db import (
 from jarvis.event_tools import EmailAdded
 from jarvis.events import source_identity
 from jarvis.messages import CATCHUP_SOURCE as RECOVERY_CATCHUP_SOURCE
-from jarvis.messages import append_waking_input, latest_control, parked_inputs
+from jarvis.messages import (
+    append_waking_input,
+    latest_control,
+    native_fault_retry_used,
+    native_retry_evidence,
+    parked_inputs,
+    queue_native_retry,
+)
+from jarvis.native_journal import recover_sealed_turn
 from jarvis.ownership import Database, lock_conversation
+from jarvis.terminal import Answered, Partial
 from jarvis.workspace_checks import workspace_read_receipts
+from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_reads import Failure, MailObservation
 
 MAX_CATCHUP_MESSAGES = 100
@@ -82,6 +93,7 @@ class CatchupCoverage:
     unavailable: int
     pending: int
     retry_after: datetime | None
+    quota_wait: bool
 
 
 def _identity(scope: str, inventory: CatchupInventory) -> str:
@@ -224,6 +236,7 @@ async def _load(
     input_id: UUID,
     *,
     control_sequence: int | None = None,
+    parked_at: datetime | None = None,
 ) -> _CatchupInput:
     row = (
         await connection.execute(
@@ -232,8 +245,9 @@ async def _load(
                 message.c.source_conversation_id == scope,
                 message.c.role == "host",
                 message.c.source == RECOVERY_CATCHUP_SOURCE,
-                message.c.request_state == "pending",
-                message.c.processing_parked_at.is_(None),
+                message.c.request_state
+                == ("waiting" if parked_at is not None else "pending"),
+                message.c.processing_parked_at == parked_at,
             )
         )
     ).one_or_none()
@@ -285,6 +299,152 @@ async def catchup_mail_ids(
     return mail_ids.difference(outcomes)
 
 
+def _quota_deadline(
+    outcomes: dict[str, Literal["observed", "unavailable"]],
+    failures: dict[str, Failure],
+    since: datetime,
+) -> datetime | None:
+    return max(
+        (
+            failure.retry_at
+            for mail, failure in failures.items()
+            if mail not in outcomes
+            and failure.kind == "rate_limited"
+            and failure.retry_at is not None
+            and failure.retry_at > since
+        ),
+        default=None,
+    )
+
+
+async def resume_catchup_quota(
+    database: Database,
+    scope: str,
+    inventory: CatchupInventory,
+    grant: WorkspaceEnrollment,
+) -> UUID:
+    """Resume the same restricted input after an explicitly reviewed protocol hold."""
+    async with database.begin() as connection:
+        await lock_conversation(connection, scope)
+        row = (
+            (
+                await connection.execute(
+                    select(
+                        message.c.id,
+                        message.c.trace,
+                        message.c.processing_parked_at,
+                        message.c.native_retry_after,
+                    ).where(
+                        message.c.source_conversation_id == scope,
+                        message.c.source == RECOVERY_CATCHUP_SOURCE,
+                        message.c.role == "host",
+                        message.c.source_message_id == _identity(scope, inventory),
+                        message.c.request_state == "waiting",
+                        message.c.wait_reason == "configuration",
+                        message.c.processing_parked_at.is_not(None),
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise CatchupStale("the named catch-up is not held for configuration")
+        identifier = row["id"]
+        parks = await parked_inputs(connection, scope, (identifier,))
+        if (
+            len(parks) != 1
+            or parks[0].attempt_id is None
+            or parks[0].reason != "native protocol requires repair"
+        ):
+            raise CatchupStale("the catch-up lacks a corroborated protocol hold")
+        attempt_id = parks[0].attempt_id
+        request = await connection.scalar(
+            select(native_attempt.c.request)
+            .join(
+                native_input_delivery,
+                native_input_delivery.c.attempt_id == native_attempt.c.id,
+            )
+            .where(
+                native_attempt.c.id == attempt_id,
+                native_attempt.c.conversation_id == scope,
+                native_input_delivery.c.message_id == identifier,
+                native_input_delivery.c.was_waking,
+                proven_native_delivery,
+                native_attempt.c.fenced_at.is_not(None),
+                native_attempt.c.product_outcome
+                == {"status": "failed", "reason": parks[0].reason},
+                native_attempt.c.terminal["status"].as_string() == "succeeded",
+            )
+        )
+        prior = native_retry_evidence(row["trace"])
+        if (
+            request is None
+            or request.get("input_ids") != [str(identifier)]
+            or request.get("recovery_origins")
+            != {str(identifier): prior.get("origin_attempt_id")}
+            or request.get("recovery_retries")
+            != {str(identifier): prior.get("attempt_id")}
+            or request.get("recovery_grant")
+            != {"account": grant.account, "grant_id": str(grant.grant_id)}
+            or request.get("route") not in NATIVE_ROUTES
+        ):
+            raise CatchupStale("the held attempt lost its restricted read grant")
+        turn = await recover_sealed_turn(connection, scope, str(attempt_id))
+        if turn is None:
+            raise CatchupStale("missing sealed catch-up attempt")
+        final = turn.decode_final()
+        if (
+            not isinstance(final.response, Answered | Partial)
+            or final.workspace_result is not None
+            or len(final.input_outcomes) != 1
+            or final.input_outcomes[0].input_id != str(identifier)
+            or final.input_outcomes[0].disposition != "continue"
+        ):
+            raise CatchupStale("the sealed catch-up did not request continued coverage")
+        held_at = row["processing_parked_at"]
+        payload = await _load(
+            connection,
+            scope,
+            identifier,
+            control_sequence=request["control_sequence"],
+            parked_at=held_at,
+        )
+        if payload.inventory != inventory or payload.events[0].account != grant.account:
+            raise CatchupStale("the held inventory or mail account changed")
+        outcomes, failures = await _read_evidence(
+            connection,
+            scope,
+            identifier,
+            frozenset(event.message_id for event in payload.events),
+            grant.account,
+            grant.grant_id,
+            attempt_id,
+        )
+        deadline = _quota_deadline(outcomes, failures, held_at)
+        if deadline is None:
+            raise CatchupStale(
+                "no outstanding read has a quota deadline beyond the hold"
+            )
+        await connection.execute(
+            update(message)
+            .where(message.c.id == identifier)
+            .values(processing_parked_at=None)
+        )
+        await queue_native_retry(
+            connection,
+            row,
+            attempt_id=str(attempt_id),
+            route=request["route"],
+            selection="pinned",
+            reason="mail_catchup_quota",
+            read_only=True,
+            fault_retry_used=native_fault_retry_used(row),
+            retry_at=deadline,
+        )
+        return identifier
+
+
 async def settle_catchup(
     connection: AsyncConnection,
     scope: str,
@@ -314,18 +474,18 @@ async def settle_catchup(
     outcomes, retry = await _read_evidence(
         connection, scope, input_id, frozenset(by_mail), account, grant_id, attempt_id
     )
-    retry_after = (
-        max(
+    quota = _quota_deadline(outcomes, retry, timestamp)
+    retry_after = quota
+    if quota is None and allow_retry:
+        retry_after = max(
             (
-                at or (timestamp + timedelta(seconds=30))
-                for mail, at in retry.items()
+                failure.retry_at or (timestamp + timedelta(seconds=30))
+                for mail, failure in retry.items()
                 if mail not in outcomes
+                and (failure.kind != "rate_limited" or failure.retry_at is None)
             ),
             default=None,
         )
-        if allow_retry
-        else None
-    )
     if retry_after is None:
         for mail, outcome in outcomes.items():
             member = by_mail[mail]
@@ -357,6 +517,7 @@ async def settle_catchup(
         unavailable=sum(item == "unavailable" for item in outcomes.values()),
         pending=len(by_mail) - len(outcomes),
         retry_after=max(retry_after, timestamp) if retry_after is not None else None,
+        quota_wait=quota is not None,
     )
 
 
@@ -368,10 +529,10 @@ async def _read_evidence(
     account: str,
     grant_id: UUID,
     attempt_id: UUID | None = None,
-) -> tuple[dict[str, Literal["observed", "unavailable"]], dict[str, datetime | None]]:
+) -> tuple[dict[str, Literal["observed", "unavailable"]], dict[str, Failure]]:
     """Read terminal callback evidence for one input on its unchanged grant."""
     outcomes: dict[str, Literal["observed", "unavailable"]] = {}
-    retry: dict[str, datetime | None] = {}
+    retry: dict[str, Failure] = {}
     rows = await connection.execute(
         workspace_read_receipts(str(grant_id), require_success=False)
         .with_only_columns(
@@ -426,5 +587,5 @@ async def _read_evidence(
             if failure.kind == "not_found" and row.entered > 0:
                 outcomes[mail] = "unavailable"
             elif failure.kind in _RETRYABLE_READS:
-                retry[mail] = failure.retry_at
+                retry[mail] = failure
     return outcomes, retry

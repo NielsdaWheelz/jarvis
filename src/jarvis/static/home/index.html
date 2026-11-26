@@ -12,7 +12,8 @@
     <main id="workspace">
       <header class="bar">
         <a class="wordmark" href="/" aria-label="jarvis home">jarvis</a>
-        <button class="todos-control" type="button">todos</button>
+        <button id="todos-tab" type="button" aria-pressed="false">todos</button>
+        <button id="todo-return" type="button" hidden>back</button>
         <span id="location"></span>
         <button id="sidebar-open" aria-label="open conversation" aria-controls="sidebar">
           conversation
@@ -24,25 +25,18 @@
           <h1 tabindex="-1">todos</h1>
           <div id="todo-list"></div>
           <p id="todo-empty" hidden>no active todos.</p>
-          <div id="todo-pages" hidden>
-            <button id="previous-page" type="button">previous</button>
-            <span id="page-number"></span>
-            <button id="next-page" type="button">next</button>
-          </div>
           <small id="checked"></small>
           <div id="todo-error" role="status" hidden></div>
         </section>
       </section>
       <footer id="object-tools" hidden></footer>
     </main>
-    <aside id="sidebar" aria-label="conversation and work">
+    <aside id="sidebar" aria-label="conversation">
       <header class="bar">
-        <span class="sidebar-title">workspace</span>
+        <span class="sidebar-title">chat</span>
         <button id="sidebar-close" aria-label="close sidebar">close</button>
       </header>
       <nav aria-label="workspace sections">
-        <button id="chat-tab" type="button">chat</button>
-        <button class="todos-control" type="button">todos</button>
         <details id="phone-alerts">
           <summary>phone alerts</summary>
           <p id="phone-status" role="status"></p>
@@ -53,7 +47,6 @@
         <button id="older" hidden>earlier messages</button>
         <div id="messages"></div>
       </section>
-      <section id="records" class="panel" aria-label="work records" hidden></section>
       <section id="workspace-approval" aria-label="google approval" hidden></section>
       <form id="composer">
         <div id="context" hidden>

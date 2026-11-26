@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -63,7 +64,10 @@ import org.json.JSONException
 import org.json.JSONObject
 
 @Composable
-internal fun JarvisHome(route: Route, onNavigate: (Route) -> Unit, onBack: (() -> Unit)?, onAlerts: () -> Unit) {
+internal fun JarvisHome(
+    route: Route, onNavigate: (Route) -> Unit, onResolve: (Route) -> Unit,
+    todoReads: () -> TodoReads, onBack: (() -> Unit)?, onAlerts: () -> Unit,
+) {
     val context = LocalContext.current
     val activity = context as Activity
     val access = remember { Access.get(context) }
@@ -120,13 +124,16 @@ internal fun JarvisHome(route: Route, onNavigate: (Route) -> Unit, onBack: (() -
                 FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     val back = if (chat || showDrafts) closeOverlay else onBack
                     back?.let { TextButton(onClick = it) { Text("back") } }
-                    if (route != Route.Overview || chat || showDrafts) {
-                        TextButton(onClick = {
+                    val todos = route == Route.Overview || route is Route.Todo
+                    val viewingTodos = todos && !chat && !showDrafts
+                    TextButton(
+                        onClick = {
                             chat = false
                             showDrafts = false
-                            if (route != Route.Overview) onNavigate(Route.Overview)
-                        }) { Text("todos") }
-                    }
+                            if (!todos || (viewingTodos && route is Route.Todo)) onNavigate(Route.Overview)
+                        },
+                        modifier = Modifier.semantics { selected = viewingTodos },
+                    ) { Text("todos", style = if (viewingTodos) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge) }
                     if (!chat || showDrafts) TextButton(onClick = {
                         showDrafts = false
                         chat = true
@@ -155,20 +162,19 @@ internal fun JarvisHome(route: Route, onNavigate: (Route) -> Unit, onBack: (() -
                                     Pane { BodyStatus("home unavailable") }
                                 } else {
                                     val selected = DiscussionRef.parse(home.optJSONObject("view")) as? DiscussionRef.Canvas
-                                    LaunchedEffect(selected) { onNavigate(selected?.route() ?: Route.Overview) }
+                                    LaunchedEffect(selected) { onResolve(selected?.route() ?: Route.Overview) }
                                     Pane { BodyStatus("opening home") }
                                 }
                             }
-                            Route.Overview -> Overview(api, reload, signIn, onNavigate)
+                            Route.Overview, is Route.Todo -> TodoViewer((route as? Route.Todo)?.id, todoReads(), api, reload, signIn, onNavigate, newDraft)
                             is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, newDraft) {
                                 chat = true
                             }
                             is Route.DraftRevision -> DraftRevisionPane(
-                                route, api, reload, signIn, onNavigate.takeIf { onBack == null },
+                                route, api, reload, signIn, openColdSource = onResolve.takeIf { onBack == null },
                             )
-                            is Route.Todo -> TodoDetail(route, api, reload, signIn, onNavigate, newDraft)
                             is Route.File -> FilePane(route, api, reload, signIn, newDraft)
-                            is Route.Canvas -> CanvasPane(route, api, reload, signIn, activity, onNavigate, newDraft)
+                            is Route.Canvas -> CanvasPane(route, api, reload, signIn, activity, onResolve, newDraft)
                         }
                     }
                 }
@@ -206,129 +212,6 @@ private fun DraftList(drafts: Drafts, open: (String) -> Unit, newDraft: () -> Un
                         DraftState.Conflict -> "submission conflict"
                         DraftState.Received -> "received"
                     }, style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Overview(api: HomeApi, reload: Pair<Int, Int>, signIn: () -> Unit, navigate: (Route) -> Unit) {
-    var offset by rememberSaveable { mutableIntStateOf(0) }
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    Read(offset, reload, signIn, { api.read("/api/todos?offset=$offset") }) { page ->
-        if (page == null) {
-            Pane { BodyStatus("overview unavailable") }
-            return@Read
-        }
-        val all = page.objects("items")
-        val actualOffset = page.optInt("offset")
-        val total = page.optInt("total")
-        val zone = page.string("timezone")
-        val today = page.getString("today")
-        val backlog = page.optInt("backlog_remaining")
-        val orderedSections = all.groupBy { it.getString("section") }
-        LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            item("heading") { Heading("todos") }
-            if (all.isEmpty()) item("empty") { Text("no active todos") }
-            for ((section, rows) in orderedSections) {
-                item("section-$section") {
-                    Text(
-                        if (section == "backlog") "$backlog in backlog" else section.replace('_', ' '),
-                        Modifier.padding(top = 12.dp).semantics { heading() },
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                val collapsed = section == "backlog" && actualOffset == 0
-                items(if (collapsed && !expanded) rows.take(2) else rows, key = { it.getString("id") }) { todo ->
-                    val due = todo.string("due_date")
-                    val state = todo.getString("state")
-                    val caption = listOfNotNull(
-                        due?.let { (if (it < today) "overdue" else if (it == today) "due today" else "due") + " · " + civilDate(it) },
-                        state.replace('_', ' ').takeIf { state != section },
-                    ).joinToString(" · ")
-                    TextButton(onClick = { navigate(Route.Todo(todo.getString("id"))) }, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.fillMaxWidth()) {
-                            Text(todo.getString("title"), style = MaterialTheme.typography.titleMedium)
-                            if (caption.isNotEmpty()) Text(caption, style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                    HorizontalDivider()
-                }
-                if (collapsed && rows.size > 2) item("disclosure") {
-                    TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "show less" else "show more") }
-                }
-            }
-            if (total > 50) item("paging") {
-                FlowRow {
-                    TextButton(enabled = actualOffset > 0, onClick = {
-                        offset = (actualOffset - 50).coerceAtLeast(0)
-                        expanded = false
-                    }) {
-                        Text("previous page")
-                    }
-                    TextButton(enabled = actualOffset + all.size < total, onClick = {
-                        offset = actualOffset + 50
-                        expanded = false
-                    }) {
-                        Text("next page")
-                    }
-                }
-                Text("${actualOffset + 1}–${actualOffset + all.size} of $total")
-            }
-            item("checked") { BodyStatus("checked ${formattedTime(page.string("as_of"), zone)}") }
-        }
-    }
-}
-
-@Composable
-private fun TodoDetail(
-    route: Route.Todo,
-    api: HomeApi,
-    reload: Pair<Int, Int>,
-    signIn: () -> Unit,
-    navigate: (Route) -> Unit,
-    discuss: (DiscussionRef?) -> Unit,
-) {
-    var before by rememberSaveable { mutableStateOf<String?>(null) }
-    val path = "/api/todos/${route.id}"
-    Read(path, reload, signIn, { api.read(path) }) { data ->
-        val todo = data?.optJSONObject("record")
-        if (todo == null) {
-            Pane { BodyStatus("this todo is no longer available") }
-            return@Read
-        }
-        val zone = data.string("timezone")
-        Pane {
-            Heading(todo.getString("title"))
-            BodyStatus(todo.getString("state").replace('_', ' '))
-            Prose(todo.getString("content"), navigate)
-            todo.string("due_date")?.let { Text("due · ${civilDate(it)}") }
-            todo.string("wake_at")?.let {
-                val past = Instant.parse(it) <= Instant.parse(data.getString("as_of"))
-                Text("jarvis check ${if (past) "was due" else "scheduled for"} ${formattedTime(it, zone)}")
-            }
-            BodyStatus("checked ${formattedTime(data.string("as_of"), zone)}")
-            TextButton(onClick = { discuss(DiscussionRef.Todo(route.id)) }) { Text("discuss this todo") }
-            val resultsPath = "$path/results" + (before?.let { "?before=${Uri.encode(it)}" } ?: "")
-            Read(resultsPath, reload, signIn, { api.read(resultsPath) }) { results ->
-                val items = results?.objects("items").orEmpty()
-                if (before != null || items.isNotEmpty()) {
-                    HorizontalDivider()
-                    Section("linked results")
-                    for (result in items) {
-                        TextButton(onClick = { navigate(Route.Message(result.getString("message_id"))) }) {
-                            Column {
-                                Text(result.getString("label").ifBlank { "open result" })
-                                Text(formattedTime(result.string("at"), zone), style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-                    }
-                    results?.string("next_before")?.let { edge ->
-                        TextButton(onClick = { before = edge }) { Text("earlier results") }
-                    }
-                    if (before != null) TextButton(onClick = { before = null }) { Text("latest results") }
                 }
             }
         }
@@ -542,7 +425,45 @@ internal fun Section(title: String) {
     Text(title, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
 }
 
-private data class Snapshot<T>(val value: T?, val checked: Instant)
+internal class ReadState<T> {
+    var data by mutableStateOf<T?>(null)
+        private set
+    private var checked by mutableStateOf<Instant?>(null)
+    val received get() = checked != null
+    private var error by mutableStateOf<String?>(null)
+    val settled get() = received || error != null
+    private var attempt by mutableIntStateOf(0)
+
+    @Composable
+    fun load(key: Any, reload: Pair<Int, Int>, read: suspend () -> T?) {
+        LaunchedEffect(this, key, reload, attempt) {
+            try {
+                data = read()
+                checked = Instant.now()
+                error = null
+            } catch (_: SignInRequired) {
+                error = "sign in"
+            } catch (_: IOException) {
+                error = "could not refresh"
+            } catch (_: JSONException) {
+                error = "could not read this response"
+            }
+        }
+    }
+
+    @Composable
+    fun status(signIn: () -> Unit, signInLabel: String = "sign in to continue") {
+        val problem = error
+        if (problem != null) {
+            val message = if (problem == "sign in") signInLabel else problem
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                BodyStatus(message + (checked?.let { " · last checked ${formattedTime(it.toString())}" } ?: ""))
+                if (problem == "sign in") TextButton(onClick = signIn) { Text("sign in") }
+                else TextButton(onClick = { attempt++ }) { Text("retry") }
+            }
+        } else if (!received) CircularProgressIndicator(Modifier.padding(20.dp))
+    }
+}
 
 @Composable
 internal fun <T> Read(
@@ -553,32 +474,10 @@ internal fun <T> Read(
     signInLabel: String = "sign in to continue",
     content: @Composable (T?) -> Unit,
 ) {
-    var snapshot by remember(key) { mutableStateOf<Snapshot<T>?>(null) }
-    var error by remember(key) { mutableStateOf<String?>(null) }
-    var attempt by remember(key) { mutableIntStateOf(0) }
-    LaunchedEffect(key, reload, attempt) {
-        try {
-            snapshot = Snapshot(load(), Instant.now())
-            error = null
-        } catch (_: SignInRequired) {
-            error = signInLabel
-        } catch (_: IOException) {
-            error = "could not refresh"
-        } catch (_: JSONException) {
-            error = "could not read this response"
-        }
-    }
-    val current = snapshot
-    val problem = error
-    if (problem != null) {
-        Column(Modifier.padding(horizontal = 20.dp)) {
-            BodyStatus(problem + (current?.let { " · last checked ${formattedTime(it.checked.toString())}" } ?: ""))
-            if (problem == signInLabel) TextButton(onClick = signIn) { Text("sign in") }
-            else TextButton(onClick = { attempt++ }) { Text("retry") }
-        }
-    }
-    if (current != null) content(current.value)
-    else if (problem == null) CircularProgressIndicator(Modifier.padding(20.dp))
+    val state = remember(key) { ReadState<T>() }
+    state.load(key, reload, load)
+    state.status(signIn, signInLabel)
+    if (state.received) content(state.data)
 }
 
 internal fun formattedTime(value: String?, timezone: String? = null): String {
@@ -588,7 +487,7 @@ internal fun formattedTime(value: String?, timezone: String? = null): String {
         .withZone(zone).format(Instant.parse(value))
 }
 
-private fun civilDate(value: String): String =
+internal fun civilDate(value: String): String =
     LocalDate.parse(value).format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
 
 private val LinkStart = Regex(

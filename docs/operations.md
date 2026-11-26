@@ -868,9 +868,16 @@ historical evidence remains in adr 0049. its transport is retired; use the
 ## skid-only worker cutover
 
 [adr 0052](decisions/0052-cut-worker-control-to-current-skid.md) retains the
-historical worker transition. current v11 contracts are terminal-only. settled old
-worker rows remain opaque evidence; unfinished incompatible contracts block
+historical worker transition. [adr 0112](decisions/0112-managed-agent-delegation.md)
+owns managed assignments and explicit terminal controls. settled old worker
+rows remain opaque evidence. unfinished incompatible contracts block
 admission and require disposition under their original release.
+
+for a joint release and worker-client change, provide the exact verified client
+through `deploy/activate-release --change "$id" --agent-client "$manifest" "$to"`.
+the manifest carries `owner`, `state`, `executable` and `sha256`. the release hold
+preserves the enrolled state directory and checks the copied binary before
+service startup. the private environment stays under its existing owner.
 
 `JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_STATE_DIRECTORY` select the qualified
 skid cli and enrolled computer's live state. run `deploy/install-private-state --change "$id"` to install the matching executable and prepare `/run/jarvis-skid-state` as a

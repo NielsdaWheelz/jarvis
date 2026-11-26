@@ -660,7 +660,7 @@ async def _serve(
                         mail_files=composition.mail_files,
                         plan=definitions.plans["main"],
                         source_conversation_id=settings.owner_scope,
-                        wait_changed=agents.notify_wait_changed,
+                        delegation_changed=agents.delegations.notify_changed,
                     )
 
                     async def recover_original(
@@ -734,7 +734,7 @@ async def _serve(
                         dreamer=dreamer,
                         action_plan=definitions.plans["main"],
                         action_recovery=action_recovery,
-                        agent_waits=agents,
+                        delegations=agents.delegations,
                         dispatch_lane=dispatch_lane,
                         work_timer=work_timer,
                         event_poller=composition.event_poller,
@@ -744,6 +744,7 @@ async def _serve(
                     events.notify_input = service.request_work
                     if shutdown.is_set():
                         return
+                    await actions.require_worker_cutover_drained()
                     recovered_actions = await recover_startup_actions(
                         action_recovery=action_recovery,
                         paused=paused,

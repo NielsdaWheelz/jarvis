@@ -58,7 +58,7 @@ from jarvis.actions import (
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import (
-    AGENT_LOCAL_IDS,
+    AGENT_DELEGATE_ID,
     AGENT_WRITE_IDS,
     AgentTargetInput,
 )
@@ -476,7 +476,7 @@ class WriteToolDispatcher:
             )
         if staging and not isinstance(result, DispatchSuspended):
             await _discard_mail_stage(self._mail_files, action_id)
-        self._agents.notify_wait_changed()
+        self._agents.delegations.notify_changed()
         return result
 
     def _retention_access(
@@ -634,7 +634,7 @@ class WriteToolDispatcher:
                     mail_files=self._mail_files,
                     plan=plan,
                     source_conversation_id=self._source_conversation_id,
-                    wait_changed=self._agents.notify_wait_changed,
+                    delegation_changed=self._agents.delegations.notify_changed,
                 ).recover_action(
                     action_id,
                     allow_queued_execution=not cancellation.cancelled
@@ -755,7 +755,7 @@ class ActionRecovery:
         mail_files: MailFiles,
         plan: FrozenToolPlan,
         source_conversation_id: str,
-        wait_changed: Callable[[], None],
+        delegation_changed: Callable[[], None],
     ) -> None:
         self._actions = actions
         self._work = work
@@ -764,7 +764,7 @@ class ActionRecovery:
         self._mail_files = mail_files
         self._plan = plan
         self._source_conversation_id = source_conversation_id
-        self._wait_changed = wait_changed
+        self._delegation_changed = delegation_changed
 
     async def recover(self, *, allow_queued_execution: bool = True) -> int:
         if type(allow_queued_execution) is not bool:
@@ -927,7 +927,7 @@ class ActionRecovery:
                 if await self._events.recover_mutation(current.id) is not None:
                     return
             if current.tool_name in (
-                *AGENT_LOCAL_IDS,
+                AGENT_DELEGATE_ID,
                 *WORK_MUTATION_IDS,
                 *EVENT_MUTATION_IDS,
             ):
@@ -971,7 +971,7 @@ class ActionRecovery:
             budgets=ExactToolBudgetFactory().create(self._plan),
             source_conversation_id=self._source_conversation_id,
         )
-        self._wait_changed()
+        self._delegation_changed()
         return (
             not isinstance(result, DispatchSuspended)
             or (await self._require(action_id)).status != "queued"

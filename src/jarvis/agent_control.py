@@ -4,17 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Never, cast
 from uuid import UUID
 
-from llm_agent_kernel import CancellationToken
 from llm_tools import (
     DeclaredToolFailure,
     ExecutionContext,
-    FrozenToolPlan,
     HandlerSuccess,
     ToolId,
 )
@@ -24,14 +20,13 @@ from jarvis.agent_tools import (
     AGENT_CALL_SECONDS,
     AGENT_CONTROL_LIMIT_BYTES,
     AGENT_INVENTORY_LIMIT_BYTES,
-    AGENT_WAIT_CHUNK_SECONDS,
     AgentActionEvidence,
-    AgentCancelWaitInput,
-    AgentCancelWaitResult,
     AgentCloseInput,
     AgentCloseReceipt,
     AgentCloseResult,
     AgentControlResult,
+    AgentDelegateInput,
+    AgentDelegateReceipt,
     AgentError,
     AgentInfoInput,
     AgentInfoResult,
@@ -49,9 +44,6 @@ from jarvis.agent_tools import (
     AgentStopInput,
     AgentTarget,
     AgentTargetInput,
-    AgentWaitInput,
-    AgentWaitOutcome,
-    AgentWaitReceipt,
     AgentWriteResult,
     AgentWriteTarget,
     ObservedSession,
@@ -60,11 +52,11 @@ from jarvis.agent_tools import (
     WireReadResult,
     WireStartResult,
     WireTerminalClose,
-    WireWaitResult,
 )
+from jarvis.delegation import Delegations
 
 if TYPE_CHECKING:
-    from jarvis.actions import ActionStore, StoredAction
+    from jarvis.actions import ActionStore
 
 
 class AgentOutcomeUnknown(RuntimeError):
@@ -104,9 +96,7 @@ def classify_agent_receipt(
     if isinstance(observed, WireStartResult):
         if operation != "start" or not isinstance(value, AgentStartInput):
             raise ValueError("foreign launch receipt")
-        if observed.label != value.machine or (observed.prompt == "not_requested") != (
-            value.prompt is None
-        ):
+        if observed.label != value.machine:
             raise ValueError("launch receipt differs from request")
         projected = AgentStartResult(
             machine=observed.label,
@@ -115,16 +105,11 @@ def classify_agent_receipt(
             else AgentTarget(machine=observed.label, handle=observed.handle),
             captured=observed.target is not None,
             creation=observed.creation,
-            prompt=observed.prompt,
             failure=None if observed.failure is None else observed.failure.code,
         )
-        if observed.creation == "unknown" or observed.prompt == "unknown":
+        if observed.creation == "unknown":
             return None
-        if (
-            observed.creation != "created"
-            or observed.prompt == "not_sent"
-            or observed.failure is not None
-        ):
+        if observed.creation != "created" or observed.failure is not None:
             return AgentError(
                 code="launch_incomplete"
                 if observed.failure is None
@@ -230,9 +215,9 @@ class AgentController:
         self.state_directory = state_directory
         self._actions = actions
         self.source_conversation_id = source_conversation_id
-        self._wait_changed = asyncio.Event()
+        self.delegations = Delegations(self, actions, source_conversation_id)
 
-    async def _call[T: BaseModel](
+    async def call[T: BaseModel](
         self,
         argv: list[str],
         model: type[T],
@@ -240,13 +225,15 @@ class AgentController:
         text: str | None = None,
         write: bool = False,
         inventory: bool = False,
+        deadline_seconds: float = AGENT_CALL_SECONDS,
     ) -> T | WireFailure:
+        state = ["--config", str(self.state_directory)]
+        fleet_status = argv == ["status"]
+        arguments = [*argv, *state] if argv[0] in {"job", "status"} else [*state, *argv]
         try:
             process = await asyncio.create_subprocess_exec(
                 str(self.cli_path),
-                "--config",
-                str(self.state_directory),
-                *argv,
+                *arguments,
                 "--json",
                 stdin=asyncio.subprocess.PIPE
                 if text is not None
@@ -259,7 +246,7 @@ class AgentController:
             return WireFailure(code="unavailable", dispatch="not_sent")
         stdout_task: asyncio.Task[bytes] | None = None
         try:
-            async with asyncio.timeout(AGENT_CALL_SECONDS):
+            async with asyncio.timeout(deadline_seconds):
                 assert process.stdout is not None
                 stdout_task = asyncio.create_task(
                     _read(
@@ -279,6 +266,8 @@ class AgentController:
                     finally:
                         process.stdin.close()
                 decoded = _closed_json(await stdout_task)
+                if fleet_status:
+                    return model.model_validate(decoded)
                 if not isinstance(decoded, dict):
                     raise ValueError("invalid skid envelope")
                 value = cast(dict[str, object], decoded)
@@ -344,7 +333,7 @@ class AgentController:
         self, tool_id: ToolId, value: AgentTargetInput
     ) -> AgentWriteTarget:
         target = value.target
-        observed = await self._call(
+        observed = await self.call(
             ["info", target.handle, "--machine", target.machine], ObservedSession
         )
         if (
@@ -414,7 +403,7 @@ class AgentController:
             argv += ["--group", value.group]
         if value.unassigned:
             argv += ["--unassigned"]
-        result = await self._call(argv, WireInventory, inventory=True)
+        result = await self.call(argv, WireInventory, inventory=True)
         if isinstance(result, WireFailure):
             self._failure(result)
         peers = tuple(
@@ -436,7 +425,7 @@ class AgentController:
         self, value: AgentInfoInput, context: ExecutionContext | None = None
     ) -> HandlerSuccess[AgentInfoResult]:
         target = value.target
-        result = await self._call(
+        result = await self.call(
             ["info", target.handle, "--machine", target.machine], ObservedSession
         )
         if isinstance(result, WireFailure):
@@ -451,7 +440,7 @@ class AgentController:
         self, value: AgentReadInput, context: ExecutionContext | None = None
     ) -> HandlerSuccess[AgentReadResult]:
         target = value.target
-        result = await self._call(
+        result = await self.call(
             [
                 "read",
                 target.handle,
@@ -485,9 +474,7 @@ class AgentController:
         ):
             if item is not None:
                 argv += ["--" + flag, item]
-        if value.prompt is not None:
-            argv += ["--stdin"]
-        result = await self._call(argv, WireStartResult, text=value.prompt, write=True)
+        result = await self.call(argv, WireStartResult, write=True)
         projected = await self._receipt("start", value, result, context)
         assert isinstance(projected, AgentStartResult)
         return HandlerSuccess(projected, actual_attempts=1)
@@ -506,7 +493,7 @@ class AgentController:
         if text is not None:
             argv += ["--stdin"]
         argv += list(keys)
-        result = await self._call(argv, AgentWriteResult, text=text, write=True)
+        result = await self.call(argv, AgentWriteResult, text=text, write=True)
         projected = await self._receipt(operation, value, result, context)
         assert isinstance(projected, AgentControlResult)
         return HandlerSuccess(projected, actual_attempts=1)
@@ -535,7 +522,7 @@ class AgentController:
         self, value: AgentCloseInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentCloseResult]:
         captured = await self._target(value, context)
-        result = await self._call(
+        result = await self.call(
             [
                 "close",
                 "--ref",
@@ -554,211 +541,17 @@ class AgentController:
         assert isinstance(projected, AgentCloseResult)
         return HandlerSuccess(projected, actual_attempts=1)
 
-    async def wait(
-        self, value: AgentWaitInput, context: ExecutionContext
-    ) -> HandlerSuccess[AgentWaitReceipt]:
-        await self._target(value, context)
-        stored = await self._actions.get(self._effect_id(context))
-        assert stored is not None
-        now = datetime.now(UTC)
-        return HandlerSuccess(
-            AgentWaitReceipt(
-                action_id=self._effect_id(context),
-                target=value.target,
-                state=value.state,
-                deadline=now + timedelta(seconds=value.timeout_seconds),
-                recorded_at=now,
-                arguments_digest=stored.execution_contract.input_digest,
-            ),
-            actual_attempts=0,
-        )
-
-    async def cancel_wait(
-        self, value: AgentCancelWaitInput, context: ExecutionContext
-    ) -> HandlerSuccess[AgentCancelWaitResult]:
-        target = await self._actions.get(value.action_id)
-        if target is None or str(target.tool_name) != "agent.wait":
-            raise DeclaredToolFailure(
-                AgentError(code="wait_not_found", dispatch="not_sent"),
-                actual_attempts=0,
-            )
-        cancelled = await self._actions.cancel_agent_wait(
-            value.action_id,
-            cancellation_action_id=self._effect_id(context),
+    async def delegate(
+        self, value: AgentDelegateInput, context: ExecutionContext
+    ) -> HandlerSuccess[AgentDelegateReceipt]:
+        receipt = await self._actions.register_delegation(
+            self._effect_id(context),
+            value,
             source_conversation_id=self.source_conversation_id,
         )
-        return HandlerSuccess(
-            AgentCancelWaitResult(
-                action_id=value.action_id,
-                outcome="cancelled" if cancelled else "already_settled",
-            ),
-            actual_attempts=0,
-        )
-
-    async def observe_wait(self, stored: StoredAction) -> AgentWaitOutcome | None:
-        from jarvis.actions import agent_wait_state
-
-        state = agent_wait_state(stored)
-        request = AgentWaitInput.model_validate(stored.payload)
-        captured = stored.agent_target
-        if captured is None:
-            raise RuntimeError("wait lacks immutable target")
-        now = datetime.now(UTC)
-        remaining = (state.registration_receipt.deadline - now).total_seconds()
-        if remaining <= 0:
-            return AgentWaitOutcome(
-                target=request.target, outcome="timeout", recorded_at=now
+        if receipt is None:
+            raise DeclaredToolFailure(
+                AgentError(code="job_not_found", dispatch="not_sent"),
+                actual_attempts=0,
             )
-        result = await self._call(
-            [
-                "wait",
-                "--ref",
-                captured.ref,
-                "--state",
-                request.state,
-                "--timeout",
-                f"{min(AGENT_WAIT_CHUNK_SECONDS, remaining):.6f}s",
-            ],
-            WireWaitResult,
-        )
-        if isinstance(result, WireFailure):
-            return AgentWaitOutcome(
-                target=request.target,
-                outcome="unavailable",
-                recorded_at=datetime.now(UTC),
-                failure=result.code,
-            )
-        if result.target != captured.ref:
-            raise RuntimeError("wait substituted captured target")
-        if (
-            result.outcome == "timeout"
-            and datetime.now(UTC) < state.registration_receipt.deadline
-        ):
-            return None
-        output = None
-        failure = None
-        if result.outcome == "matched":
-            read = await self._call(
-                ["read", "--ref", captured.ref, "--max-bytes", str(request.maxBytes)],
-                WireReadResult,
-            )
-            if isinstance(read, WireFailure):
-                failure = read.code
-            else:
-                output = _output(request.target, read)
-        return AgentWaitOutcome(
-            target=request.target,
-            outcome=result.outcome,
-            recorded_at=datetime.now(UTC),
-            terminalStatus=result.terminalStatus,
-            output=output,
-            failure=failure,
-        )
-
-    def notify_wait_changed(self) -> None:
-        self._wait_changed.set()
-
-    async def run_waits(
-        self,
-        cancellation: CancellationToken,
-        *,
-        paused: Callable[[], Awaitable[bool]],
-        plan: FrozenToolPlan,
-        on_event: Callable[[], None],
-    ) -> None:
-        from jarvis.write_dispatch import require_current_action_binding
-
-        tasks: dict[UUID, tuple[asyncio.Task[None], CancellationToken]] = {}
-        try:
-            if await self._actions.publish_agent_wait_events(
-                source_conversation_id=self.source_conversation_id
-            ):
-                on_event()
-            while not cancellation.cancelled:
-                self._wait_changed.clear()
-                for action_id, (task, _) in tuple(tasks.items()):
-                    if task.done():
-                        task.result()
-                        del tasks[action_id]
-                inactive = await paused()
-                active = (
-                    ()
-                    if inactive
-                    else await self._actions.active_agent_waits(
-                        source_conversation_id=self.source_conversation_id
-                    )
-                )
-                selected = {value.id for value in active}
-                for action_id, (_, token) in tasks.items():
-                    if action_id not in selected:
-                        token.cancel()
-                for stored in active:
-                    if stored.id not in tasks:
-                        require_current_action_binding(stored, plan)
-                        token = CancellationToken()
-                        tasks[stored.id] = (
-                            asyncio.create_task(
-                                self._watch_wait(stored.id, token, on_event),
-                                name=f"jarvis-agent-wait-{stored.id}",
-                            ),
-                            token,
-                        )
-                changed = asyncio.create_task(self._wait_changed.wait())
-                stopped = asyncio.create_task(cancellation.wait())
-                elapsed = asyncio.create_task(asyncio.sleep(5))
-                try:
-                    await asyncio.wait(
-                        {changed, stopped, elapsed}, return_when=asyncio.FIRST_COMPLETED
-                    )
-                finally:
-                    for task in (changed, stopped, elapsed):
-                        task.cancel()
-                    await asyncio.gather(
-                        changed, stopped, elapsed, return_exceptions=True
-                    )
-        finally:
-            for _, token in tasks.values():
-                token.cancel()
-            results = await asyncio.gather(
-                *(task for task, _ in tasks.values()), return_exceptions=True
-            )
-            for result in results:
-                if isinstance(result, BaseException):
-                    raise result
-
-    async def _watch_wait(
-        self,
-        action_id: UUID,
-        cancellation: CancellationToken,
-        on_event: Callable[[], None],
-    ) -> None:
-        while not cancellation.cancelled:
-            stored = await self._actions.get(action_id)
-            if stored is None or stored.status != "queued":
-                return
-            observe = asyncio.create_task(self.observe_wait(stored))
-            stopped = asyncio.create_task(cancellation.wait())
-            try:
-                done, _ = await asyncio.wait(
-                    {observe, stopped}, return_when=asyncio.FIRST_COMPLETED
-                )
-                if stopped in done:
-                    # Only read-only CLI processes, never database work.
-                    observe.cancel()
-                    await asyncio.gather(observe, return_exceptions=True)
-                    return
-                outcome = observe.result()
-            finally:
-                if not observe.done():
-                    observe.cancel()
-                    await asyncio.gather(observe, return_exceptions=True)
-                stopped.cancel()
-                await asyncio.gather(stopped, return_exceptions=True)
-            if outcome is not None:
-                if await self._actions.finish_agent_wait(
-                    action_id,
-                    outcome,
-                    source_conversation_id=self.source_conversation_id,
-                ):
-                    on_event()
-                return
+        return HandlerSuccess(receipt, actual_attempts=0)

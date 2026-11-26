@@ -12,8 +12,8 @@ from uuid import UUID
 from llm_agent_kernel import CancellationToken
 from llm_tools import FrozenToolPlan
 
-from jarvis.agent_control import AgentController
 from jarvis.attachments import AttachmentStore, WebUpload
+from jarvis.delegation import Delegations
 from jarvis.event_polling import EventPoller
 from jarvis.fcm import FcmSender
 from jarvis.home_notices import deliver_pending
@@ -67,7 +67,7 @@ class JarvisService:
         dreamer: BackgroundWorkerPort,
         action_plan: FrozenToolPlan,
         action_recovery: ActionRecoveryPort,
-        agent_waits: AgentController,
+        delegations: Delegations,
         dispatch_lane: asyncio.Lock,
         memory: MemoryService,
         work_timer: WorkWakeTimer,
@@ -95,7 +95,7 @@ class JarvisService:
         self._dreamer = dreamer
         self._action_plan = action_plan
         self._action_recovery = action_recovery
-        self._agent_waits = agent_waits
+        self._delegations = delegations
         self._dream_sleep = dream_sleep
         self._work = asyncio.Event()
         self._shutdown = asyncio.Event()
@@ -109,8 +109,8 @@ class JarvisService:
         self._active_background: BackgroundWorkerPort | None = None
         self._background_cancellation: CancellationToken | None = None
         self._dream_timer_task: asyncio.Task[None] | None = None
-        self._agent_wait_task: asyncio.Task[None] | None = None
-        self._agent_wait_cancellation: CancellationToken | None = None
+        self._delegation_task: asyncio.Task[None] | None = None
+        self._delegation_cancellation: CancellationToken | None = None
         self._dream_due = False
         self._startup_ready = False
 
@@ -150,13 +150,10 @@ class JarvisService:
         self._attachment_work.set()
         self.request_work()
         self.request_delivery()
-        self._agent_waits.notify_wait_changed()
+        self._delegations.notify_changed()
         self._work_timer.notify_changed()
         self._event_poller.notify_changed()
         return result.message.id, True
-
-    async def _waits_inactive(self) -> bool:
-        return await self._paused.is_paused()
 
     def events_publication_allowed(self) -> bool:
         return self._startup_ready and not self._shutdown.is_set()
@@ -193,17 +190,17 @@ class JarvisService:
             self._dream_timer(),
             name="jarvis-dream-timer",
         )
-        self._agent_wait_cancellation = CancellationToken()
-        self._agent_wait_task = asyncio.create_task(
-            self._agent_waits.run_waits(
-                self._agent_wait_cancellation,
-                paused=self._waits_inactive,
+        self._delegation_cancellation = CancellationToken()
+        self._delegation_task = asyncio.create_task(
+            self._delegations.run(
+                self._delegation_cancellation,
+                paused=self._paused.is_paused,
                 plan=self._action_plan,
                 on_event=self.request_work,
             ),
-            name="jarvis-agent-waits",
+            name="jarvis-delegations",
         )
-        self._agent_wait_task.add_done_callback(lambda _task: self._work.set())
+        self._delegation_task.add_done_callback(lambda _task: self._work.set())
         try:
             while not self._shutdown.is_set():
                 await self._work.wait()
@@ -213,27 +210,27 @@ class JarvisService:
                 if self._delivery_task.done():
                     self._delivery_task.result()
                     raise RuntimeError("the push delivery task stopped unexpectedly")
-                if self._agent_wait_task.done():
-                    self._agent_wait_task.result()
-                    raise RuntimeError("agent wait observer stopped unexpectedly")
+                if self._delegation_task.done():
+                    self._delegation_task.result()
+                    raise RuntimeError("delegation observer stopped unexpectedly")
                 await self._drain()
         finally:
             self.request_shutdown()
             self._work_timer_task.cancel()
-            self._agent_wait_cancellation.cancel()
+            self._delegation_cancellation.cancel()
             self._delivery_task.cancel()
             self._dream_timer_task.cancel()
             tasks = [
                 self._event_poll_task,
                 self._work_timer_task,
-                self._agent_wait_task,
+                self._delegation_task,
                 self._delivery_task,
                 self._dream_timer_task,
                 self._attachment_task,
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            self._agent_wait_task = None
-            self._agent_wait_cancellation = None
+            self._delegation_task = None
+            self._delegation_cancellation = None
             self._delivery_task = None
             self._event_poll_task = None
             self._work_timer_task = None
@@ -293,8 +290,8 @@ class JarvisService:
             self._active_background.request_interrupt(self._background_cancellation)
         if self._dream_timer_task is not None:
             self._dream_timer_task.cancel()
-        if self._agent_wait_cancellation is not None:
-            self._agent_wait_cancellation.cancel()
+        if self._delegation_cancellation is not None:
+            self._delegation_cancellation.cancel()
 
     def request_delivery(self) -> None:
         self._delivery_work.set()

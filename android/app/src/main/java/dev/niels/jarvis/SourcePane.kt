@@ -83,8 +83,22 @@ internal fun SourcePane(route: Route.Source, api: HomeApi, refresh: Int, auth: I
             val omissions = coverage.optJSONArray("omissions")
             for (i in 0 until (omissions?.length() ?: 0)) BodyStatus(omissions!!.getString(i))
             val focus = data.optJSONObject("focus")
-            data.objects("segments").forEach { segment ->
-                key(segment.getString("part"), segment.getString("digest"), segment.getInt("start")) {
+            val segments = data.objects("segments")
+            segments.forEachIndexed { index, segment ->
+                val part = segment.getString("part")
+                val digest = segment.getString("digest")
+                val start = segment.getLong("start")
+                key(part, digest, start) {
+                    val previous = segments.getOrNull(index - 1)
+                    if (previous != null && previous.getString("part") == part &&
+                        previous.getString("digest") == digest && previous.getLong("end") < start
+                    ) {
+                        Text(
+                            "unread bytes ${previous.getLong("end") + 1}–$start",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (segment.string("observed_at") != data.string("observed_at"))
                         Text("observed " + formattedTime(segment.string("observed_at"), "UTC"))
                     SourceSegment(segment, focus)

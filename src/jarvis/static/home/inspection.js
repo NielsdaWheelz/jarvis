@@ -13,7 +13,13 @@ function evidence(value, time) {
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   let previous, paragraph, stamps;
   for (const segment of value.segments) {
-    if (!previous || previous.part !== segment.part || previous.digest !== segment.digest || previous.end !== segment.start) {
+    const samePart = previous && previous.part === segment.part && previous.digest === segment.digest;
+    if (!samePart || previous.end !== segment.start) {
+      if (samePart && previous.end < segment.start) {
+        const gap = el("p", undefined, "secondary");
+        gap.append(el("small", `unread bytes ${previous.end + 1}–${segment.start}`));
+        body.append(gap);
+      }
       paragraph = el("p", undefined, "literal");
       stamps = el("small");
       body.append(stamps, paragraph);

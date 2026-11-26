@@ -166,7 +166,8 @@ def project(
         return _event(item, rows[0], grant)
     if kind != "mail":
         raise ValueError("unrecognized source kind")
-    fields: dict[str, list[str]] = defaultdict(list)
+    preview_fields: dict[str, set[str]] = defaultdict(set)
+    header_fields: dict[str, set[str]] = defaultdict(set)
     filenames: list[tuple[str, ...]] = []
     groups: dict[
         tuple[str, str | None, str | None, str, int], list[tuple[int, bytes, str]]
@@ -203,7 +204,7 @@ def project(
                 ("date", "date"),
             ):
                 if h.get(key) is not None:
-                    fields[label].append(h[key])
+                    preview_fields[label].add(h[key])
             url = (
                 workspace_link(h.get("link"), "gmail", item, account=grant.account)
                 or url
@@ -292,7 +293,7 @@ def project(
                     h["value"] for h in metadata["headers"] if h["name"].lower() == name
                 ]
                 if values:
-                    fields[name].append("\n".join(values))
+                    header_fields[name].add("\n".join(values))
             filenames.append(
                 tuple(
                     p["filename"]
@@ -312,9 +313,9 @@ def project(
             raise ValueError("unknown observed mail section")
     output_fields: list[Data] = []
     for label in _MAIL_FIELDS:
-        values = set(fields[label])
+        values = header_fields[label] or preview_fields[label]
         if len(values) == 1:
-            output_fields.append(dict(label=label, value=values.pop()))
+            output_fields.append(dict(label=label, value=next(iter(values))))
         elif values:
             omissions.append(f"conflicting {label}")
     if len(set(filenames)) > 1:

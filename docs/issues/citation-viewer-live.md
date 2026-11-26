@@ -18,3 +18,15 @@ proof includes the actual format, dimensions or data, source names and dates,
 and first chat delivery where 0123 is integrated. record provider, candidate,
 handset and installed outcomes independently. keep private content out of
 the evidence.
+
+personal codex, google neon and agy neon passed controlled request preparation
+and replay of their stored seal formats. each remains unqualified for live
+generation. exercise a bound mail answer, a bound occurrence and an empty
+source array on each selected route. include real search and complete mail
+headers, and a report returning to its first cited reply.
+
+the old android debug app displayed its update message against the candidate.
+the stale web contract was refused at the real api before submission. the
+predecessor chrome journey timed out while loading its bundle, so its visible
+failure state is unverified. repeat on the matched release and confirm that
+the reload prompt leaves the draft intact.

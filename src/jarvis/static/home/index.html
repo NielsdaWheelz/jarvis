@@ -12,17 +12,23 @@
     <main id="workspace">
       <header class="bar">
         <a class="wordmark" href="/" aria-label="jarvis home">jarvis</a>
-        <button id="todos-tab" type="button" aria-pressed="false">todos</button>
-        <button id="files-tab" type="button" aria-pressed="false">files</button>
+        <nav class="destinations" aria-label="workspace">
+          <a id="todos-tab" href="/todos">todos</a>
+          <a id="artifacts-tab" href="/artifacts">artifacts</a>
+          <a id="files-tab" href="/files">files</a>
+        </nav>
+        <a id="artifact-return" href="/artifacts" hidden>back to artifacts</a>
         <button id="files-return" type="button" hidden>back</button>
         <button id="todo-return" type="button" hidden>back</button>
         <span id="location"></span>
         <button id="sidebar-open" type="button" aria-controls="sidebar">chat</button>
       </header>
+      <p id="artifact-status" role="status" hidden></p>
       <section id="canvas" aria-label="workspace">
         <div id="object"></div>
+        <section id="artifacts" aria-label="published artifacts" hidden></section>
         <section id="drive" aria-label="files" hidden></section>
-        <section id="overview" aria-label="todos" hidden>
+        <section id="todos" aria-label="todos" hidden>
           <h1 tabindex="-1">todos</h1>
           <div id="todo-list"></div>
           <p id="todo-empty" hidden>no active todos.</p>

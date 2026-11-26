@@ -24,6 +24,11 @@ audience: product, engineering, design, operations, and future coding agents
 
 ## private web home
 
+[adr 0123](docs/decisions/0123-artifact-library.md) gives todos and the private
+artifact library their own addresses, pins editions, and links an edition to
+its recorded chat delivery. the matched cut retires `/overview` and `/v/…`.
+the installed address contract applies until that cut.
+
 [adr 0122](docs/decisions/0122-chat-sidebar-and-phone-alerts.md) adopts a
 transcript-first web sidebar, a contextual back control and viewer-owned todos.
 it retires phone status and manual disconnect on web and android. android owns

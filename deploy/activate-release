@@ -150,7 +150,7 @@ schema_of() {
 }
 
 native_contract_of() {
-  "$1/.venv/bin/python" -c 'from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA; print(NATIVE_REQUEST_SCHEMA)'
+  "$1/.venv/bin/python" -c 'from jarvis.native_protocol import NATIVE_OUTPUT_NAME, NATIVE_REQUEST_SCHEMA; print(NATIVE_REQUEST_SCHEMA, NATIVE_OUTPUT_NAME)'
 }
 
 persist() {
@@ -187,6 +187,18 @@ install_selection() {
   sync -f /opt/jarvis
 }
 
+pages=/var/lib/jarvis-notes/.git/jarvis-pages
+
+catalog_writer() {
+  runuser -u "$(stat -c %U "$pages")" -g codex-clients -- \
+    "$release/.venv/bin/python" -I -m jarvis.convert_artifact_catalog "$@"
+}
+
+catalog_reader() {
+  runuser -u jarvis -g codex-clients -- \
+    "$release/.venv/bin/python" -I -m jarvis.convert_artifact_catalog "$@"
+}
+
 target_schema="$(schema_of "$release")"
 if [[ "$change" == bootstrap ]]; then
   require_no_cutover_hold
@@ -196,6 +208,15 @@ if [[ "$change" == bootstrap ]]; then
     refuse "bootstrap schema does not match the selected release"
   systemctl is-active --quiet jarvis-codex-contained.service
   check_source_activation "$release"
+  if [[ ! -e "$pages/catalog.json" ]]; then
+    catalog_bootstrap="$(mktemp)"
+    trap 'rm -f -- "$catalog_bootstrap"' EXIT
+    catalog_writer plan --new-empty >"$catalog_bootstrap"
+    catalog_writer apply <"$catalog_bootstrap"
+    catalog_reader verify <"$catalog_bootstrap"
+  else
+    catalog_reader check-empty
+  fi
   install_selection
   systemctl enable --now jarvis-memory.service jarvis.service
   "$custody" verify-serving "$commit" jarvis-memory.service,jarvis.service
@@ -461,10 +482,28 @@ PYCODE
   fi
 fi
 
+# Retain the preimage and exact target in the named hold. A repair takes
+# custody of the same directory and can continue a verified partial cut.
+catalog_plan="$held/artifact-catalog.json"
+if [[ ! -f "$source_release/src/jarvis/convert_artifact_catalog.py" &&
+      ! -f "$catalog_plan" ]]; then
+  [[ "$phase" == held ]] || refuse "held $change. artifact catalog preimage is missing"
+  "$custody" check "$change"
+  catalog_writer plan >"$scratch/artifact-catalog.json"
+  persist "$scratch/artifact-catalog.json" "$catalog_plan"
+fi
+
 if [[ "$phase" == held && -f "$scratch/source-check.json" ]]; then
   "$custody" applying "$change" --evidence "$scratch/source-check.json"
 else
   "$custody" applying "$change"
+fi
+if [[ -f "$catalog_plan" ]]; then
+  "$custody" check "$change"
+  catalog_writer apply <"$catalog_plan"
+  catalog_reader verify <"$catalog_plan"
+else
+  catalog_reader check
 fi
 if [[ "$source_schema" != "$target_schema" ]]; then migration migrate "$qualification"; fi
 "$release/deploy/install-contained-host" --held "$change" "$commit" "$mapping_source"

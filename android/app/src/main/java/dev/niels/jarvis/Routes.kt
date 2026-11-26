@@ -8,14 +8,15 @@ import net.openid.appauth.browser.BrowserSelector
 
 internal sealed interface Route {
     data object Home : Route
-    data object Overview : Route
+    data object Artifacts : Route
+    data object Todos : Route
     data object Files : Route
     data class Message(val id: String) : Route
     data class Mail(val messageId: String, val actionId: String, val historical: Boolean) : Route
     data class Todo(val id: String) : Route
     data class File(val id: String, val page: Long?) : Route
     data class DriveFile(val subject: String, val id: String, val page: Long? = null) : Route
-    data class Canvas(val slug: String, val revision: String?) : Route
+    data class Artifact(val slug: String, val revision: String?) : Route
 }
 
 internal object Routes {
@@ -38,7 +39,8 @@ internal object Routes {
         if (query == null) {
             when (path) {
                 "", "/" -> return Route.Home
-                "/overview" -> return Route.Overview
+                "/todos" -> return Route.Todos
+                "/artifacts" -> return Route.Artifacts
                 "/files" -> return Route.Files
             }
         }
@@ -49,12 +51,12 @@ internal object Routes {
                 !uuid.matches(name) || !uuid.matches(segments[3])) return null
             return Route.Mail(name, segments[3], historical = segments[2] == "revision")
         }
-        if (segments[0] == "v") {
+        if (segments[0] == "artifacts") {
             if (query != null || segments.size > 3 || name.length > 64 || !slug.matches(name)) {
                 return null
             }
             val rev = segments.getOrNull(2)
-            return if (rev == null || revision.matches(rev)) Route.Canvas(name, rev) else null
+            return if (rev == null || revision.matches(rev)) Route.Artifact(name, rev) else null
         }
         val page = query?.let {
             pageQuery.matchEntire(it)?.groupValues?.get(1)?.toLongOrNull()?.takeIf { it <= maxPage }
@@ -78,7 +80,8 @@ internal object Routes {
     fun url(route: Route): Uri = originUri.buildUpon().apply {
         when (route) {
             Route.Home -> path("/")
-            Route.Overview -> appendPath("overview")
+            Route.Todos -> appendPath("todos")
+            Route.Artifacts -> appendPath("artifacts")
             Route.Files -> appendPath("files")
             is Route.Message -> appendPath("m").appendPath(route.id)
             is Route.Mail -> appendPath("mail").appendPath(route.messageId)
@@ -92,15 +95,15 @@ internal object Routes {
                 appendPath("files").appendPath(route.subject).appendPath(route.id)
                 route.page?.let { appendQueryParameter("page", it.toString()) }
             }
-            is Route.Canvas -> {
-                appendPath("v").appendPath(route.slug)
+            is Route.Artifact -> {
+                appendPath("artifacts").appendPath(route.slug)
                 route.revision?.let { appendPath(it) }
             }
         }
     }.build()
 
     fun openInBrowser(activity: Activity, route: Route): Boolean {
-        if (route !is Route.Mail && !(route is Route.Canvas && route.revision != null)) return false
+        if (route !is Route.Mail && !(route is Route.Artifact && route.revision != null)) return false
         val destination = url(route)
         if (parse(destination) != route) return false
         val browser = BrowserSelector.select(activity) { it.useCustomTab } ?: return false

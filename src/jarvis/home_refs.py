@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from jarvis.action_requests import CanonicalUuid
 from jarvis.home_pages import REV_PATTERN, SLUG_PATTERN
 
+type PageNumber = Annotated[int, Field(ge=1, le=2**53 - 1)]
+
 
 class _Ref(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -24,7 +26,7 @@ class FileRef(_Ref):
 
 
 class FilePageRef(FileRef):
-    page: Annotated[int, Field(ge=1, le=2**53 - 1)]
+    page: PageNumber
 
 
 DRIVE_ID_PATTERN = r"^[A-Za-z0-9_-]{1,255}$"
@@ -35,7 +37,7 @@ class DriveFileRef(_Ref):
     kind: Literal["drive_file"]
     subject: DriveId
     id: DriveId
-    page: Annotated[int, Field(ge=1, le=2**53 - 1)] | None = None
+    page: PageNumber | None = None
 
 
 class TodoRef(_Ref):

@@ -642,6 +642,8 @@ def verify_serving(units, expected):
                             "*",
                             "--unix-socket",
                             "/run/jarvis-home/http.sock",
+                            "--header",
+                            "X-Jarvis-Viewer-Contract: artifact-library",
                             "http://jarvis.nielseriknandal.com/api/home",
                         ],
                         stdout=subprocess.DEVNULL,

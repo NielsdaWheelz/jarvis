@@ -31,7 +31,12 @@ class MainActivity : ComponentActivity() {
         val todoReads = ViewModelProvider(this)[TodoVisits::class.java].reads
         setContent {
             val start = Routes.url(initial).toString()
-            var trail by rememberSaveable { mutableStateOf(arrayListOf(start)) }
+            var trail by rememberSaveable {
+                val visits = arrayListOf<String>()
+                if (initial is Route.Artifact) visits.add(Routes.url(Route.Artifacts).toString())
+                visits.add(start)
+                mutableStateOf(visits)
+            }
             val holder = rememberSaveableStateHolder()
             val incoming by destination.collectAsState()
 

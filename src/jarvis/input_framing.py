@@ -42,6 +42,8 @@ def home_context(
         for key in ("ref", "present", "proposal_title", "proposal_ids")
         if home.get(key) is not None
     }
+    if home.get("artifact_links"):
+        context["artifact_links"] = home["artifact_links"]
     ref = context.get("ref")
     if (
         not archive

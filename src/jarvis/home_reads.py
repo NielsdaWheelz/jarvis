@@ -72,6 +72,7 @@ SELECT m.id, m.role, m.source,
        CASE WHEN m.source = 'native_control' THEN COALESCE(m.processed_at, m.created_at)
             ELSE m.created_at END AS at, m.text,
        m.home->'ref' AS ref, m.home->'present' AS present,
+       COALESCE(m.home->'artifact_links', '[]') AS artifact_links,
        COALESCE(
           (SELECT jsonb_agg(d.item || jsonb_build_object(
               'editable', coalesce(d.epoch=CAST(:editor_epoch AS text), false)
@@ -248,6 +249,24 @@ async def visible_message(
         return None
     proposals = await _proposals(connection, scope, [identifier])
     return {**row, "proposals": proposals[identifier]}
+
+
+async def artifact_discussion(
+    connection: AsyncConnection, scope: str, ref: dict[str, str]
+) -> UUID | None:
+    return await connection.scalar(
+        text("""
+            SELECT m.id FROM message m
+            WHERE m.source_conversation_id=:scope AND m.role='assistant'
+              AND m.source!='initialize_state'
+              AND (m.home #> '{present,ref}' = CAST(:ref AS jsonb) OR EXISTS (
+                  SELECT FROM jsonb_array_elements(m.home->'artifact_links') delivered
+                  WHERE delivered=CAST(:ref AS jsonb)
+              ))
+            ORDER BY m.created_at, m.id LIMIT 1
+        """),
+        {"scope": scope, "ref": json.dumps(ref)},
+    )
 
 
 def proposal_presented(scope: str) -> ColumnElement[bool]:
@@ -799,7 +818,8 @@ async def reference_context(
                 return {"ref": ref, "proposal_title": proposal["title"]}
         return None
     if kind == "view":
-        exists = await run_in_threadpool(HomePages(pages).view, ref["slug"], ref["rev"])
+        catalog = await run_in_threadpool(HomePages(pages).snapshot)
+        exists = catalog.view(ref["slug"], ref["rev"])
         return {"ref": ref} if exists is not None else None
     if kind == "drive_file":
         return {"ref": ref} if ref["subject"] == drive_subject else None

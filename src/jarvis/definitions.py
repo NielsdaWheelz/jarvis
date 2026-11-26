@@ -49,9 +49,11 @@ from llm_tools import (
     render_prompt,
 )
 from provider_runtime.agent_runtime import (
+    AGY_CAPABILITY_REVISION,
     AGY_WORKSPACE_POLICY,
     JsonSchemaAgentOutput,
     PermissionPolicy,
+    TextContent,
 )
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model
 from pydantic_core import PydanticCustomError
@@ -83,9 +85,9 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "0865b8ff5ad7b257c474ff8da542ffcc9645e397",
+    "llm-agent-kernel": "a205a340fb4574c42deaf092ea5e5bc22895e893",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "7c01859e5836ea9cd548730b5273cc62341005ff",
+    "provider-runtime": "bf43cc47c6be2b1923e2e62ff4e6cf562c74589b",
     "universal-memory": "6cfdf262e3c342ae4701b0587bf7994c03437459",
 }
 # llm-tools requires positive byte/call ceilings even for an empty catalog;
@@ -793,6 +795,8 @@ def load_session_manifest() -> _SessionManifest:
         raise ValueError("session compatibility manifest must declare all three roles")
     if manifest.dependencies != EXPECTED_GIT_PINS:
         raise ValueError("session compatibility dependency pins do not match code")
+    if manifest.agy_neon.capability_revision != AGY_CAPABILITY_REVISION:
+        raise ValueError("Antigravity capability does not match the provider pin")
     return manifest
 
 
@@ -824,7 +828,7 @@ def with_main_provider(
     definition: NativeDefinition,
     binding: ProviderConfiguration | AntigravityProviderConfiguration,
 ) -> NativeDefinition:
-    """Bind a selected host to main without changing its effective tool authority."""
+    """Bind the exact selected host and derive its scoped native authority."""
     template = definition.provider
     if isinstance(binding, AntigravityProviderConfiguration):
         workspace = template.policy.filesystem == "workspace_write"
@@ -833,7 +837,13 @@ def with_main_provider(
             cwd=template.cwd,
             additional_dirs=template.additional_dirs,
             system=template.system,
-            developer=template.developer,
+            developer=(
+                *template.developer,
+                TextContent(
+                    "Send any public progress as the defined progress JSON, then "
+                    "continue the actual work. The last public response is final."
+                ),
+            ),
             policy=AGY_WORKSPACE_POLICY if workspace else PermissionPolicy(),
             workspace_tools=workspace,
         )

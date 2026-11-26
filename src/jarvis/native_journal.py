@@ -2625,7 +2625,7 @@ async def settle_undispatched_antigravity(
             .label("submission"),
             live=False,
         )
-        local = row["local_outcome"] or {}
+        local: dict[str, Any] = row["local_outcome"] or {}
         if (
             row["route"] != "agy_neon"
             or row["owner_epoch"] != str(owner.token)

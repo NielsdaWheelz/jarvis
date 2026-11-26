@@ -3,7 +3,12 @@
 from dataclasses import replace
 from typing import Self
 
-from llm_agent_kernel import CODEX_NATIVE_OPTIONS, CONTAINMENT_POLICY, NativeDefinition
+from llm_agent_kernel import (
+    CODEX_NATIVE_OPTIONS,
+    CONTAINMENT_POLICY,
+    NativeDefinition,
+    ProviderConfiguration,
+)
 from llm_tools import (
     CapabilityProfile,
     FrozenToolPlan,
@@ -44,6 +49,8 @@ def workspace_check_native(
     plan = ToolPlan(profile.id, Native()).freeze(catalog, profile)
     if not plan.is_tightening_of(main.maximum_profile):
         raise ValueError("standing-check plan exceeds main authority")
+    if not isinstance(main.provider, ProviderConfiguration):
+        raise ValueError("standing-check plan requires the stock main template")
     provider = replace(
         main.provider,
         cwd=None,

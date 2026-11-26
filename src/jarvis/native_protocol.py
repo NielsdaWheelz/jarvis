@@ -27,8 +27,8 @@ from jarvis import terminal
 from jarvis.home_refs import SourceRef
 from jarvis.workspace_checks import WorkspaceResult
 
-NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v7"
-NATIVE_OUTPUT_NAME = "jarvis_home_message_v4"
+NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v8"
+NATIVE_OUTPUT_NAME = "jarvis_home_message_v5"
 WORKSPACE_CHECK_PROFILE = ProfileId("workspace_check")
 FOREGROUND_RECOVERY_PROFILE = ProfileId("foreground_recovery")
 

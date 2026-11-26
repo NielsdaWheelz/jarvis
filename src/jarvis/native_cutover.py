@@ -23,7 +23,7 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.messages import causal_component_ids, current_native_retry, latest_control
-from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA
+from jarvis.native_protocol import NATIVE_OUTPUT_NAME, NATIVE_REQUEST_SCHEMA
 from jarvis.ownership import Database, lock_conversation
 from jarvis.write_tools import GMAIL_CREATE_DRAFT_SPEC, WORKSPACE_MAIL_IMPLEMENTATION
 
@@ -132,9 +132,14 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             select(native_attempt.c.id)
             .where(
                 native_attempt.c.conversation_id == conversation_id,
-                native_attempt.c.request["schema_version"]
-                .as_string()
-                .is_distinct_from(NATIVE_REQUEST_SCHEMA),
+                or_(
+                    native_attempt.c.request["schema_version"].as_string().is_distinct_from(
+                        NATIVE_REQUEST_SCHEMA
+                    ),
+                    native_attempt.c.request["output"]["name"].as_string().is_distinct_from(
+                        NATIVE_OUTPUT_NAME
+                    ),
+                ),
                 native_attempt.c.product_outcome.is_(None),
                 or_(
                     native_attempt.c.terminal_at.is_not(None),

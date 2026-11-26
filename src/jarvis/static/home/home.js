@@ -1,8 +1,10 @@
+import { bindArtifacts } from "./artifacts.js";
 import { el, button, link } from "./home-dom.js";
 import { draftPreview, openEditor } from "./mail-editor.js";
 import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
 
-import { inspectionAt, linkedText, mailRoute, messagePath, ordinaryPath, parseMessage, renderMarkdown, showTableControls, updateCitations } from "./chat-reader.js";
+import { address } from "./home-address.js";
+import { linkedText, parseMessage, renderMarkdown, showTableControls, updateCitations } from "./chat-reader.js";
 import { bindInspection } from "./inspection.js";
 
 const $ = (id) => document.getElementById(id);
@@ -13,7 +15,7 @@ function creationPath(messageId, created) {
 function objectPath(ref) {
   switch (ref.kind) {
     case "view":
-      return "/v/" + ref.slug + "/" + ref.rev;
+      return "/artifacts/" + ref.slug + "/" + ref.rev;
     case "file":
     case "drive_file":
       return drivePath(ref);
@@ -24,12 +26,12 @@ function objectPath(ref) {
   }
 }
 function label(ref) {
-  const kind = ref.kind === "view" ? ref.slug : ref.kind === "drive_file" ? "drive file" : ref.kind;
+  if (ref.kind === "view") return ref.slug.replaceAll("-", " ") + " · " + ref.rev.slice(0, 12);
+  const kind = ref.kind === "drive_file" ? "drive file" : ref.kind;
   return kind + (ref.page ? " · page " + ref.page : "");
 }
 const mobile = matchMedia("(max-width:720px)");
 const draftKey = "jarvis.home.draft";
-const todosCanvas = "todos";
 let reloadReading = null;
 let chatReturn = null;
 const newDraft = () => ({ id: null, text: "", ref: null, files: [], uncertain: false });
@@ -41,8 +43,7 @@ let armed = null,
   staging = 0,
   reselect = null,
   lastRead = null;
-let current = null,
-  displayed = "",
+let displayed = "",
   routeVersion = 0,
   overviewPage = null,
   restoreOverview = false,
@@ -54,6 +55,7 @@ let latest = null,
   selectedMessage = null;
 const inFlight = new Map();
 const failures = new Map();
+let loginRequired = false;
 const presentations = new Map();
 const time = (at, zone) =>
   new Date(at).toLocaleString([], {
@@ -69,7 +71,7 @@ function save() {
   const files = draft.files.map(({ name, size, sha256 }) => ({ name, size, sha256 }));
   sessionStorage.setItem(draftKey, JSON.stringify({ ...draft, files }));
 }
-const isDetail = messagePath;
+const isDetail = path => address(path)?.kind === "message";
 let mailEditor = null;
 let shownIndex = history.state?.entryIndex ?? 0;
 let undoingTraversal = false;
@@ -101,6 +103,7 @@ function openSidebar(origin) {
   if (mobile.matches && !history.state?.panel) {
     rememberOverview(origin);
     files.remember(origin);
+    artifacts.remember(origin);
     changeState({ panelOpener: origin?.id || null, chatReturn: null });
     pushEntry({ ...history.state, panel: true, fromCanvas: true }, location.href);
   }
@@ -364,8 +367,27 @@ async function request(path, { allowServerError = false, ...options } = {}) {
   const headers = new Headers(options.headers);
   headers.set("X-Jarvis-Viewer-Contract", "cited-sources-v1");
   const response = await fetch(path, { redirect: "manual", cache: "no-store", ...options, headers });
-  if (response.type === "opaqueredirect" || [401, 403].includes(response.status))
+  if (response.type === "opaqueredirect" || [401, 403].includes(response.status)) {
+    if (!loginRequired) {
+      loginRequired = true;
+      routeVersion++;
+      document.body.classList.add("auth-required");
+      armed = null;
+      presentations.clear();
+      inspection.close();
+      files.close();
+      artifacts.leave();
+      for (const id of ["object", "object-tools", "location", "todo-list", "messages", "workspace-approval"])
+        $(id).replaceChildren();
+      $("todo-empty").hidden = true;
+      failure({ login: true }, "sign in");
+    }
     throw Object.assign(new Error("sign in to continue."), { login: true });
+  }
+  if (response.status === 426) {
+    failure({ upgrade: true }, "upgrade");
+    throw Object.assign(new Error("reload the jarvis viewer."), { upgrade: true });
+  }
   if (!allowServerError && response.status >= 500) throw new Error("jarvis is offline.");
   return response;
 }
@@ -376,20 +398,22 @@ async function read(path) {
   return response.json();
 }
 function failure(error, part = "chat") {
-  failures.set(part, Boolean(error.login));
+  failures.set(part, error.login ? "login" : error.upgrade ? "upgrade" : "offline");
   showConnection();
 }
 function showConnection() {
   const node = $("connection");
   node.hidden = failures.size === 0;
   if (node.hidden) return;
-  const login = Array.from(failures.values()).includes(true);
+  const login = loginRequired;
+  const upgrade = Array.from(failures.values()).includes("upgrade");
   const when = lastRead ? " last checked " + time(lastRead) + "." : "";
-  const message = login ? "sign in to continue. " : "jarvis is offline. your draft is here." + when;
+  const message = login ? "sign in to continue. " : upgrade ? "reload the jarvis viewer. " :
+    "jarvis is offline. your draft is here." + when;
   if (node.firstChild?.textContent === message) return;
   node.replaceChildren(
     message,
-    button(login ? "sign in" : "retry", login ? () => location.reload() : refresh),
+    button(login ? "sign in" : upgrade ? "reload" : "retry", login || upgrade ? () => location.reload() : refresh),
   );
 }
 function accepted(id, submission) {
@@ -594,21 +618,20 @@ function renderMessage(m, existing) {
     const name = action + " · " + subject + (numbered ? " · " + ordinal : "");
     controls.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
   }
-  if (m.present && !["draft", "source"].includes(m.present.ref.kind)) {
-    const path = objectPath(m.present.ref);
-    const alreadyLinked = [...node.reader.querySelectorAll("a"), ...controls.querySelectorAll("a")]
-      .some(anchor => anchor.getAttribute("href") === path);
-    if (path && !alreadyLinked) {
-      const ref = m.present.ref;
-      const filename = ref.kind === "file" && m.files?.find(file => file.id === ref.id)?.name;
-      const name = filename ? filename + (ref.page ? " · page " + ref.page : "") : label(ref);
-      controls.append(link("open " + name, path, "result"));
-    }
+  const delivered = new Map((m.artifact_links || []).map(ref => [objectPath(ref), ref]));
+  if (m.present && !["draft", "source"].includes(m.present.ref.kind))
+    delivered.set(objectPath(m.present.ref), m.present.ref);
+  const alreadyLinked = new Set([...node.reader.querySelectorAll("a[href]"), ...controls.querySelectorAll("a[href]")]
+    .map(anchor => anchor.getAttribute("href")));
+  for (const [path, ref] of delivered) {
+    if (!path || alreadyLinked.has(path)) continue;
+    const filename = ref.kind === "file" && m.files?.find(file => file.id === ref.id)?.name;
+    const name = filename ? filename + (ref.page ? " · page " + ref.page : "") : label(ref);
+    controls.append(link("open " + name, path, "result"));
   }
   if (node.controls) node.controls.replaceWith(controls);
   else node.append(controls);
   node.controls = controls;
-
   node.dataset.version = JSON.stringify(m);
   return node;
 }
@@ -773,30 +796,24 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
     startRoute();
     return;
   }
-  if (
-    canvasSelection === todosCanvas &&
-    location.pathname === "/" &&
-    history.state.canvasSelection === todosCanvas &&
-    !history.state.panel
-  )
-    return;
+  if (path !== "/" && path === location.pathname + location.search && !history.state.panel) return;
   rememberOverview(origin);
+  artifacts.remember(origin);
   files.remember(origin || document.activeElement);
   rememberReading();
-  const revision = mailRoute.exec(path);
-  const fromRevision = mailRoute.test(location.pathname);
+  const destination = address(path);
+  const fromRevision = address(location.href)?.kind === "mail";
   const fromRevisionMessage = Boolean(
-    revision && origin?.classList.contains("draft-revision-link") && !fromRevision,
+    destination?.kind === "mail" && origin?.classList.contains("draft-revision-link") && !fromRevision,
   );
   const article = origin?.closest("#messages article");
-  const inspected = inspectionAt(path);
-  const readerAnchor = inspected && origin?.dataset.readerAnchor;
+  const readerAnchor = ["source", "table"].includes(destination?.kind) && origin?.dataset.readerAnchor;
   const table = readerAnchor && origin.closest("#inspection") ? history.state.canvasSelection : null;
   if (article || table) {
     const pane = table ? $("canvas") : $("chat");
     const anchor = readerAnchor ? origin : article;
     changeState({ chatReturn: {
-      fromEntry: shownIndex + 1, messageId: table ? inspected.message : article.id.slice(4),
+      fromEntry: shownIndex + 1, messageId: table ? destination.message : article.id.slice(4),
       table, anchor: readerAnchor || null, left: origin.closest(".table-scroll")?.scrollLeft,
       href: origin.href,
       occurrence: article && [...article.querySelectorAll("a")].filter(link => link.href === origin.href).indexOf(origin),
@@ -809,8 +826,10 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
     ...(filesSelector ? { filesSelector } : {}),
     ...(readerAnchor ? { inspectionOrigin: { table } } : {}),
   };
-  if (path.startsWith("/t/")) {
-    state = { ...todoEntry(path.slice(3)), hasOrigin: true };
+  if (destination?.kind === "view") {
+    state.artifactBack = true;
+  } else if (destination?.kind === "todo") {
+    state = { ...todoEntry(destination.id), hasOrigin: true };
   } else if (driveRoute(path)) {
     state.filesBack = Boolean(driveRoute(history.state.canvasSelection));
   } else if (isDetail(path)) {
@@ -826,17 +845,16 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
   startRoute();
 }
 function todoEntry(id) {
-  return { canvasSelection: todosCanvas, todoTarget: id, openTodos: { [id]: [] } };
+  return { canvasSelection: "/todos", todoTarget: id, openTodos: { [id]: [] } };
 }
 const inspection = bindInspection({ object: $("object"), request, time, restore: restoreChatReturn, restoring: () => Boolean(chatReturn), refresh });
 const files = bindFiles({ $, navigate, changeState, request, time, attach: discuss });
-$("todos-tab").onclick = () => navigate("/", { canvasSelection: todosCanvas });
-$("files-tab").onclick = () => navigate("/files");
+const artifacts = bindArtifacts({ $, read, refresh, objectPath, changeState, empty, discuss });
 $("files-return").onclick = () => history.back();
 $("todo-return").onclick = () => {
   if (history.state.hasOrigin) history.back();
   else {
-    replaceEntry({ canvasSelection: "/" }, "/");
+    replaceEntry({ canvasSelection: "/todos" }, "/todos");
     startRoute();
   }
 };
@@ -853,13 +871,10 @@ document.addEventListener("click", (e) => {
     e.button !== 0
   )
     return;
-  if (
-    a.origin === location.origin &&
-    !a.hash && (ordinaryPath(a.pathname + a.search) || inspectionAt(a.pathname + a.search))
-  ) {
-    e.preventDefault();
-    navigate(a.pathname + a.search, { origin: a, replace: a.hasAttribute("data-file-page") });
-  }
+  if (!a.hasAttribute("href") || !address(a.href)) return;
+  e.preventDefault();
+  if (a.id === "artifact-return" && history.state.artifactBack) history.back();
+  else navigate(a.pathname + a.search, { origin: a, replace: a.hasAttribute("data-file-page") });
 });
 window.onpopstate = () => {
   const destination = history.state?.entryIndex ?? 0;
@@ -900,11 +915,11 @@ function startRoute(previousEntry) {
   showConnection();
   reloadReading = history.state?.reading;
   const path = location.pathname + location.search;
-  const detail = isDetail(path);
-  if (location.pathname === "/overview") {
-    replaceEntry({ canvasSelection: todosCanvas }, "/");
-  } else if (path.startsWith("/t/") && history.state?.todoTarget !== path.slice(3)) {
-    replaceEntry(todoEntry(path.slice(3)), path);
+  const route = address(location.href);
+  const detail = route?.kind === "message";
+  const todo = route?.kind === "todo" ? route.id : null;
+  if (todo && history.state?.todoTarget !== todo) {
+    replaceEntry(todoEntry(todo), path);
   } else if (!history.state?.canvasSelection) {
     changeState(
       detail ? { canvasSelection: "/", panel: true } : { canvasSelection: path },
@@ -916,18 +931,23 @@ function startRoute(previousEntry) {
   $("draft-choice").hidden = true;
   selectedMessage = null;
   document.querySelector(".selected")?.classList.remove("selected");
-  if ((detail || path.startsWith("/t/")) && document.activeElement === $("message")) $("message").blur();
-  if (mailRoute.test(displayed) && !mailRoute.test(location.pathname)) {
+  if ((detail || todo) && document.activeElement === $("message")) $("message").blur();
+  if (displayed !== history.state.canvasSelection && displayed !== "files") {
+    artifacts.leave();
     $("object").replaceChildren();
+    $("object-tools").hidden = true;
+    $("location").replaceChildren();
     displayed = "";
   }
   restoreOverview = Boolean(history.state.position && !detail && !history.state.panel);
-  revealTodo = path.startsWith("/t/") && !history.state.targetRevealed ? path.slice(3) : null;
+  revealTodo = history.state.targetRevealed ? null : todo;
   const sameFiles = files.showing(history.state.canvasSelection, history.state.canvasEntry ?? shownIndex);
   if (!sameFiles) files.close();
   const sameCanvas = leavingPanel && (displayed === history.state.canvasSelection || sameFiles);
   if (!restoreOverview && !detail && !history.state.panel && !sameCanvas) $("canvas").scrollTop = 0;
-  $("todo-return").hidden = !path.startsWith("/t/");
+  $("todo-return").hidden = !todo;
+  $("artifact-return").hidden = route?.kind !== "view";
+  $("artifact-return").textContent = history.state.artifactBack ? "back" : "back to artifacts";
   $("files-return").hidden = !history.state.filesBack || !driveRoute(path);
   setPanel();
   if (leavingPanel && !(chatReturn && $("chat").clientHeight) && !revealTodo && !history.state.position?.focus) {
@@ -943,7 +963,6 @@ async function mailRead(ver, path, messageId, kind, actionId) {
   const editing = kind === "draft";
   let sheet = $("draft-revision");
   if (displayed !== path) {
-    current = null;
     displayed = path;
     $("location").textContent = editing ? "draft" : "draft revision";
     $("object-tools").hidden = true;
@@ -986,24 +1005,31 @@ async function mailRead(ver, path, messageId, kind, actionId) {
 async function canvasRead(ver) {
   const same = () => ver === routeVersion;
   let path = history.state.canvasSelection;
-  let ref;
   if (path === "/") {
     const home = await read("/api/home");
     if (!same()) return;
-    ref = home.view;
-    path = ref ? objectPath(ref) : todosCanvas;
+    path = home.view ? objectPath(home.view) : "/todos";
     changeState({ canvasSelection: path });
   }
-  const overview = path === todosCanvas;
-  $("todos-tab").setAttribute("aria-pressed", String(overview));
-  const viewingFiles = path === "/files" || path.startsWith("/files/") || path.startsWith("/f/");
-  $("files-tab").setAttribute("aria-pressed", String(viewingFiles));
-  $("overview").hidden = !overview;
+  const route = address(path);
+  const overview = route?.kind === "todos";
+  const viewingShelf = route?.kind === "artifacts";
+  const viewingFiles = ["files", "file", "drive_file"].includes(route?.kind);
+  const homeVisit = location.pathname === "/";
+  for (const [id, selected] of [
+    ["todos-tab", overview && !homeVisit],
+    ["artifacts-tab", (viewingShelf || route?.kind === "view") && !homeVisit],
+    ["files-tab", viewingFiles],
+  ]) {
+    if (selected) $(id).setAttribute("aria-current", "page");
+    else $(id).removeAttribute("aria-current");
+  }
+  $("todos").hidden = !overview;
   $("drive").hidden = !viewingFiles;
-  $("object").hidden = overview || viewingFiles;
+  $("artifacts").hidden = !viewingShelf;
+  $("object").hidden = overview || viewingFiles || viewingShelf;
   if (viewingFiles) {
     if (displayed !== "files") {
-      current = null;
       displayed = "files";
       $("location").textContent = "";
       $("object").replaceChildren();
@@ -1013,9 +1039,13 @@ async function canvasRead(ver) {
     await files.show(path, history.state.canvasEntry ?? shownIndex);
     return;
   }
+  if (viewingShelf) {
+    displayed = path;
+    if (!(mobile.matches && history.state.panel)) await artifacts.showShelf(same);
+    return;
+  }
   if (overview) {
     if (displayed !== path) {
-      current = null;
       displayed = path;
       $("location").textContent = "";
       $("object").replaceChildren();
@@ -1039,65 +1069,36 @@ async function canvasRead(ver) {
     refreshTodoRows(false);
     return;
   }
-  const url = new URL(path, location.origin);
-  const inspected = inspectionAt(path);
-  if (inspected) {
-    current = null;
+  if (route?.kind === "source" || route?.kind === "table") {
     displayed = path;
-    $("location").textContent = inspected.kind;
+    $("location").textContent = route.kind;
     $("object-tools").hidden = true;
-    if (!mobile.matches || !history.state.panel) await inspection.show(path, inspected);
+    if (!mobile.matches || !history.state.panel) await inspection.show(path, route);
     else inspection.close();
     return;
   }
-  const mail = mailRoute.exec(url.pathname);
-  if (mail) {
-    await mailRead(ver, url.pathname, mail[1], mail[2], mail[3]);
+  if (route?.kind === "mail") {
+    await mailRead(ver, path, route.message, route.mode, route.action);
     return;
   }
-  const [, kind, key, revision] = url.pathname.split("/");
-  if (kind !== "v") return;
-  if (!ref)
-    ref = await read(
-      "/api/views/" + encodeURIComponent(key) + (revision ? "/" + encodeURIComponent(revision) : ""),
-    );
+  if (route?.kind !== "view") return;
+  const work = await read("/api/artifacts/" + route.slug);
   if (!same()) return;
-  if (!ref) {
-    current = null;
-    if (displayed !== "withdrawn:" + path)
-      $("object").replaceChildren(empty("this page is no longer available."));
-    displayed = "withdrawn:" + path;
-    $("location").textContent = "";
-    $("object-tools").hidden = true;
+  const rev = route.rev || work?.current;
+  const edition = work?.editions.find(edition => edition.rev === rev);
+  if (!edition) {
+    if (displayed !== "unavailable:" + path) artifacts.unavailable();
+    displayed = "unavailable:" + path;
     return;
   }
+  const ref = { kind: "view", slug: route.slug, rev };
   const canonical = objectPath(ref);
-  if (!revision) {
-    if (isDetail(location.pathname))
-      changeState({ canvasSelection: canonical });
-    else
-      changeState({ canvasSelection: canonical }, canonical);
+  if (!route.rev) {
+    if (isDetail(location.href)) changeState({ canvasSelection: canonical });
+    else changeState({ canvasSelection: canonical }, canonical);
   }
-  const title = label(ref);
-  const locationLabel = $("location");
-  if (location.pathname === "/") {
-    if (locationLabel.firstElementChild?.getAttribute("href") !== canonical)
-      locationLabel.replaceChildren(link(title, canonical));
-  } else if (locationLabel.firstElementChild || locationLabel.textContent !== title) {
-    locationLabel.textContent = title;
-  }
-  if (displayed === canonical) return;
-  current = ref;
   displayed = canonical;
-  const frame = el("iframe");
-  frame.title = title;
-  frame.setAttribute("sandbox", "allow-scripts");
-  frame.src = "/content/" + ref.slug + "/" + ref.rev;
-  $("object").replaceChildren(frame);
-  const discussObject = button("discuss this", (event) => discuss(current, undefined, event.currentTarget));
-  discussObject.id = "discuss-object";
-  $("object-tools").replaceChildren(discussObject);
-  $("object-tools").hidden = false;
+  await artifacts.showEdition(work, edition, ref, same);
 }
 
 function civilDate(value) {
@@ -1131,8 +1132,8 @@ function overviewPosition(origin = document.activeElement) {
   };
 }
 function readingTodos() {
-  return history.state?.canvasSelection === todosCanvas && !isDetail(location.pathname) &&
-    !(mobile.matches && history.state.panel) && displayed === todosCanvas;
+  return history.state?.canvasSelection === "/todos" && !isDetail(location.pathname) &&
+    !(mobile.matches && history.state.panel) && displayed === "/todos";
 }
 function rememberOverview(origin) {
   if (readingTodos() && !restoreOverview)
@@ -1168,7 +1169,7 @@ function restorePosition(position) {
   } else $("canvas").scrollTop = position.scroll;
   if (position.focus) {
     const row = closest(position.focus);
-    let control = row ? (row.summary.hidden ? row.node : row.summary) : $("overview").querySelector("h1");
+    let control = row ? (row.summary.hidden ? row.node : row.summary) : $("todos").querySelector("h1");
     if (row?.id === position.focus && position.control && !row.body.hidden)
       control = [...row.body.querySelectorAll("a,button")].find((element) =>
         element.getAttribute("href") === position.control || element.dataset.control === position.control
@@ -1425,7 +1426,11 @@ async function poll(part, load) {
     }
   } catch (error) {
     if (ver !== routeVersion) return;
-    if (part === "canvas" && history.state.canvasSelection === todosCanvas) {
+    const kind = address(history.state.canvasSelection)?.kind;
+    if (error.upgrade) return;
+    if (part === "canvas" && ["artifacts", "view"].includes(kind)) {
+      artifacts.failed(kind === "artifacts");
+    } else if (part === "canvas" && kind === "todos") {
       const node = $("todo-error");
       if (node.hidden || node.dataset.login !== String(Boolean(error.login))) {
         node.replaceChildren(
@@ -1444,9 +1449,9 @@ async function poll(part, load) {
   }
 }
 function refresh() {
-  if (document.hidden || undoingTraversal) return;
+  if (document.hidden || undoingTraversal || loginRequired) return;
   poll("canvas", canvasRead);
-  if (history.state?.canvasSelection === todosCanvas && !(mobile.matches && history.state.panel))
+  if (history.state?.canvasSelection === "/todos" && !(mobile.matches && history.state.panel))
     refreshTodoRows(true);
   poll("detail", detailRead);
   poll("chat", messages);
@@ -1508,6 +1513,7 @@ startRoute();
 window.addEventListener("pagehide", () => {
   inspection.close();
   rememberOverview();
+  artifacts.remember();
   files.remember(document.activeElement);
   files.close();
   rememberReading();

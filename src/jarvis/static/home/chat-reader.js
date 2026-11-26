@@ -1,31 +1,18 @@
 import MarkdownIt from "./markdown-it-15.0.3/markdown-it.mjs";
 import { el, link } from "./home-dom.js";
-import { driveRoute } from "./drive.js";
+import { address } from "./home-address.js";
 
 const markdown = new MarkdownIt("commonmark", { html: true, linkify: false }).enable("table");
+// A lone delimiter has no cells. cmark-gfm ends the table here; other ordinary
+// unpiped lines still form a short row, as in GFM example 202.
+markdown.block.ruler.before("paragraph", "end_empty_table_row", (state, line, end, silent) =>
+  silent && state.parentType === "table" &&
+  state.src.slice(state.bMarks[line] + state.tShift[line], state.eMarks[line]).trim() === "|",
+  { alt: ["blockquote"] });
 // Keep even a rejected destination's label. Only destination() below can create a link.
 markdown.validateLink = () => true;
 const literalLinks = new MarkdownIt("zero").enable("link");
 literalLinks.validateLink = markdown.validateLink;
-export const uuid = "[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}";
-export const mailRoute = new RegExp("^/mail/(" + uuid + ")/(revision|draft)/(" + uuid + ")$");
-const message = new RegExp("^/m/(" + uuid + ")$");
-const todo = new RegExp("^/t/" + uuid + "$");
-const view = /^\/v\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/(?:[0-9a-f]{40}|[0-9a-f]{64}))?$/;
-const inspection = new RegExp("^/m/(" + uuid + ")/(source|table)/([1-9][0-9]*)(?:/([0-9a-f]{64}))?$");
-
-export function inspectionAt(path) {
-  const match = inspection.exec(path);
-  if (!match || !Number.isSafeInteger(Number(match[3])) || (match[2] === "table") !== Boolean(match[4])) return null;
-  return { message: match[1], kind: match[2], number: Number(match[3]), digest: match[4] };
-}
-export const messagePath = path => message.test(path);
-
-export function ordinaryPath(path) {
-  const published = view.exec(path);
-  return path === "/" || path === "/overview" || messagePath(path) || todo.test(path) || mailRoute.test(path) ||
-    (published && published[1].length <= 64) || driveRoute(path) !== null;
-}
 function destination(raw) {
   if (/[\\\u0000-\u0020]/.test(raw) || raw.startsWith("//") || !/^(?:https?:\/\/|\/)/i.test(raw)) return null;
   let url;
@@ -34,10 +21,11 @@ function destination(raw) {
   if (url.origin !== location.origin) return url.href;
   if (raw.includes("#") || (raw.includes("?") && !url.search)) return null;
   const path = url.pathname + url.search;
-  return ordinaryPath(path) ? path : null;
+  const route = address(path);
+  return route && !["source", "table"].includes(route.kind) ? path : null;
 }
 
-const bare = /https?:\/\/[^\s<>]+|attachment:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|\/(?:[mftv]\/|files\/|mail\/)[^\s<>]+/gi;
+const bare = /https?:\/\/[^\s<>]+|attachment:[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}|\/(?:(?:[mft]|artifacts|files|mail)\/[^\s<>]+|(?:artifacts|files|todos)(?![\w/]))/gi;
 function addPlainLinks(parent, value) {
   let end = 0;
   for (const match of value.matchAll(bare)) {

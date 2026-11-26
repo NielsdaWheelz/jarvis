@@ -84,6 +84,7 @@ class _Visible[KindT: str](_StrictModel):
     # Canonical hashing ignores property order; rotate main on a wire reordering.
     type: KindT
     present: Presentation | None
+    artifact_links: list[ViewRef]
 
 
 class Answered(_Visible[Literal["answered"]]):

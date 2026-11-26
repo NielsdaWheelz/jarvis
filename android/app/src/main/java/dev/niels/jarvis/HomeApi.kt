@@ -22,6 +22,9 @@ import org.json.JSONObject
 
 internal class DriveFailure(val code: String, val retryAfter: String?) : IOException(code)
 
+internal const val UpdateViewerMessage = "update jarvis to continue"
+internal class ViewerUpdateRequired : IOException(UpdateViewerMessage)
+
 internal class SignInRequired : IOException("sign in to continue")
 
 internal class HomeApi(context: Context) {
@@ -80,11 +83,20 @@ internal class HomeApi(context: Context) {
     suspend fun read(path: String): JSONObject? = withContext(Dispatchers.IO) {
         request(path).use { response ->
             when {
+                response.code == 426 -> throw ViewerUpdateRequired()
                 response.code == 404 -> null
                 response.isSuccessful -> response.json()
                 else -> throw IOException("could not load this item")
             }
         }
+    }
+
+    suspend fun selectedHome(): DiscussionRef.Artifact? {
+        val data = read("/api/home") ?: throw IOException("home unavailable")
+        val view = data.get("view")
+        if (view == JSONObject.NULL) return null
+        return DiscussionRef.parse(view as? JSONObject) as? DiscussionRef.Artifact
+            ?: throw IOException("invalid home selection")
     }
 
     suspend fun drive(path: String): JSONObject = withContext(Dispatchers.IO) {
@@ -171,10 +183,16 @@ internal sealed interface DiscussionRef {
         override val label = if (page == null) "drive file" else "page $page"
     }
 
-    data class Canvas(val slug: String, val revision: String) : DiscussionRef {
+    data class Artifact(val slug: String, val revision: String) : DiscussionRef {
         override fun json() = JSONObject().put("kind", "view").put("slug", slug).put("rev", revision)
-        override fun route() = Route.Canvas(slug, revision)
-        override val label = slug
+        override fun route() = Route.Artifact(slug, revision)
+        override val label get() = labelAmong(emptyList())
+
+        fun labelAmong(others: List<Artifact>): String {
+            val prefix = others.asSequence().filter { it.slug == slug && it != this }
+                .maxOfOrNull { revision.commonPrefixWith(it.revision).length + 1 } ?: 0
+            return "${slug.replace('-', ' ')} · edition ${revision.take(maxOf(12, prefix))}"
+        }
     }
 
     companion object {
@@ -183,7 +201,7 @@ internal sealed interface DiscussionRef {
             "proposal" -> Proposal(value.getString("message_id"), value.getString("action_id"))
             "file" -> File(value.getString("id"), (value.opt("page") as? Number)?.toLong())
             "drive_file" -> DriveFile(value.getString("subject"), value.getString("id"), (value.opt("page") as? Number)?.toLong())
-            "view" -> Canvas(value.getString("slug"), value.getString("rev"))
+            "view" -> Artifact(value.getString("slug"), value.getString("rev"))
             else -> null
         }
     }

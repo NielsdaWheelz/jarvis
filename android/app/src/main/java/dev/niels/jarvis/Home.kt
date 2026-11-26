@@ -125,26 +125,31 @@ internal fun JarvisHome(
                 FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     val back = if (chat || showDrafts) closeOverlay else onBack
                     back?.let { TextButton(onClick = it) { Text("back") } }
-                    val todos = route == Route.Overview || route is Route.Todo
-                    val viewingTodos = todos && !chat && !showDrafts
-                    TextButton(
-                        onClick = {
-                            chat = false
-                            showDrafts = false
-                            if (!todos || (viewingTodos && route is Route.Todo)) onNavigate(Route.Overview)
-                        },
-                        modifier = Modifier.semantics { selected = viewingTodos },
-                    ) { Text("todos", style = if (viewingTodos) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge) }
-                    val files = route == Route.Files || route is Route.File || route is Route.DriveFile
-                    val viewingFiles = files && !chat && !showDrafts
-                    TextButton(
-                        onClick = {
-                            chat = false
-                            showDrafts = false
-                            if (!files || (viewingFiles && route != Route.Files)) onNavigate(Route.Files)
-                        },
-                        modifier = Modifier.semantics { selected = viewingFiles },
-                    ) { Text("files", style = if (viewingFiles) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge) }
+                    val destinations = listOf(
+                        "jarvis" to Route.Home,
+                        "todos" to Route.Todos,
+                        "artifacts" to Route.Artifacts,
+                        "files" to Route.Files,
+                    )
+                    val section = when (route) {
+                        is Route.Todo -> Route.Todos
+                        is Route.Artifact -> Route.Artifacts
+                        is Route.File, is Route.DriveFile -> Route.Files
+                        else -> route
+                    }
+                    for ((label, target) in destinations) {
+                        val selectedSection = section == target && !chat && !showDrafts
+                        TextButton(
+                            onClick = {
+                                if (entry != target) onNavigate(target)
+                                else {
+                                    chat = false
+                                    showDrafts = false
+                                }
+                            },
+                            modifier = Modifier.semantics { selected = selectedSection },
+                        ) { Text(label, style = if (selectedSection) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge) }
+                    }
                     if (!chat || showDrafts) TextButton(onClick = {
                         showDrafts = false
                         chat = true
@@ -168,16 +173,11 @@ internal fun JarvisHome(
                         showDrafts -> DraftList(drafts, { draftId = it }, { newDraft(null) })
                         chat -> Conversation(api, reload, signIn, onNavigate, newDraft)
                         else -> when (route) {
-                            Route.Home -> Read("home", reload, signIn, { api.read("/api/home") }) { home ->
-                                if (home == null) {
-                                    Pane { BodyStatus("home unavailable") }
-                                } else {
-                                    val selected = DiscussionRef.parse(home.optJSONObject("view")) as? DiscussionRef.Canvas
-                                    LaunchedEffect(selected) { resolve(selected?.route() ?: Route.Overview) }
-                                    Pane { BodyStatus("opening home") }
-                                }
+                            Route.Home -> Read("home", reload, signIn, api::selectedHome) { selected ->
+                                LaunchedEffect(selected) { resolve(selected?.route() ?: Route.Todos) }
+                                Pane { BodyStatus("opening home") }
                             }
-                            Route.Overview, is Route.Todo -> TodoViewer((route as? Route.Todo)?.id, todoReads(), api, reload, signIn, onNavigate, newDraft)
+                            Route.Todos, is Route.Todo -> TodoViewer((route as? Route.Todo)?.id, todoReads(), api, reload, signIn, onNavigate, newDraft)
                             is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, newDraft) {
                                 chat = true
                             }
@@ -190,7 +190,8 @@ internal fun JarvisHome(
                                 TextButton(onClick = { onNavigate(route) }) { Text("open in browser") }
                                 TextButton(onClick = { onNavigate(Route.Message(route.messageId)) }) { Text("open message") }
                             }
-                            is Route.Canvas -> CanvasPane(route, api, reload, signIn, activity, resolve, newDraft)
+                            Route.Artifacts -> ArtifactShelf(api, reload, signIn, onNavigate)
+                            is Route.Artifact -> ArtifactPane(route, api, reload, signIn, activity, resolve, onNavigate, newDraft)
                         }
                     }
                 }
@@ -253,9 +254,11 @@ private fun Conversation(
                 item("previous") { TextButton(onClick = { before = edge }) { Text("earlier messages") } }
             }
             val messages = page?.objects("items").orEmpty()
+            val deliveries = messages.associateWith { it.deliveries() }
+            val editions = deliveries.values.flatten().filterIsInstance<DiscussionRef.Artifact>()
             if (messages.isEmpty()) item("empty") { Text("no messages here") }
             items(messages, key = { it.getString("id") }) { message ->
-                MessageEntry(message, navigate, discuss)
+                MessageEntry(message, navigate, discuss, deliveries.getValue(message), editions)
                 TextButton(onClick = { navigate(Route.Message(message.getString("id"))) }) { Text("open exact message") }
                 HorizontalDivider()
             }
@@ -287,8 +290,18 @@ private fun MessageDetail(
     }
 }
 
+private fun JSONObject.deliveries(): List<DiscussionRef> {
+    val links = objects("artifact_links").mapNotNull { DiscussionRef.parse(it) as? DiscussionRef.Artifact }
+    val presented = DiscussionRef.parse(optJSONObject("present")?.optJSONObject("ref"))
+    return (links + listOfNotNull(presented)).distinct()
+}
+
 @Composable
-private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss: (DiscussionRef?) -> Unit) {
+private fun MessageEntry(
+    message: JSONObject, navigate: (Route) -> Unit, discuss: (DiscussionRef?) -> Unit,
+    deliveries: List<DiscussionRef> = message.deliveries(),
+    editions: List<DiscussionRef.Artifact> = deliveries.filterIsInstance<DiscussionRef.Artifact>(),
+) {
     val id = message.getString("id")
     val speaker = if (message.getString("role") == "owner") "you" else "jarvis"
     Text("$speaker · ${formattedTime(message.string("at"))}", style = MaterialTheme.typography.labelMedium)
@@ -339,44 +352,9 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
         val label = if (historical) "open draft revision" else "open draft"
         TextButton(onClick = { navigate(Route.Mail(id, action, historical)) }) { Text("$label · $name") }
     }
-    DiscussionRef.parse(message.optJSONObject("present")?.optJSONObject("ref"))?.let { ref ->
-        TextButton(onClick = { navigate(ref.route()) }) { Text("open ${ref.label}") }
-    }
-}
-
-@Composable
-private fun CanvasPane(
-    route: Route.Canvas,
-    api: HomeApi,
-    reload: Pair<Int, Int>,
-    signIn: () -> Unit,
-    activity: Activity,
-    navigate: (Route) -> Unit,
-    discuss: (DiscussionRef?) -> Unit,
-) {
-    val path = "/api/views/${route.slug}" + (route.revision?.let { "/$it" } ?: "")
-    var opened by rememberSaveable { mutableStateOf(false) }
-    var browserError by remember { mutableStateOf(false) }
-    Read(path, reload, signIn, { api.read(path) }) { data ->
-        Pane {
-            val ref = DiscussionRef.parse(data) as? DiscussionRef.Canvas
-            if (ref == null) {
-                BodyStatus("this page is no longer available")
-                return@Pane
-            }
-            val open = { browserError = !Routes.openInBrowser(activity, Route.Canvas(ref.slug, ref.revision)) }
-            LaunchedEffect(ref) {
-                if (route.revision == null) navigate(ref.route())
-                else if (!opened) {
-                    opened = true
-                    open()
-                }
-            }
-            Heading(ref.slug)
-            TextButton(onClick = open) { Text("open published page in browser") }
-            if (browserError) BodyStatus("browser unavailable")
-            TextButton(onClick = { discuss(ref) }) { Text("discuss this page") }
-        }
+    for (ref in deliveries) {
+        val label = if (ref is DiscussionRef.Artifact) ref.labelAmong(editions) else ref.label
+        TextButton(onClick = { navigate(ref.route()) }) { Text("open $label") }
     }
 }
 
@@ -411,7 +389,13 @@ internal class ReadState<T> {
                 checked = Instant.now()
                 error = null
             } catch (_: SignInRequired) {
+                data = null
+                checked = null
                 error = "sign in"
+            } catch (update: ViewerUpdateRequired) {
+                data = null
+                checked = null
+                error = update.message
             } catch (_: IOException) {
                 error = "could not refresh"
             } catch (_: JSONException) {
@@ -428,7 +412,7 @@ internal class ReadState<T> {
             Column(Modifier.padding(horizontal = 20.dp)) {
                 BodyStatus(message + (checked?.let { " · last checked ${formattedTime(it.toString())}" } ?: ""))
                 if (problem == "sign in") TextButton(onClick = signIn) { Text("sign in") }
-                else TextButton(onClick = { attempt++ }) { Text("retry") }
+                else if (problem != UpdateViewerMessage) TextButton(onClick = { attempt++ }) { Text("retry") }
             }
         } else if (!received) CircularProgressIndicator(Modifier.padding(20.dp))
     }

@@ -57,6 +57,33 @@ on a schema change, the release command prints the protected snapshot directory.
 
 inspect a lost operator connection with the selected or staged release’s `deploy/cutover-hold status ID` through the deployment ssh alias. retry the named command for that id. a change to inputs needs its own authorized id and `--repair-of HELD_ID`. a durable commit authorizes actual starts and checks. a recorded startup failure requires an explicitly authorized new repair id. verify the selected release, serving processes, web and memory endpoints, actual owner control and backup policy. the owner’s existing pause remains effective even when both services are up. an isolated backup restore proves the contents of its generation. restoring over production requires a separate decision about the generation, intervening owner controls, effects and data loss.
 
+## artifact library cut
+
+use the [named release command](#named-production-maintenance) with a qualified
+service, publisher, shell and signed android update. resolve uncertain sends by
+receipt and preserve device drafts before closing ingress. reload open web tabs
+in place. obtain owner disposition for attached browser bytes or any
+unconfirmed mail editor save before closing its tab. keep mismatched clients
+off the viewer until the matched client and service are available.
+
+the release freezes `artifact-catalog.json` in the active root-owned hold.
+it contains the preimage and target digest and the member export hashes.
+the native notes uid writes the converted catalog after `applying`. the
+application uid reopens the target and verifies bytes before serving. a missing
+established catalog holds the cut. restore exact publication evidence or
+obtain an explicit owner disposition. the virgin bootstrap path requires
+an empty publisher directory. postgres recovery excludes the notes and catalog.
+
+on interruption inspect the original hold. retry with the same named inputs.
+the conversion accepts the frozen source or the already-written target while
+the original membership and export bytes verify. after mutation use forward
+repair under custody. never start an old publisher against the new catalog.
+
+during separately authorized installed acceptance publish two disposable
+editions without changing home, deliver one in ordinary chat, reopen both on
+desktop and phone, check the recorded delivery, then withdraw. compare the
+preexisting home and membership and record cleanup. [acceptance contract](decisions/0123-artifact-library.md#ownership-and-temporary-proof)
+
 ## accepted v2 target and operational scope
 
 [f2](runtime-reliability-and-integration.md), under
@@ -701,12 +728,13 @@ this completed cut retains its original procedure and evidence in [its decision]
 this completed cut retains its original procedure and evidence in [its decision](decisions/0092-memory-freshness.md) and matching release. later changes use [named production maintenance](#named-production-maintenance).
 
 from the private notes workspace, main runs
-`/opt/jarvis/current/deploy/jarvis-page publish SLUG COMMIT --home` or its
-`withdraw SLUG` command. publish self-contained
-html at `site/SLUG/index.html` with inline javascript/css and embedded images.
-time-sensitive data carries its preparation time. the sandbox omits downloaded
-libraries, fonts, media and workers. withdrawal closes all links, including raw
-content, and keeps the private source. a filesystem read already admitted can finish.
+`/opt/jarvis/current/deploy/jarvis-page publish SLUG COMMIT [--home]` returns the
+exact link under `/artifacts`. commit self-contained html at
+`site/SLUG/index.html`. give it a meaningful title. the head may also contain
+a description and a `jarvis-change` description of the revision. time-sensitive
+data carries its preparation time. the sandbox omits downloaded libraries,
+fonts, media and workers. `jarvis-page withdraw SLUG` closes every edition link,
+including raw content, while retaining the source. an admitted read can finish.
 
 subsequent same-schema updates use the [named release command](#named-production-maintenance). pruning follows verified service readiness.
 

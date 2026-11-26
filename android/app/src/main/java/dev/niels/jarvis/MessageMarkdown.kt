@@ -37,40 +37,9 @@ import androidx.compose.ui.unit.dp
 import org.commonmark.ext.gfm.tables.*
 import org.commonmark.node.*
 import org.commonmark.node.Text as MdText
-import org.commonmark.parser.IncludeSourceSpans
-import org.commonmark.parser.Parser
 import org.json.JSONObject
-import java.security.MessageDigest
 
-private val parser = Parser.builder().extensions(listOf(TablesExtension.create()))
-    .includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES).build()
-private val Node.children: Sequence<Node> get() = generateSequence(firstChild) { it.next }
-
-private class Markdown(text: String) {
-    val markers = mutableSetOf<Int>()
-    val root: Node
-    val tables = linkedMapOf<TableBlock, Pair<Int, String>>()
-    init {
-        val normalized = text.replace("\r\n", "\n").replace('\r', '\n')
-        root = parser.parse(normalized)
-        val lines = normalized.split('\n')
-        fun index(node: Node) {
-            if (node is Image) return
-            if (node is Link) sourceMarker.matchEntire(node.destination)?.groupValues?.get(1)?.toIntOrNull()?.let(markers::add)
-            if (node is TableBlock) {
-                val spans = node.sourceSpans
-                val source = lines.subList(spans.first().lineIndex, spans.last().lineIndex + 1).joinToString("\n")
-                val hash = MessageDigest.getInstance("SHA-256").digest(source.toByteArray())
-                tables[node] = tables.size + 1 to hash.joinToString("") { "%02x".format(it) }
-            }
-            node.children.forEach(::index)
-        }
-        index(root)
-    }
-}
-
-private val bare = Regex("""(?:https?://|/(?:[mftv]/|files/))[^\s<>]+|attachment:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}""", RegexOption.IGNORE_CASE)
-private val sourceMarker = Regex("#source-([1-9][0-9]*)")
+private val bare = Regex("""https?://[^\s<>]+|/(?:[mft]/|mail/|files\b|artifacts\b|todos\b)[^\s<>]*|attachment:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}""", RegexOption.IGNORE_CASE)
 
 private data class Reader(val message: JSONObject?, val navigate: (Route) -> Unit, val external: (Uri) -> Unit) {
     fun destination(href: String): (() -> Unit)? {
@@ -78,7 +47,7 @@ private data class Reader(val message: JSONObject?, val navigate: (Route) -> Uni
         val uri = Uri.parse(href)
         if (href.startsWith("/") || uri.host.equals(Uri.parse(Routes.origin).host, ignoreCase = true)) {
             val route = hrefRoute(href) ?: return null
-            if (route is Route.Source || route is Route.Table || route is Route.Mail) return null
+            if (route is Route.Source || route is Route.Table) return null
             return { navigate(route) }
         }
         if (uri.scheme !in setOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
@@ -98,7 +67,7 @@ private fun reader(message: JSONObject?, navigate: (Route) -> Unit): Reader {
 @Composable
 internal fun MessageMarkdown(message: JSONObject, navigate: (Route) -> Unit) {
     val text = message.getString("text")
-    val markdown = remember(text) { Markdown(text) }
+    val markdown = remember(text) { MessageDocument(text) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         MarkdownBlocks(markdown.root, markdown, reader(message, navigate))
         val present = message.optJSONObject("present")?.optJSONObject("ref")
@@ -121,7 +90,7 @@ internal fun TablePane(route: Route.Table, api: HomeApi, reload: Pair<Int, Int>,
     val path = "/api/messages/${route.message}"
     Read(path, reload, signIn, { api.read(path) }) { message ->
         Pane {
-            val markdown = message?.getString("text")?.let { remember(it) { Markdown(it) } }
+            val markdown = message?.getString("text")?.let { remember(it) { MessageDocument(it) } }
             val table = markdown?.tables?.entries?.find { it.value == (route.ordinal to route.digest) }?.key
             if (table == null) BodyStatus("table unavailable")
             else {
@@ -134,7 +103,7 @@ internal fun TablePane(route: Route.Table, api: HomeApi, reload: Pair<Int, Int>,
 }
 
 @Composable
-private fun MarkdownBlocks(parent: Node, markdown: Markdown, reader: Reader) {
+private fun MarkdownBlocks(parent: Node, markdown: MessageDocument, reader: Reader) {
     parent.children.forEach { node ->
         when (node) {
             is org.commonmark.node.Paragraph -> Inline(node, reader)
@@ -295,9 +264,9 @@ private fun Inline(node: Node, reader: Reader, modifier: Modifier = Modifier, st
         }
         inline(node, true)
     }
-    SelectionContainer {
-        Text(body, modifier.focusRequester(requester).focusGroup(), style = style)
-    }
+    val hasLinks = body.getLinkAnnotations(0, body.length).isNotEmpty()
+    val content = @Composable { Text(body, modifier.focusRequester(requester).focusGroup(), style = style) }
+    if (hasLinks) content() else SelectionContainer(content = content)
     LaunchedEffect(restoreLink) {
         if (restoreLink >= 0 && body.getLinkAnnotations(0, body.length).size > restoreLink) {
             if (!requester.restoreAfterNavigation(inputMode)) return@LaunchedEffect

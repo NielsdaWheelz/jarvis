@@ -183,6 +183,11 @@ independent claude opus 5.5 passed the original design, its calendar and draft a
 
 ## private web home
 
+[artifact library 0123](decisions/0123-artifact-library.md) implements the
+library, pinned editions, recorded deliveries, and the stopped catalog cut.
+the matched release combines drive and sidebar and rotates the viewer header
+and main output once. follow the [named cut](operations.md#artifact-library-cut).
+
 [inline todo viewer](decisions/0117-inline-todo-viewer.md) is implemented
 for web and android. the isolated candidate passed. installed acceptance is
 pending.
@@ -288,6 +293,16 @@ ships with this slice. use 0120 for verified downloadable files. use
 cuts. 0119's production editor enrollment is tracked independently.
 the [installed and live check](issues/citation-viewer-live.md) records the
 remaining account, provider and signed phone work.
+
+the selected artifacts determine the release order. finish the stopped drive
+cut in #129 first, or repeat its migration, custody and client proof on the
+exact combined release. drain incompatible outputs on the original selected
+release before switching. preserve the installed and candidate request name,
+output name and schema digest, prepared prompt and schema digests, main
+revision and client contract. a reused name with different bytes holds the
+cut. use one matched viewer contract for chat, evidence, file submission and
+the artifact library. the v4/v7 or v30 identities from independent candidates
+cannot name the combined release.
 
 [adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)
 records the qualified source and isolated stock candidate. it removes the old

@@ -27,6 +27,9 @@ delivers notification links. the adr supersedes conflicting client, readiness,
 delivery and presentation rules below. the web cut introduced schema `0017`.
 [production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
 
+in the web chat composer, enter sends the message and shift-enter inserts a newline.
+the input method handles enter during text composition.
+
 the [web reply decision](docs/decisions/0091-source-backed-reports.md) removes
 the application character ceiling on final answers and makes chat the ordinary
 place for long work. jarvis chooses content and handles owner corrections in

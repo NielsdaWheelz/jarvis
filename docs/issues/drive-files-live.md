@@ -7,7 +7,12 @@ requires an eligible isolated account, its empty private fixture folder, two
 distinct desktop clients and both loopback consents. account for cleanup in
 that folder. [google setup](https://developers.google.com/workspace/guides/configure-mcp-servers)
 
-the combined controlled rehearsal covers all eleven tools, the 100 mib boundary, two durable-ack crash windows, stopped import and restore, held or revoked authority, and the browser and android data interfaces. the source review passed with live evidence still required. the live probe and its usage notes are retained in the named local qualification directory.
+the combined controlled rehearsal covers all eleven tools, the 100 mib boundary, two durable-ack crash windows, stopped import and restore, held or revoked authority, and the browser and android data interfaces. the source review passed with live evidence still required. the historical probe remains with its original digest. the staged driver
+under `~/.local/state/jarvis/qualification/adr0120-full-provider/` now requires
+the exact viewed sample in recent, proves private owner permissions and
+records provider checks separately from folder trash and project-wide
+revocation. twenty offline checks passed. use its `--preflight` for local
+inputs and `--large` for the full provider run.
 
 verify the eleven operations through the selected agent composition, both reader lanes, max byte transport, stale etag and docs revision rejection, consent and revocation. verify the signed physical handset, stopped import and separate restored database on the selected release. close after the evidence is independently reviewed and disposable files and grants are accounted for.
 

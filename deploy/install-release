@@ -48,6 +48,7 @@ esac
 scp -q -o BatchMode=yes -o ForwardAgent=no "$archive" "$target:$remote_archive"
 
 {
+printf 'NATIVE_HOST_UNITS=(%s)\n' "$(tr '\n' ' ' <"$repo_dir/deploy/native-host-units")"
 cat "$repo_dir/deploy/release-functions"
 cat <<'REMOTE'
 set -euo pipefail

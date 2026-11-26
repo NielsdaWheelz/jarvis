@@ -314,41 +314,47 @@ shared host boundary from the `dev-server` repository. An apply may report a
 deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
-the host provisions the jarvis account, `codex-clients` and
-`jarvis-neon-control` groups, private skid client and empty mode-02750
-cognition parent. personal remains the subscribed stock host. paid neon has a
-separate stock host and inference adapter. the ordinary coding server keeps its
-own controls and sessions.
+the host provisions the jarvis account, private skid client and empty
+mode-02750 cognition parent. the v8 candidate adds a dedicated non-login uid
+and `jarvis-agy-control` socket group beside `codex-clients` and
+`jarvis-neon-control`. personal remains the subscribed stock host. the two
+paid harnesses use one inference adapter. the installed 0110 release owns
+active routing until the separately authorized 0111 cut.
 
-the root-owned v7 mapping `/etc/jarvis/codex-host.json` keeps the shared
+the root-owned v8 mapping `/etc/jarvis/codex-host.json` keeps the shared
 binary, workspace and service identities. it declares `personal` with its
 enrolled user, account and plan ids, and `google_neon` with its private host
 home, user, unix endpoint, loopback adapter origin, google project and root
-credential name. endpoints are in `/run/jarvis-contained` and
-`/run/jarvis-contained-neon`. the application binds stock socket files into
-its namespace. keep each stock runtime directory private. verify account
-identity, google project and the installed namespace independently.
+credential name. `agy_neon` binds `endpoint`, `host_user`, `host_home`
+and the absolute release-owned sdk executable `binary`. use
+`unix:///run/jarvis-agy-host/control.sock` and `/run/jarvis-agy-host/home`.
+the binary lives under the target release's installed
+`.venv/lib/python3.12/site-packages/google/antigravity/bin/localharness`.
+the application binds the stock socket files into its namespace and reaches
+the sdk socket through its application-only group. the latter socket remains
+usable when an optional host restarts and replaces its socket inode.
 
 verify automatic credit purchases and paid resets are off on personal.
 finite existing credits can finish an entered personal turn. a fresh turn
 requires confirmed included capacity. the paid api pocket uses its separate
 prepay contract below.
 
-provision scoped notes access and default acl entries for both native ids and
-the jarvis reader. native writers get default `rwx`, jarvis default `r-x`,
-the default group at most `r-x`, and others no access. give each native uid the
-same checkout-specific git author and committer, private origin access and
-controlled write/traverse on the mail incoming parent. the installer exercises
-current and inherited acl access with empty probes and preserves existing bytes.
+provision scoped notes access and default acl entries for the native writers
+and jarvis reader. native writers get default `rwx`, jarvis default `r-x`,
+the default group at most `r-x`, and others no access. the installer extends
+the existing acl to the sdk uid and exercises inherited access with empty
+probes. each native writer uses the same checkout-specific git identity.
+stock retains its existing private origin access. the sdk shell uses local
+git and runs offline.
 
 use `deploy/activate-release --change "$id" --codex-host-config "$mapping" "$to"`
 under [named custody](decisions/0104-maintenance-without-owner-pause.md).
 preflight rejects the retired `JARVIS_CODEX_PROFILE_KEY` before publication.
 the holder binds the mapping digest, closes the native units and publishes the
 new layout. retry with the same named change and exact bytes. the virgin
-`deploy/install-contained-host` command takes v7 through
+`deploy/install-contained-host` command takes v8 through
 `JARVIS_SOURCE_CODEX_HOST_CONFIG`. installation keeps the assistant stopped.
-[neon contract](decisions/0110-neon-quota-recovery.md)
+[antigravity contract](decisions/0111-native-antigravity-neon.md)
 
 for the [0093 candidate](decisions/0093-subscription-model-refresh.md), map
 `binary` to `/opt/jarvis-codex/0.171.0/bin/codex`. the x86-64 installer
@@ -1153,22 +1159,39 @@ one dedicated gemini developer api project and prepay billing account, standard
 tier, with $25 manual refills and auto-reload off. confirm billing mode and
 workspace data permission before production inference. stage the google
 authorization credential as root, mode 0600, under
-`/etc/jarvis/credentials/<credential_name>` from mapping v7. the host installer
+`/etc/jarvis/credentials/<credential_name>` from the root-owned mapping. the host installer
 generates a distinct private stock bearer and adapter-only continuation key.
 changing the continuation key or served model pin invalidates old paid
 continuations. settle entered paid work under its original release first. record project, mapping/release
 digests, host identity, actual served model and tier, and which evidence came
 from google. leave balances, credential values and context out of the receipt.
 
-under named maintenance, close the existing native host before installing the
-mapping. the installer retires the two standby service registrations and mounts.
-the paid stock host and inference adapter have separate identities. app control
-of the adapter is via its private unix socket. verify a new stock socket inode
-against the application bind before resumption. an unavailable paid host defers
-neon work. personal remains eligible where its own observation allows it.
-repair the paid binding through stopped remount custody. a failed paid startup
-leaves its host disabled. after repair, start the host and verify the new
-binding before enabling it and remounting the app.
+## antigravity release composition
+
+[adr 0111](decisions/0111-native-antigravity-neon.md) keeps database
+`0024`. under named stopped custody, the original release writes the private
+native inventory. the target checks retired openings, unsettled seals and
+releasable old retries before native publication. use the original release
+to settle or disposition any listed blocker. retry the same held change with
+the same staged mapping. finalized receipts and the existing shared funding
+hold remain in canonical storage. the selection changes after target checks.
+
+the installer checks the sdk version, pinned linux wheel digest and installed
+executable digest. the selected executable gets the narrow apparmor user
+namespace grant. the global restriction stays enabled. the service allows
+loopback for the trusted sdk transport, and the native shell runs in the sdk
+sandbox without network. agy receives an ephemeral attempt credential from
+the private host process. the shared adapter holds the google key. the home
+and attempt state under `/run/jarvis-agy-host` are removed on stop and crash
+restart. verify the installed policy with `deploy/verify-containment` and
+qualify an actual sandboxed turn with synthetic material before live use.
+
+the optional harnesses retain explicit operator disablement and can be
+stopped independently. report their liveness and the shared project's
+capacity separately. repair a stock socket replacement through a stopped
+application remount. record the requested and observed model, effort,
+project, route, attempt and disposition in the redacted release receipt.
+identify fixture, live and absent evidence explicitly.
 
 ### one-time historical quota release
 

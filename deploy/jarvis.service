@@ -1,6 +1,6 @@
 [Unit]
 Description=Jarvis private web assistant
-After=network-online.target postgresql.service jarvis-codex-contained.service jarvis-codex-contained-neon.service
+After=network-online.target postgresql.service jarvis-codex-contained.service jarvis-codex-contained-neon.service jarvis-antigravity-contained.service jarvis-neon-adapter.service
 BindsTo=jarvis-codex-contained.service
 Wants=network-online.target
 RequiresMountsFor=/run/jarvis-skid-state
@@ -11,7 +11,7 @@ StartLimitBurst=3
 Type=simple
 User=jarvis
 Group=jarvis
-SupplementaryGroups=codex-clients jarvis-memory jarvis-neon-control
+SupplementaryGroups=codex-clients jarvis-memory jarvis-neon-control jarvis-agy-control
 WorkingDirectory=/opt/jarvis/current
 ExecStartPre=-/usr/bin/install -d -m 0700 /var/lib/jarvis/phone
 EnvironmentFile=/etc/jarvis/database-runtime.env

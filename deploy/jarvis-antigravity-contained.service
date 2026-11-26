@@ -1,0 +1,60 @@
+[Unit]
+Description=Jarvis contained Antigravity SDK host
+After=jarvis-neon-adapter.service apparmor.service
+Wants=jarvis-neon-adapter.service
+ConditionSecurity=apparmor
+ConditionPathExists=!/var/lib/jarvis-cutover/held/jarvis-codex-contained.service
+StartLimitIntervalSec=900
+StartLimitBurst=3
+
+[Service]
+Type=exec
+User=@HOST_USER@
+Group=jarvis-agy-control
+SupplementaryGroups=codex-clients
+WorkingDirectory=/
+Environment=HOME=@HOME@
+Environment=OTEL_SDK_DISABLED=true
+Environment=PYTHONUNBUFFERED=1
+Environment=GIT_CONFIG_GLOBAL=/etc/jarvis/antigravity-gitconfig
+RuntimeDirectory=jarvis-agy-host
+RuntimeDirectoryMode=0710
+RuntimeDirectoryPreserve=no
+ExecStartPre=@RELEASE@/.venv/bin/python @RELEASE@/deploy/codex-host verify-agy
+ExecStartPre=/usr/bin/install -d -m 0700 @HOME@ /run/jarvis-agy-host/state
+ExecStart=@RELEASE@/.venv/bin/provider-runtime-antigravity-host --socket @SOCKET@ --state-root /run/jarvis-agy-host/state --upstream @ORIGIN@
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=20
+TimeoutStopSec=10
+KillMode=control-group
+UMask=0077
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectProc=ptraceable
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+BindPaths=/var/lib/jarvis-notes /run/jarvis-codex-cognition
+BindReadOnlyPaths=/var/cache/jarvis/attachments /sys
+ReadWritePaths=/var/lib/jarvis-notes /run/jarvis-codex-cognition
+InaccessiblePaths=@INACCESSIBLE@
+NoNewPrivileges=true
+AmbientCapabilities=
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_NETLINK
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=~syslog:EPERM
+TasksMax=256
+LimitCORE=0
+OOMPolicy=stop
+
+[Install]
+WantedBy=multi-user.target

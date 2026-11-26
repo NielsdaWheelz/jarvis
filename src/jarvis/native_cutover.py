@@ -133,9 +133,9 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
                 native_attempt.c.request["schema_version"]
                 .as_string()
                 .is_distinct_from(NATIVE_REQUEST_SCHEMA),
-                native_attempt.c.terminal_at.is_(None),
                 native_attempt.c.product_outcome.is_(None),
                 or_(
+                    native_attempt.c.terminal_at.is_not(None),
                     native_attempt.c.recovery_pending,
                     native_attempt.c.fenced_at.is_(None),
                 ),
@@ -147,13 +147,12 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
                 "retired native opening requires original-release disposition",
                 old_attempt,
             )
+        work = await _maintenance_work(connection, conversation_id)
         old_retry = await connection.scalar(
             select(message.c.id)
             .where(
-                message.c.source_conversation_id == conversation_id,
+                message.c.id.in_(work.resumable),
                 message.c.native_retry_after.is_not(None),
-                message.c.processing_parked_at.is_(None),
-                message.c.request_state.in_(("pending", "waiting")),
                 current_native_retry().is_not(True),
             )
             .limit(1)
@@ -202,7 +201,6 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
                 "retired paid read requires a disposition under the original release",
                 unknown,
             )
-        work = await _maintenance_work(connection, conversation_id)
         component = set(await causal_component_ids(connection, work.resumable))
         if component:
             invocations = (

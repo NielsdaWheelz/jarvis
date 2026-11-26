@@ -47,6 +47,33 @@ the [drive files cut](../decisions/0120-drive-files.md) also needs a determinati
   after disconnection. no existing evidence resolves the mixed records or
   proves deletion across their destinations. [api terms](https://developers.google.com/terms#e_prohibitions_on_content) · [workspace ai addendum](https://workspace.google.com/terms/ai-tools/) · [effective date](https://developers.google.com/workspace/guides/quota-usage-tiers)
 
+## production decision on november 26
+
+the read-only inventory found 21 ready gmail-derived files and four web
+uploads. application records establish their source, with no evidence of
+content-owner permission for every underlying file. the stopped copy must
+leave the originals intact through verification. resolve whether this
+specific one-time move is a backup under the drive api terms, and whether
+the app may process and retain the mail-derived content it reads back.
+[drive terms](https://developers.google.com/workspace/drive/api/terms) · [api terms §5(e)](https://developers.google.com/terms#e_prohibitions_on_content)
+
+| use | determination |
+| --- | --- |
+| live human preview | bounded per-open bytes are a candidate for permitted use. demonstrate cleanup at close and grant loss. assess any retained link, revision metadata or citation under the archive decision. the addendum's mcp requirement is for ai-driven access. its data-use provisions also describe non-agent applications. |
+| active agent read and receipt | the connector returns task-specific results, then stores the completed result in postgres, can include it in the answer, and captures eligible history. pulling the grant fences new uses. the existing model keeps those records. future covered copies that remain after revocation conflict with §2(d) of the addendum as published. |
+| archive processing | the shared tree and search derive persisted summaries and vectors and can resurface old results in later work and dreaming. covered technical information has a 30-day ceiling and active-task limits. the accepted indefinite retention has no demonstrated conforming path. |
+| inference and embeddings | the selected main uses the owner's personal codex subscription and the index uses the embedding api. the codex training control and embedding project's retention terms need separate evidence. opting out of training cannot remove the existing jarvis copies or establish upstream deletion at disconnection. |
+| recovery | the 30-day r2 lock and retained mac restore use decryptable copies. there is no operation that can remove affected data from all recoverable generations at disconnection. a normal restore can reintroduce an affected record. |
+
+[read receipts](../../src/jarvis/read_positions.py) · [memory capture and search](../universal-memory.md) · [backup custody](../decisions/0088-storage-and-memory-recovery.md) · [codex settings](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan) · [addendum](https://workspace.google.com/terms/ai-tools/) · [effective date](https://developers.google.com/workspace/guides/quota-usage-tiers)
+
+obtain a written determination covering the one-time move, the content
+permissions, and the treatment of existing api-derived histories and locked
+backups. get an applicable written exception for new retention as designed,
+or change the product contract before enrollment. the published text gives
+no basis to carry that design forward unchanged after february 1. no real
+file move, deletion or archive rewrite follows from this review.
+
 ## sample-only importer check
 
 on november 26 the owner authorized a one-off check on their existing google

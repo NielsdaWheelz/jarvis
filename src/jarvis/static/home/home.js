@@ -24,6 +24,7 @@ const mobile = matchMedia("(max-width:720px)");
 const draftKey = "jarvis.home.draft";
 const todosCanvas = "todos";
 let reloadReading = null;
+let chatReturn = null;
 const newDraft = () => ({ id: null, text: "", ref: null, files: [], uncertain: false });
 let draft = JSON.parse(sessionStorage.getItem(draftKey) || "null") || newDraft();
 let armed = null,
@@ -85,11 +86,14 @@ function setPanel() {
   const open = Boolean(history.state?.panel);
   document.body.dataset.panel = open ? "open" : "closed";
   $("sidebar-open").setAttribute("aria-expanded", String(open));
+  $("sidebar-close").hidden = !open || (!mobile.matches && !isDetail(location.pathname));
 }
-function openSidebar() {
+mobile.addEventListener("change", setPanel);
+function openSidebar(origin) {
   armed = null;
-  rememberOverview();
   if (mobile.matches && !history.state?.panel) {
+    rememberOverview(origin);
+    changeState({ panelOpener: origin?.id || null, chatReturn: null });
     pushEntry({ ...history.state, panel: true, fromCanvas: true }, location.href);
   }
   setPanel();
@@ -100,15 +104,12 @@ function closeSidebar() {
     history.back();
     return;
   }
-  changeState(
-    { panel: false, canvasAddress: null, reading: null },
-    history.state.canvasAddress || location.href,
-  );
-  startRoute();
+  replaceEntry({ canvasSelection: history.state.canvasSelection }, "/");
+  startRoute(shownIndex);
 }
 $("sidebar-open").onclick = () => {
-  openSidebar();
-  $("sidebar-close").focus();
+  openSidebar($("sidebar-open"));
+  $("sidebar-close").focus({ preventScroll: true });
 };
 $("sidebar-close").onclick = closeSidebar;
 
@@ -317,8 +318,8 @@ $("composer").ondrop = (e) => {
 };
 window.addEventListener("dragend", clearDrag);
 window.addEventListener("blur", clearDrag);
-function discuss(ref, title) {
-  openSidebar();
+function discuss(ref, title, origin) {
+  openSidebar(origin);
   const choice = $("draft-choice");
   choice.hidden = true;
   if (pendingSend || draft.uncertain) {
@@ -364,64 +365,6 @@ async function read(path) {
   if (!response.ok) throw new Error("could not load this item.");
   return response.json();
 }
-$("phone-alerts").addEventListener("toggle", async (event) => {
-  if (!event.currentTarget.open) return;
-  const status = $("phone-status");
-  const disconnect = $("disconnect-phone");
-  disconnect.hidden = true;
-  status.textContent = "checking phone alerts…";
-  try {
-    const readPhone = async () => {
-      const response = await request("/api/push/phone");
-      if (!response.ok) throw new Error("could not check phone alerts");
-      const phone = await response.json();
-      if (!phone.installation_id) return null;
-      const tag = response.headers.get("ETag");
-      if (!tag) throw new Error("could not check phone alerts");
-      return tag;
-    };
-    let tag = await readPhone();
-    status.textContent = tag ? "one phone is connected." : "no phone is connected.";
-    disconnect.hidden = !tag;
-    disconnect.onclick = async () => {
-      disconnect.disabled = true;
-      let failed = false;
-      try {
-        const response = await request("/api/push/phone", {
-          method: "DELETE",
-          headers: { "If-Match": tag },
-        });
-        if (response.ok) {
-          status.textContent = "phone disconnected.";
-          disconnect.hidden = true;
-          return;
-        }
-        failed = response.status !== 412;
-      } catch {
-        failed = true;
-      } finally {
-        disconnect.disabled = false;
-      }
-      disconnect.disabled = true;
-      try {
-        tag = await readPhone();
-        status.textContent = !tag
-          ? "phone disconnected."
-          : failed
-            ? "disconnect unconfirmed. try again."
-            : "phone alerts changed. disconnect the current phone?";
-        disconnect.hidden = !tag;
-      } catch (error) {
-        status.textContent = error.login ? "sign in to check phone alerts." : "disconnect unconfirmed. reopen to check.";
-        disconnect.hidden = true;
-      } finally {
-        disconnect.disabled = false;
-      }
-    };
-  } catch (error) {
-    status.textContent = error.login ? "sign in to check phone alerts." : "could not check phone alerts.";
-  }
-});
 function failure(error, part = "chat") {
   failures.set(part, Boolean(error.login));
   showConnection();
@@ -778,7 +721,7 @@ async function messages(ver) {
     initialized = true;
   }
   const rows = chunks.reverse().flat();
-  const returning = !isDetail(location.pathname) && history.state.revisionReturn;
+  const returning = !isDetail(location.pathname) && chatReturn;
   if (
     returning && !$("msg-" + returning.messageId) &&
     !rows.some((row) => row.id === returning.messageId)
@@ -786,7 +729,7 @@ async function messages(ver) {
     const origin = await read("/api/messages/" + returning.messageId);
     if (ver !== routeVersion) return;
     if (origin) rows.unshift(origin);
-    else changeState({ revisionReturn: null });
+    else chatReturn = null;
   }
   merge(rows);
   if (rows.length) latest = rows.at(-1).id;
@@ -795,7 +738,7 @@ async function messages(ver) {
     $("chat").scrollTop += selectedMessageOffset() - openingOffset;
     reloadReading = null;
   }
-  if (!isDetail(location.pathname)) restoreRevisionReturn();
+  if (!isDetail(location.pathname)) restoreChatReturn();
 }
 $("older").onclick = async () => {
   const b = $("older");
@@ -821,20 +764,18 @@ function rememberReading() {
     changeState({ reading: { id: selectedMessage, offset: selectedMessageOffset() } });
 }
 $("chat").addEventListener("scrollend", rememberReading);
-function restoreRevisionReturn() {
-  const returning = history.state.revisionReturn;
+function restoreChatReturn() {
+  const returning = chatReturn;
   if (!returning) return;
   const article = $("msg-" + returning.messageId);
   const chat = $("chat");
   if (!article || !chat.clientHeight) return;
-  changeState({ revisionReturn: null });
+  chatReturn = null;
+  if (document.activeElement !== document.body && document.activeElement !== returning.focus) return;
   const offset = article.getBoundingClientRect().top - chat.getBoundingClientRect().top;
   chat.scrollTop += offset - returning.offset;
-  if (document.activeElement === document.body || $("draft-revision")?.contains(document.activeElement)) {
-    Array.from(article.querySelectorAll(".draft-revision-link"))
-      .find((anchor) => anchor.getAttribute("href") === returning.path)
-      ?.focus({ preventScroll: true });
-  }
+  const matches = [...article.querySelectorAll("a")].filter((link) => link.href === returning.href);
+  matches[returning.occurrence]?.focus({ preventScroll: true });
 }
 
 function navigate(path, { origin, canvasSelection = path } = {}) {
@@ -854,12 +795,14 @@ function navigate(path, { origin, canvasSelection = path } = {}) {
   const fromRevisionMessage = Boolean(
     revision && origin?.classList.contains("draft-revision-link") && !fromRevision,
   );
-  if (fromRevisionMessage) {
-    const article = $("msg-" + revision[1]);
+  const article = origin?.closest("#messages article");
+  if (article || history.state.chatReturn) {
     changeState({
-      revisionReturn: {
-        messageId: revision[1],
-        path,
+      chatReturn: article && {
+        fromEntry: shownIndex + 1,
+        messageId: article.id.slice(4),
+        href: origin.href,
+        occurrence: [...article.querySelectorAll("a")].filter((link) => link.href === origin.href).indexOf(origin),
         offset: article.getBoundingClientRect().top - $("chat").getBoundingClientRect().top,
       },
     });
@@ -868,16 +811,12 @@ function navigate(path, { origin, canvasSelection = path } = {}) {
   if (path.startsWith("/t/")) {
     state = { ...todoEntry(path.slice(3)), hasOrigin: true };
   } else if (isDetail(path)) {
-    const canvasAddress = isDetail(location.pathname)
-      ? history.state.canvasAddress
-      : location.pathname + location.search;
     state = {
       ...(fromRevision ? { canvasSelection: "/" } : history.state),
       panel: true,
       fromCanvas: true,
-      canvasAddress: fromRevision ? "/" : canvasAddress,
       reading: null,
-      revisionReturn: null,
+      chatReturn: null,
     };
   }
   pushEntry(state, path);
@@ -929,9 +868,10 @@ window.onpopstate = () => {
     return;
   }
   undoingTraversal = false;
+  const previousEntry = shownIndex;
   shownIndex = destination;
   armed = null;
-  startRoute();
+  startRoute(previousEntry);
 };
 
 function empty(title) {
@@ -940,7 +880,8 @@ function empty(title) {
   return box;
 }
 
-function startRoute() {
+function startRoute(previousEntry) {
+  const leavingPanel = previousEntry !== undefined && document.body.dataset.panel === "open" && !history.state?.panel;
   if (mailEditor && mailEditor.path !== history.state?.canvasSelection) {
     mailEditor.close();
     mailEditor = null;
@@ -958,9 +899,12 @@ function startRoute() {
     replaceEntry(todoEntry(path.slice(3)), path);
   } else if (!history.state?.canvasSelection) {
     changeState(
-      detail ? { canvasSelection: "/", canvasAddress: "/", panel: true } : { canvasSelection: path },
+      detail ? { canvasSelection: "/", panel: true } : { canvasSelection: path },
     );
   }
+  const saved = history.state.chatReturn;
+  chatReturn = saved && saved.fromEntry === previousEntry
+    ? { ...saved, focus: document.activeElement } : null;
   $("draft-choice").hidden = true;
   selectedMessage = null;
   document.querySelector(".selected")?.classList.remove("selected");
@@ -971,9 +915,16 @@ function startRoute() {
   }
   restoreOverview = Boolean(history.state.position && !detail && !history.state.panel);
   revealTodo = path.startsWith("/t/") && !history.state.targetRevealed ? path.slice(3) : null;
-  if (!restoreOverview && !detail && !history.state.panel) $("canvas").scrollTop = 0;
+  const sameCanvas = leavingPanel && displayed === history.state.canvasSelection;
+  if (!restoreOverview && !detail && !history.state.panel && !sameCanvas) $("canvas").scrollTop = 0;
   $("todo-return").hidden = !path.startsWith("/t/");
   setPanel();
+  if (leavingPanel && !(chatReturn && $("chat").clientHeight) && !revealTodo && !history.state.position?.focus) {
+    const opener = $(history.state.panelOpener);
+    const homeControl = mobile.matches ? $("sidebar-open") : document.querySelector(".wordmark");
+    (opener?.getClientRects().length ? opener : homeControl).focus({ preventScroll: true });
+  }
+  if (!detail) restoreChatReturn();
   refresh();
 }
 
@@ -1087,7 +1038,7 @@ async function canvasRead(ver) {
     if (!more) {
       const pinned = objectPath(ref);
       if (isDetail(location.pathname)) {
-        changeState({ canvasSelection: pinned, canvasAddress: pinned });
+        changeState({ canvasSelection: pinned });
       } else {
         changeState({ canvasSelection: pinned }, pinned);
       }
@@ -1174,7 +1125,9 @@ async function canvasRead(ver) {
     };
     $("object-tools").append(page);
   }
-  $("object-tools").append(button("discuss this", () => discuss(current)));
+  const discussObject = button("discuss this", (event) => discuss(current, undefined, event.currentTarget));
+  discussObject.id = "discuss-object";
+  $("object-tools").append(discussObject);
 }
 
 function civilDate(value) {
@@ -1208,7 +1161,7 @@ function overviewPosition(origin = document.activeElement) {
   };
 }
 function readingTodos() {
-  return history.state.canvasSelection === todosCanvas && !isDetail(location.pathname) &&
+  return history.state?.canvasSelection === todosCanvas && !isDetail(location.pathname) &&
     !(mobile.matches && history.state.panel) && displayed === todosCanvas;
 }
 function rememberOverview(origin) {
@@ -1218,7 +1171,10 @@ function rememberOverview(origin) {
 $("canvas").addEventListener("scrollend", rememberOverview);
 $("todo-list").addEventListener("focusin", (event) => rememberOverview(event.target));
 for (const type of ["pointerdown", "wheel", "keydown"])
-  document.addEventListener(type, () => { restoreOverview = false; }, { passive: true });
+  document.addEventListener(type, () => {
+    restoreOverview = false;
+    chatReturn = null;
+  }, { passive: true });
 
 function restorePosition(position) {
   const closest = (id) => {
@@ -1300,7 +1256,8 @@ function renderTodoBody(row, open) {
   if (item) {
     if (item.content) body.append(prose(item.content));
     if (wake) body.append(el("p", wake));
-    const discussTodo = button("discuss", () => discuss({ kind: "todo", id: row.id }, item.title));
+    const discussTodo = button("discuss", (event) =>
+      discuss({ kind: "todo", id: row.id }, item.title, event.currentTarget));
     discussTodo.dataset.control = "discuss";
     body.append(discussTodo, link("link to this todo", "/t/" + row.id));
   }
@@ -1478,7 +1435,7 @@ async function detailRead(ver) {
     $("chat").scrollTop += selectedMessageOffset() - (restore ? reloadReading.offset : 0);
     if (restore && !initialized) reloadReading.appliedOffset = selectedMessageOffset();
     else reloadReading = null;
-    restoreRevisionReturn();
+    restoreChatReturn();
   }
 }
 

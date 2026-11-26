@@ -15,9 +15,7 @@
         <button id="todos-tab" type="button" aria-pressed="false">todos</button>
         <button id="todo-return" type="button" hidden>back</button>
         <span id="location"></span>
-        <button id="sidebar-open" aria-label="open conversation" aria-controls="sidebar">
-          conversation
-        </button>
+        <button id="sidebar-open" type="button" aria-controls="sidebar">chat</button>
       </header>
       <section id="canvas" aria-label="workspace">
         <div id="object"></div>
@@ -32,17 +30,7 @@
       <footer id="object-tools" hidden></footer>
     </main>
     <aside id="sidebar" aria-label="conversation">
-      <header class="bar">
-        <span class="sidebar-title">chat</span>
-        <button id="sidebar-close" aria-label="close sidebar">close</button>
-      </header>
-      <nav aria-label="workspace sections">
-        <details id="phone-alerts">
-          <summary>phone alerts</summary>
-          <p id="phone-status" role="status"></p>
-          <button id="disconnect-phone" type="button" hidden>disconnect phone alerts</button>
-        </details>
-      </nav>
+      <button id="sidebar-close" type="button" hidden>back</button>
       <section id="chat" class="panel" aria-label="chat">
         <button id="older" hidden>earlier messages</button>
         <div id="messages"></div>

@@ -232,6 +232,31 @@ records probe and fixture deletion. the [november 24 cleanup](decisions/0094-wor
 the [installed issue](issues/default-home-work.md) stays open through acceptance.
 the [private android client](decisions/0105-native-android.md#installed-phone-follow-up-on-november-24-utc) handles sharing and push. iphone uses web access.
 
+## chat sidebar and phone alerts
+
+[adr 0122](decisions/0122-chat-sidebar-and-phone-alerts.md) records the matched
+client and service change. the [installed check](issues/chat-sidebar-phone-alerts-installed.md)
+remains open.
+
+1. start from 0117's single viewer todos control. in the packaged web shell,
+   remove the ordinary sidebar header, phone disclosure and their exclusive
+   styles and handlers. keep one conditional back button on the existing
+   history and focus path. exercise the adr's desktop and narrow return journeys.
+2. in android's native home, replace the alerts screen and global warning
+   with the inline enrollment and repair action. reuse the permission flow,
+   firebase registration and slot readback in `Push.kt`. decouple address
+   maintenance from channel muting. check fresh, denied and in-place upgrades.
+3. once both clients have dropped manual disconnect, retire the delete handler
+   in `home_http.py` and its branch in `phone.py`. exercise the adr's
+   replacement, stale-address and old-client checks against an isolated slot.
+4. for rollout, stage the packaged shell, service and same-signer android
+   update. coordinate with the 0117 client/service cut if still pending.
+   old tabs adopt the new shell on ordinary reload after any active draft is
+   safe. an old client attempting disconnect receives 405. verify the upgraded
+   handset retains enrollment and opens a real reply alert, and check the
+   installed sidebar on wide and narrow web. record candidate and installed
+   outcomes separately.
+
 ## chat composer attachments
 
 [adr 0116](decisions/0116-chat-composer-attachments.md) owns the interaction,

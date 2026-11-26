@@ -159,6 +159,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0117](0117-inline-todo-viewer.md) | inline todo viewer | source and isolated candidate qualified for web and android. every active title opens in place. |
 | [0119](0119-owner-gmail-draft-editor.md) | owner gmail draft editor | one human-operated editor for verified jarvis drafts. installation and live qualification separate. |
 | [0121](0121-exact-chat-draft-revisions.md) | exact draft revisions from chat | immutable revision reader and matched client cut. installed qualification pending. |
+| [0122](0122-chat-sidebar-and-phone-alerts.md) | chat sidebar and phone alerts | implemented. transcript-first chat and optional native enrollment. installed acceptance pending. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 the two decisions numbered 0114 likewise retain their distinct titles and paths.

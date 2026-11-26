@@ -20,6 +20,13 @@ audience: product, engineering, design, operations, and future coding agents
 
 ## private web home
 
+[adr 0122](docs/decisions/0122-chat-sidebar-and-phone-alerts.md) adopts a
+transcript-first web sidebar, a contextual back control and viewer-owned todos.
+it retires phone status and manual disconnect on web and android. android owns
+explicit enrollment, replacement and repair on the phone, and system notification
+preferences govern display. source is implemented.
+[installed acceptance](docs/issues/chat-sidebar-phone-alerts-installed.md) is separate.
+
 [adr 0119](docs/decisions/0119-owner-gmail-draft-editor.md) adds the owner
 gmail editor on web and through android's browser. the human oauth client and
 editor receipt are separate from the agent connector and action ledger.

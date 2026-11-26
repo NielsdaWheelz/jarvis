@@ -267,11 +267,11 @@ def create_home_app(
             raise HTTPException(404)
         return page
 
-    async def get_phone() -> JSONResponse:
-        state = await phone.read()
-        return JSONResponse(state.public(), headers={"ETag": state.etag})
+    async def phone_registration(request: Request) -> JSONResponse:
+        if request.method == "GET":
+            state = await phone.read()
+            return JSONResponse(state.public(), headers={"ETag": state.etag})
 
-    async def change_phone(request: Request) -> JSONResponse:
         tags = request.headers.getlist("If-Match")
         if not tags:
             raise HTTPException(428, "phone generation required")
@@ -285,22 +285,16 @@ def create_home_app(
 
         body = bytearray()
         async for chunk in request.stream():
-            if len(body) + len(chunk) > 25 * 1024 or (
-                request.method == "DELETE" and chunk
-            ):
+            if len(body) + len(chunk) > 25 * 1024:
                 raise HTTPException(422, "invalid enrollment body")
             body.extend(chunk)
         try:
-            enrollment = (
-                Enrollment.model_validate_json(body)
-                if request.method == "PUT"
-                else None
-            )
+            enrollment = Enrollment.model_validate_json(body)
         except ValidationError:
             raise HTTPException(422, "invalid enrollment") from None
 
         try:
-            state = await phone.change(generation, enrollment)
+            state = await phone.enroll(generation, enrollment)
         except StalePhone:
             raise HTTPException(412, "phone generation changed") from None
         except InactivePhone:
@@ -360,8 +354,7 @@ def create_home_app(
     app.add_api_route("/api/todos/{identifier}/results", results, methods=["GET"])
     app.add_api_route("/api/files/{identifier}", file, methods=["GET", "HEAD"])
     app.add_api_route("/api/home", home, methods=["GET"])
-    app.add_api_route(_PHONE_ROUTE, get_phone, methods=["GET"])
-    app.add_api_route(_PHONE_ROUTE, change_phone, methods=["PUT", "DELETE"])
+    app.add_api_route(_PHONE_ROUTE, phone_registration, methods=["GET", "PUT"])
     app.add_api_route(_WORKSPACE_APPROVALS, approvals, methods=["GET"])
     app.add_api_route(_WORKSPACE_APPROVALS + "/{identifier}", choose, methods=["POST"])
     app.add_api_route("/api/views/{slug}", view, methods=["GET"])

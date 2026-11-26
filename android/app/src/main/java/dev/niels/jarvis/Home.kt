@@ -341,6 +341,7 @@ private fun Conversation(
     val deliveries = remember(messages) { messages.associate { it.id to it.json.deliveries() } }
     val editions = remember(deliveries) { deliveries.values.flatten().filterIsInstance<DiscussionRef.Artifact>() }
     val boundary = history.boundary
+    val through = messages.lastOrNull { it.tracked }?.stamp
     val keys = buildList {
         if (history.before != null) add("earlier")
         for (message in messages) {
@@ -514,7 +515,9 @@ private fun Conversation(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             HorizontalDivider(Modifier.weight(1f), color = color)
                             Text(label, Modifier.padding(start = 8.dp).semantics { heading() }, style = MaterialTheme.typography.labelMedium, color = color)
-                            TextButton(enabled = history.newTotal > 0, onClick = history::clear) { Text("clear") }
+                            TextButton(enabled = through != null && history.newTotal > 0, onClick = {
+                                if (through != null) history.clear(through)
+                            }) { Text("clear") }
                         }
                     }
                     else -> byId[id]?.let { message ->

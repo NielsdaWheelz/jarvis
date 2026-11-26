@@ -169,7 +169,7 @@ internal class ChatHistory(private val shown: ChatShown) {
 
     suspend fun refresh(revisit: Boolean, page: suspend (String?) -> ChatPage) = reads.withLock {
         read {
-            val initial = !received
+            val initial = !received || rows.isEmpty()
             val oldEdge = if (revisit) rows.firstOrNull() else rows.lastOrNull()
             val head = page(null)
             val retained = mutableListOf<ChatPage>()
@@ -237,9 +237,9 @@ internal class ChatHistory(private val shown: ChatShown) {
         }
     }
 
-    fun clear() {
-        val through = rows.lastOrNull { it.tracked }?.stamp ?: return
-        pendingClear = Clear(through, newTotal, SystemClock.elapsedRealtime() + 5_000)
+    fun clear(through: ChatStamp) {
+        val count = newAbove + rows.count { it.stamp <= through && isNew(it) }
+        pendingClear = Clear(through, count, SystemClock.elapsedRealtime() + 5_000)
     }
 
     fun undo() { pendingClear = null }

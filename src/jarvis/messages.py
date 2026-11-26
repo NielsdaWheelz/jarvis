@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4, uuid5
 
 from llm_tools import canonical_json_bytes
-from sqlalchemy import RowMapping, Text, case, func, select, update
+from sqlalchemy import ColumnElement, RowMapping, Text, case, func, select, update
 from sqlalchemy import cast as sql_cast
 from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -34,6 +34,44 @@ if TYPE_CHECKING:
     from jarvis.workspace_host import WorkspaceHost
 
 MessageRole = Literal["owner", "assistant", "host"]
+
+# A capacity refusal retains its origin but only explicit pins steer admission.
+native_retry_pin = case(
+    (
+        message.c.trace["native_retry"]["selection"].as_string() == "pinned",
+        message.c.trace["native_retry"]["route"].as_string(),
+    )
+)
+
+
+def current_native_retry() -> ColumnElement[bool]:
+    from jarvis.codex_config import NATIVE_ROUTES
+    from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA
+
+    retry = message.c.trace["native_retry"]
+    return (
+        retry["selection"].as_string().in_(("fresh", "pinned"))
+        & retry["route"].as_string().in_(NATIVE_ROUTES)
+        & select(native_attempt.c.id)
+        .where(
+            sql_cast(native_attempt.c.id, Text) == retry["attempt_id"].as_string(),
+            native_attempt.c.conversation_id == message.c.source_conversation_id,
+            native_attempt.c.fenced_at.is_not(None),
+            native_attempt.c.request["schema_version"].as_string()
+            == NATIVE_REQUEST_SCHEMA,
+            native_attempt.c.request["route"].as_string() == retry["route"].as_string(),
+            select(native_input_delivery.c.attempt_id)
+            .where(
+                native_input_delivery.c.attempt_id == native_attempt.c.id,
+                native_input_delivery.c.message_id == message.c.id,
+            )
+            .correlate(message, native_attempt)
+            .exists(),
+        )
+        .correlate(message)
+        .exists()
+    )
+
 
 MAX_TRACE_BYTES = 16_384
 
@@ -629,7 +667,7 @@ class MessageStore:
         limit: int,
         steer: bool = False,
         exclude_ids: tuple[UUID, ...] = (),
-        exclude_retry_profiles: tuple[str | None, ...] = (),
+        exclude_retry_routes: tuple[str | None, ...] = (),
     ) -> tuple[StoredMessage, ...]:
         """Only opening batches may include due retries."""
         _positive(limit, "input limit")
@@ -647,10 +685,8 @@ class MessageStore:
             message.c.processing_parked_at.is_(None),
             message.c.id.not_in(exclude_ids),
             *(
-                message.c.trace["native_retry"]["profile"]
-                .as_string()
-                .is_distinct_from(profile)
-                for profile in exclude_retry_profiles
+                native_retry_pin.is_distinct_from(route)
+                for route in exclude_retry_routes
             ),
             ~select(attachment.c.id)
             .where(

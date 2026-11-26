@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +17,7 @@ from llm_agent_kernel import (
 )
 from llm_tools import BudgetState, FrozenToolPlan, ToolBinding
 from provider_runtime.agent_runtime import (
+    AgentModelCatalog,
     AgentRuntime,
     AgentRuntimeConfig,
     AgentRuntimeDefect,
@@ -28,51 +29,56 @@ from provider_runtime.agent_runtime import (
     PermissionPolicy,
     UnsafeConfirmation,
 )
+from provider_runtime.types import Present
 
 from jarvis.codex_config import (
-    CodexAccount,
     CodexHostConfig,
-    CodexProfile,
+    NativeRoute,
     canonical_absolute_path,
 )
 from jarvis.definitions import load_session_manifest, verify_runtime_dependencies
 
 LOGGER = logging.getLogger(__name__)
 type CodexRole = Literal["main", "compactor", "dreamer"]
+INCLUDED_EXHAUSTED = frozenset({"included_exhausted", "credits_available"})
 
 
 @dataclass(frozen=True, slots=True)
-class SelectedCodex:
-    profile: CodexProfile
+class SelectedRoute:
+    route: NativeRoute
     provider: ProviderConfiguration
 
 
 @dataclass(frozen=True, slots=True)
-class CodexBlocked:
-    profile: CodexProfile
+class DeferredRoute:
+    route: NativeRoute
     reason: str
     observed_at: datetime
     reset_at: datetime | None = None
 
 
-class CodexStandby:
-    """Admit new Jarvis runs from the contained account order."""
+class RouteSelector:
+    """Choose one route for a new opening from current admission evidence."""
 
-    def __init__(self, runtime: AgentRuntime, host: CodexHostConfig) -> None:
+    def __init__(
+        self,
+        runtime: AgentRuntime,
+        host: CodexHostConfig,
+        *,
+        paid_route: Callable[[], Awaitable[ProviderConfiguration | DeferredRoute]]
+        | None = None,
+    ) -> None:
         self._runtime = runtime
-        self._host = host
-        self._primary = host.accounts[0]
-        self._accounts: dict[CodexProfile, CodexAccount] = {
-            account.key: account for account in host.accounts
-        }
+        self._primary = host.personal
+        self._paid_route = paid_route
         self._primary_available: tuple[datetime, int, int] | None = None
-        self._status: dict[tuple[CodexRole, CodexProfile | None], tuple[str, str]] = {}
+        self._status: dict[tuple[CodexRole, NativeRoute | None], tuple[str, str]] = {}
 
-    async def observe(self, profile: CodexProfile) -> CodexAllowance | CodexBlocked:
-        account = self._accounts[profile]
+    async def observe_personal(self) -> CodexAllowance | DeferredRoute:
+        account = self._primary
         try:
             result = await self._runtime.codex.observe_codex_allowance(
-                profile,
+                "personal",
                 CodexSubject(
                     account.expected_user_id,
                     account.expected_account_id,
@@ -81,124 +87,106 @@ class CodexStandby:
                 allow_existing_credits=account.allow_existing_credits,
             )
         except (AgentRuntimeDefect, AgentRuntimeError, OSError):
-            if profile == self._primary.key:
-                self._primary_available = None
-            return CodexBlocked(profile, "allowance_unverified", datetime.now(UTC))
-        if result.profile != profile:
             self._primary_available = None
-            return CodexBlocked(profile, "identity_unverified", datetime.now(UTC))
-        if profile == self._primary.key:
-            if result.state == "available":
-                try:
-                    socket = self._primary.socket.stat()
-                except OSError:
-                    self._primary_available = None
-                else:
-                    self._primary_available = (
-                        result.observed_at,
-                        socket.st_dev,
-                        socket.st_ino,
-                    )
-            elif result.state != "unavailable":
+            return DeferredRoute("personal", "allowance_unverified", datetime.now(UTC))
+        if result.profile != "personal":
+            self._primary_available = None
+            return DeferredRoute("personal", "identity_unverified", datetime.now(UTC))
+        if result.state == "available":
+            try:
+                socket = account.socket.stat()
+            except OSError:
                 self._primary_available = None
+            else:
+                self._primary_available = (
+                    result.observed_at,
+                    socket.st_dev,
+                    socket.st_ino,
+                )
+        elif result.state != "unavailable":
+            self._primary_available = None
         return result
 
-    async def included_exhausted(self, profile: CodexProfile) -> bool:
-        evidence = await self.observe(profile)
-        return isinstance(evidence, CodexAllowance) and evidence.state in {
-            "included_exhausted",
-            "credits_available",
-        }
+    async def included_exhausted(self, route: NativeRoute) -> bool:
+        if route != "personal":
+            return False
+        evidence = await self.observe_personal()
+        return (
+            isinstance(evidence, CodexAllowance)
+            and evidence.state in INCLUDED_EXHAUSTED
+        )
 
-    def opening_failed(self, profile: CodexProfile) -> None:
-        if profile == self._primary.key:
+    def opening_failed(self, route: NativeRoute) -> None:
+        if route == "personal":
             self._primary_available = None
 
-    async def choose_codex(
-        self, role: CodexRole, *, pinned_profile: CodexProfile | None = None
-    ) -> SelectedCodex | CodexBlocked:
-        profiles = (
-            (pinned_profile,) if pinned_profile is not None else tuple(self._accounts)
-        )
-        failure = CodexBlocked(
-            self._primary.key, "allowance_unverified", datetime.now(UTC)
-        )
-        admitted: tuple[CodexProfile, CodexAllowance] | None = None
-        paid: tuple[CodexProfile, CodexAllowance] | None = None
-        for profile in profiles:
-            evidence = await self.observe(profile)
-            if isinstance(evidence, CodexBlocked):
-                failure = evidence
-                break
-            reason = evidence.state
-            failure = CodexBlocked(
-                profile, reason, evidence.observed_at, evidence.reset_at
-            )
-            if reason == "included_exhausted":
-                continue
-            if reason == "credits_available":
-                if pinned_profile is not None:
-                    if await self._included_exhausted_elsewhere(profile):
-                        admitted = profile, evidence
-                    else:
-                        failure = replace(failure, reason="included_usage_unconfirmed")
-                    break
-                if paid is None:
-                    paid = profile, evidence
-                continue
-            if reason in {"available", "available_with_credits"} or (
-                profile == self._primary.key
-                and reason == "unavailable"
+    async def choose_route(
+        self, role: CodexRole, *, pinned: NativeRoute | None = None
+    ) -> SelectedRoute | DeferredRoute:
+        if pinned == "google_neon" and role != "main":
+            raise ValueError("only main can open on google_neon")
+        if pinned == "google_neon":
+            result = await self._select_paid()
+        else:
+            evidence = await self.observe_personal()
+            if isinstance(evidence, DeferredRoute):
+                result = evidence
+            elif (
+                role == "main"
+                and pinned is None
+                and evidence.state in INCLUDED_EXHAUSTED
+            ):
+                result = await self._select_paid()
+            elif evidence.state in {"available", "available_with_credits"} or (
+                evidence.state == "unavailable"
                 and self._primary_grace(evidence.observed_at)
             ):
-                admitted = profile, evidence
-            break
-        else:
-            admitted = paid
-
-        if admitted is not None:
-            profile, evidence = admitted
-            try:
-                selected = (await resolve_role_providers(self._runtime, profile, role))[
-                    role
-                ]
-            except (AgentRuntimeDefect, AgentRuntimeError, OSError, ValueError):
-                if profile == self._primary.key:
+                try:
+                    provider = (
+                        await resolve_role_providers(self._runtime, "personal", role)
+                    )[role]
+                except (AgentRuntimeDefect, AgentRuntimeError, OSError, ValueError):
                     self._primary_available = None
-                failure = CodexBlocked(
-                    profile, "catalog_unverified", evidence.observed_at
-                )
-            else:
-                if role == "main":
-                    selected = main_provider_configuration(
-                        selected, notes_repository=self._host.notes_repository
+                    result = DeferredRoute(
+                        "personal", "catalog_unverified", evidence.observed_at
                     )
-                self._log_selection(
-                    role,
-                    pinned_profile,
-                    profile,
-                    {
-                        "credits_available": "selected_existing_credits",
-                        "available_with_credits": "selected_included_funded",
-                    }.get(evidence.state, "selected"),
-                    evidence.observed_at,
+                else:
+                    result = SelectedRoute("personal", provider)
+            else:
+                result = DeferredRoute(
+                    "personal", evidence.state, evidence.observed_at, evidence.reset_at
                 )
-                return SelectedCodex(profile, selected)
-        self._log_selection(
-            role,
-            pinned_profile,
-            failure.profile,
-            failure.reason,
-            failure.observed_at,
-            failure.reset_at,
-        )
-        return failure
 
-    async def _included_exhausted_elsewhere(self, profile: CodexProfile) -> bool:
-        for other in self._accounts:
-            if other != profile and not await self.included_exhausted(other):
-                return False
-        return True
+        reason = result.reason if isinstance(result, DeferredRoute) else "selected"
+        status = (result.route, reason)
+        if self._status.get((role, pinned)) != status:
+            self._status[role, pinned] = status
+            LOGGER.info(
+                "route admission: role=%s pinned=%s route=%s state=%s "
+                "observed_at=%s reset_at=%s",
+                role,
+                pinned,
+                result.route,
+                reason,
+                result.observed_at.isoformat()
+                if isinstance(result, DeferredRoute)
+                else None,
+                result.reset_at.isoformat()
+                if isinstance(result, DeferredRoute) and result.reset_at is not None
+                else None,
+            )
+        return result
+
+    async def _select_paid(self) -> SelectedRoute | DeferredRoute:
+        if self._paid_route is None:
+            return DeferredRoute("google_neon", "route_unavailable", datetime.now(UTC))
+        try:
+            candidate = await self._paid_route()
+        except (AgentRuntimeDefect, AgentRuntimeError, OSError, ValueError):
+            return DeferredRoute("google_neon", "catalog_unverified", datetime.now(UTC))
+        if isinstance(candidate, DeferredRoute):
+            return candidate
+        return SelectedRoute("google_neon", candidate)
 
     def _primary_grace(self, observed_at: datetime) -> bool:
         if self._primary_available is None:
@@ -214,66 +202,56 @@ class CodexStandby:
             return False
         return timedelta(0) <= observed_at - previous < timedelta(seconds=60)
 
-    def _log_selection(
-        self,
-        role: CodexRole,
-        pinned_profile: CodexProfile | None,
-        profile: str,
-        reason: str,
-        observed_at: datetime,
-        reset_at: datetime | None = None,
-    ) -> None:
-        status = (profile, reason)
-        if self._status.get((role, pinned_profile)) != status:
-            self._status[role, pinned_profile] = status
-            LOGGER.info(
-                "codex admission: role=%s retry_account=%s account=%s state=%s "
-                "observed_at=%s reset_at=%s",
-                role,
-                pinned_profile,
-                profile,
-                reason,
-                observed_at.isoformat(),
-                None if reset_at is None else reset_at.isoformat(),
-            )
-
 
 async def resolve_role_providers(
-    runtime: AgentRuntime, profile_key: str, *role_ids: str
+    runtime: AgentRuntime, profile_key: Literal["personal"], *role_ids: str
 ) -> dict[str, ProviderConfiguration]:
-    """Resolve the release roles against one authenticated endpoint catalog."""
+    """Resolve the personal release roles against the authenticated catalog."""
     auth = CredentialRef("local_account", profile_key)
     catalog = await runtime.model_catalog("codex", auth, transport="sdk")
     roles = load_session_manifest().roles
-    providers: dict[str, ProviderConfiguration] = {}
-    for role_id in role_ids:
-        role = roles[role_id]
-        rows = [row for row in catalog.models if row.key == role.model]
-        if (
-            len(rows) != 1
-            or not rows[0].offered
-            or rows[0].dispatch_model != role.model
-        ):
-            raise ValueError(
-                f"codex catalog requires one offered {role.model} "
-                f"row with identical dispatch for {role_id}"
-            )
-        row = rows[0]
-        options = [option for option in row.reasoning if option.key == role.effort]
-        if len(options) != 1 or options[0].native_wire_value != role.effort:
-            raise ValueError(
-                f"codex catalog requires exact {role.effort} effort "
-                f"for {role_id} on {role.model}"
-            )
-        providers[role_id] = ProviderConfiguration(
-            auth=auth,
-            model_key=row.key,
-            reasoning=role.effort,
-            agent_definition_revision=catalog.definition_revision,
-            row_fingerprint=row.row_fingerprint,
-            native=replace(CODEX_NATIVE_OPTIONS, archive_internal=True),
+    return {
+        role_id: _catalog_provider(
+            catalog, auth, roles[role_id].model, roles[role_id].effort
         )
-    return providers
+        for role_id in role_ids
+    }
+
+
+async def resolve_neon_provider(runtime: AgentRuntime) -> ProviderConfiguration:
+    """Resolve and qualify the one paid model and its child efforts."""
+    auth = CredentialRef("host_managed", "google_neon")
+    catalog = await runtime.model_catalog("codex", auth, transport="sdk")
+    contract = load_session_manifest().google_neon
+    if catalog.native_revision != Present(contract.catalog_revision):
+        raise ValueError("neon catalog revision differs from the release pin")
+    provider = _catalog_provider(catalog, auth, contract.model, contract.effort)
+    (row,) = catalog.models
+    if {(option.key, option.native_wire_value) for option in row.reasoning} != {
+        (effort, effort) for effort in contract.child_efforts
+    } or len(row.reasoning) != len(contract.child_efforts):
+        raise ValueError("neon catalog child efforts differ from the release pin")
+    return provider
+
+
+def _catalog_provider(
+    catalog: AgentModelCatalog, auth: CredentialRef, model: str, effort: str
+) -> ProviderConfiguration:
+    rows = [row for row in catalog.models if row.key == model]
+    if len(rows) != 1 or not rows[0].offered or rows[0].dispatch_model != model:
+        raise ValueError(f"codex catalog requires exact offered model {model}")
+    row = rows[0]
+    options = [option for option in row.reasoning if option.key == effort]
+    if len(options) != 1 or options[0].native_wire_value != effort:
+        raise ValueError(f"codex catalog requires exact {effort} effort on {model}")
+    return ProviderConfiguration(
+        auth=auth,
+        model_key=row.key,
+        reasoning=effort,
+        agent_definition_revision=catalog.definition_revision,
+        row_fingerprint=row.row_fingerprint,
+        native=replace(CODEX_NATIVE_OPTIONS, archive_internal=True),
+    )
 
 
 def main_provider_configuration(
@@ -327,6 +305,7 @@ def build_agent_runtime(
     *,
     provider_state_root: Path,
     codex_endpoints: Mapping[str, Path],
+    neon_origin: str | None = None,
 ) -> AgentRuntime:
     verify_runtime_dependencies()
     return AgentRuntime(
@@ -336,6 +315,7 @@ def build_agent_runtime(
                 name: CodexUnixEndpoint(path) for name, path in codex_endpoints.items()
             },
             max_turn_seconds=300.0,
+            codex_neon_origin=neon_origin,
         )
     )
 
@@ -359,5 +339,6 @@ __all__ = [
     "build_agent_runtime",
     "build_kernel_runtime",
     "main_provider_configuration",
+    "resolve_neon_provider",
     "resolve_role_providers",
 ]

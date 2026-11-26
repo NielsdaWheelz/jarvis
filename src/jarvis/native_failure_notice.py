@@ -20,10 +20,12 @@ from jarvis.db import action, message
 from jarvis.home_notices import enqueue_notice
 from jarvis.ownership import memory_is_admitted
 from jarvis.workspace_host import is_workspace_wake
-from jarvis.workspace_write_models import CalendarWriteReceipt
+from jarvis.workspace_write_models import CalendarWriteReceipt, DraftWriteReceipt
 from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
+    GMAIL_CREATE_DRAFT_SPEC,
+    GMAIL_PREPARE_REPLACEMENT_SPEC,
     HISTORICAL_CALENDAR_CREATE_EVENT_SPEC,
     HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC,
 )
@@ -40,6 +42,10 @@ _CALENDAR_WRITES = {
         (HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC, "updated"),
     )
 }
+_DRAFT_WRITES = frozenset(
+    (spec.id, action_request_spec(spec).tool_contract_revision)
+    for spec in (GMAIL_CREATE_DRAFT_SPEC, GMAIL_PREPARE_REPLACEMENT_SPEC)
+)
 _HOST_SOURCES = {
     "action": "operation update",
     "attachment": "attachment update",
@@ -48,17 +54,18 @@ _HOST_SOURCES = {
     "work_wake": "scheduled check",
 }
 _OPENINGS = {
+    "native_effects_uncertain": (
+        "i lost contact with the model and can't confirm what it did."
+    ),
     "codex_limit_uncertain_effects": (
         "codex hit a usage or run limit before i finished."
     ),
-    "codex_quota_uncertain_effects": "codex ran out of usage before i finished.",
     "codex_quota_before_activity": "codex ran out of usage while retrying.",
     "context_window_exceeded": "the model ran out of room while retrying.",
     "retired_native_retry": (
         "i parked this request for review. the original run can't be retried after "
         "the upgrade."
     ),
-    "lost_contact": "i lost contact with the model and couldn't finish.",
     "the final response did not meet its content contract": (
         "the model gave me a final answer i couldn't use."
     ),
@@ -186,6 +193,25 @@ async def record_parking_notice(
                     operations[creates.pop(key)] = f"{label} was created and updated"
                     continue
             operations.append(f"{label} was {verb}")
+            continue
+        if (
+            status == "succeeded"
+            and (row["tool_name"], row["tool_contract_revision"]) in _DRAFT_WRITES
+        ):
+            try:
+                receipt = await recorded_action_result(connection, row["id"])
+                if receipt is not None and receipt["type"] == "Success":
+                    proof = DraftWriteReceipt.model_validate(receipt["value"])
+                    operations.append(
+                        "gmail saved a verified draft"
+                        if proof.verification == "verified"
+                        else "gmail acknowledged saving a draft"
+                    )
+                    continue
+            except (ActionPersistenceDefect, ValidationError):
+                pass
+        if status == "uncertain" and row["tool_name"] == CALENDAR_UPDATE_EVENT_SPEC.id:
+            uncertain.append("calendar change")
             continue
         try:
             name = ToolId(row["tool_name"])[:80]

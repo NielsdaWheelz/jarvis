@@ -19,6 +19,7 @@ from pydantic import model_validator
 from jarvis import terminal
 from jarvis.workspace_checks import WorkspaceResult
 
+NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v4"
 NATIVE_OUTPUT_NAME = "jarvis_home_message_v3"
 
 

@@ -78,9 +78,9 @@ from jarvis.work_tools import WORK_MUTATION_IDS, WORK_READ_IDS
 
 SESSION_MANIFEST_NAME = "session-compatibility.json"
 EXPECTED_GIT_PINS = {
-    "llm-agent-kernel": "4115afaf8bbc6c99bf9701c21b2f8482dc138e42",
+    "llm-agent-kernel": "1f0622d6500fa98673fdd87159fefe4669518eba",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
-    "provider-runtime": "5acc2c2e483368f3bc9dad224a141855c4e94415",
+    "provider-runtime": "71a1757865596be995af9b7ac47fbcb2a8cfd221",
     "universal-memory": "6cfdf262e3c342ae4701b0587bf7994c03437459",
 }
 # llm-tools requires positive byte/call ceilings even for an empty catalog;
@@ -740,12 +740,25 @@ class _RoleContract(BaseModel):
     revision: _Identifier
 
 
+class _NeonContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model: Literal["gemini-4-neon"]
+    model_version: _Identifier
+    effort: Literal["high"]
+    child_efforts: Annotated[
+        tuple[Literal["low"], Literal["medium"], Literal["high"], Literal["xhigh"]],
+        Field(strict=False),
+    ]
+    catalog_revision: _Identifier
+
+
 class _SessionManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["jarvis-session-compatibility.v4"]
+    schema_version: Literal["jarvis-session-compatibility.v5"]
     application_session_contract_revision: _Identifier
     dependencies: dict[str, str]
     roles: dict[str, _RoleContract]
+    google_neon: _NeonContract
 
 
 @cache
@@ -761,7 +774,11 @@ def load_session_manifest() -> _SessionManifest:
 
 def _role_revision(role_id: str, provider: ProviderConfiguration) -> str:
     manifest = load_session_manifest()
-    role = manifest.roles[role_id]
+    role = (
+        manifest.google_neon
+        if role_id == "main" and provider.model_key == manifest.google_neon.model
+        else manifest.roles[role_id]
+    )
     if (provider.model_key, provider.reasoning) != (role.model, role.effort):
         raise ValueError(f"{role_id} requires its release model and effort")
     value = {
@@ -773,6 +790,25 @@ def _role_revision(role_id: str, provider: ProviderConfiguration) -> str:
         "role_id": role_id,
     }
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def with_main_provider(
+    definition: NativeDefinition, binding: ProviderConfiguration
+) -> NativeDefinition:
+    """Bind a selected host to main without changing its effective tool authority."""
+    provider = replace(
+        definition.provider,
+        auth=binding.auth,
+        model_key=binding.model_key,
+        reasoning=binding.reasoning,
+        agent_definition_revision=binding.agent_definition_revision,
+        row_fingerprint=binding.row_fingerprint,
+    )
+    return replace(
+        definition,
+        provider=provider,
+        compatibility_revision=_role_revision("main", provider),
+    )
 
 
 def _instruction_bytes(*parts: str) -> int:

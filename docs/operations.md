@@ -314,58 +314,41 @@ shared host boundary from the `dev-server` repository. An apply may report a
 deferred reboot while operator tmux sessions exist; record it and leave the host
 running until the owner selects a separate maintenance window.
 
-the host must provision the jarvis account, `codex-clients` group, private skid
-client and empty mode-02750 cognition parent. three contained stock hosts serve
-the ordered `personal`, `work` and `work2` accounts. the enabled primary unit
-pulls in both standby units at boot. each standby shares the native custody
-guard and stops with the primary. the ordinary coding server
-retains its own controls and sessions.
+the host provisions the jarvis account, `codex-clients` and
+`jarvis-neon-control` groups, private skid client and empty mode-02750
+cognition parent. personal remains the subscribed stock host. paid neon has a
+separate stock host and inference adapter. the ordinary coding server keeps its
+own controls and sessions.
 
-the root-owned schema-6 file `/etc/jarvis/codex-host.json` carries common
-`development_user`, `jarvis_user`, `client_group`, `binary`,
-`cognition_cwd_parent`, and `notes_repository` plus three ordered `accounts`.
-each entry sets `key`, `account_home`, `host_user`, `endpoint`,
-`expected_user_id`, `expected_account_id`, and `expected_plan_type`.
-the endpoint directories are `/run/jarvis-contained`, `/run/jarvis-contained-work`,
-and `/run/jarvis-contained-work2`. each endpoint has the form
-`unix:///run/.../app-server.sock`. the primary keeps the development checkout
-identity. both standby identities are distinct non-root users with private,
-officially enrolled homes. the service masks each peer's credential home. each
-stock socket lives under its owner's mode-0700 `exec` directory. the global
-endpoint is a mode-000 placeholder and only the app binds the socket into it.
-do not copy account credentials. validate expected subjects and plan types using
-the actual enrolled hosts.
+the root-owned v7 mapping `/etc/jarvis/codex-host.json` keeps the shared
+binary, workspace and service identities. it declares `personal` with its
+enrolled user, account and plan ids, and `google_neon` with its private host
+home, user, unix endpoint, loopback adapter origin, google project and root
+credential name. endpoints are in `/run/jarvis-contained` and
+`/run/jarvis-contained-neon`. the application binds stock socket files into
+its namespace. keep each stock runtime directory private. verify account
+identity, google project and the installed namespace independently.
 
-check automatic credit purchases and automatic reset use on all three accounts
-before enrolling them. both must be off. a finite paid balance is eligible on
-the enrolled personal plans under [adr 0109](decisions/0109-existing-codex-credits.md).
-stock can report a balance without reporting the account's purchase settings.
+verify automatic credit purchases and paid resets are off on personal.
+finite existing credits can finish an entered personal turn. a fresh turn
+requires confirmed included capacity. the paid api pocket uses its separate
+prepay contract below.
 
-provision scoped access and default acl entries on every existing directory
-in the notes checkout, including nested `.git` directories. give each native uid
-default `rwx`, the jarvis uid default `r-x`, the default group at most `r-x`, and
-no default access for others. this needs the host's `acl` package. the stopped
-installer checks current access as each service identity. native hosts need
-read/write on existing regular files, read/write/traverse on directories, and
-read access on git object data. jarvis needs read/traverse access with writes
-denied. keep its traversal into `.git/jarvis-mail/incoming` denied. each native host needs
-write/traverse access to that incoming parent without widening a per-request
-private directory. configure exact-checkout git safety and author identity in
-each native user's own configuration. all three identities must use the same
-git author and committer and can read the existing origin’s `main` ref. the
-stopped installer reads every default acl and creates and removes empty probes
-with the native umask. its scan excludes the private incoming subtree. existing
-checkout files retain their bytes and modes.
+provision scoped notes access and default acl entries for both native ids and
+the jarvis reader. native writers get default `rwx`, jarvis default `r-x`,
+the default group at most `r-x`, and others no access. give each native uid the
+same checkout-specific git author and committer, private origin access and
+controlled write/traverse on the mail incoming parent. the installer exercises
+current and inherited acl access with empty probes and preserves existing bytes.
 
 use `deploy/activate-release --change "$id" --codex-host-config "$mapping" "$to"`
-for a staged account mapping under [0104 custody](decisions/0104-maintenance-without-owner-pause.md).
-the held operation binds the mapping digest, runs the predecessor's existing
-check against installed inputs, then stops the native units and publishes the
-complete new layout. it removes the retired `JARVIS_CODEX_PROFILE_KEY`
-assignment in the same hold. the target check uses the fresh bindings. retry
-with the same change and exact mapping bytes. the virgin bootstrap command
-`deploy/install-contained-host` takes schema 6 via
-`JARVIS_SOURCE_CODEX_HOST_CONFIG`. activation is separate. [standby contract](decisions/0108-codex-quota-standby.md)
+under [named custody](decisions/0104-maintenance-without-owner-pause.md).
+preflight rejects the retired `JARVIS_CODEX_PROFILE_KEY` before publication.
+the holder binds the mapping digest, closes the native units and publishes the
+new layout. retry with the same named change and exact bytes. the virgin
+`deploy/install-contained-host` command takes v7 through
+`JARVIS_SOURCE_CODEX_HOST_CONFIG`. installation keeps the assistant stopped.
+[neon contract](decisions/0110-neon-quota-recovery.md)
 
 for the [0093 candidate](decisions/0093-subscription-model-refresh.md), map
 `binary` to `/opt/jarvis-codex/0.171.0/bin/codex`. the x86-64 installer
@@ -1155,6 +1138,44 @@ migrations grant narrow original append/update privileges to `jarvis_runtime`.
 original text/identity/date and note provenance are immutable; only derived
 vectors and specified checkpoint/state fields may change. legacy flat summaries
 remain readable/searchable and receive no new writes.
+
+## direct neon cut and quota recovery
+
+[adr 0110](decisions/0110-neon-quota-recovery.md) owns the source cut. enroll
+one dedicated gemini developer api project and prepay billing account, standard
+tier, with $25 manual refills and auto-reload off. confirm billing mode and
+workspace data permission before production inference. stage the google
+authorization credential as root, mode 0600, under
+`/etc/jarvis/credentials/<credential_name>` from mapping v7. the host installer
+generates a distinct private stock bearer. record project, mapping/release
+digests, host identity, actual served model and tier, and which evidence came
+from google. leave balances, credential values and context out of the receipt.
+
+under named maintenance, close the existing native host before installing the
+mapping. the installer retires the two standby service registrations and mounts.
+the paid stock host and inference adapter have separate identities. app control
+of the adapter is via its private unix socket. verify a new stock socket inode
+against the application bind before resumption. an unavailable paid host defers
+neon work. personal remains eligible where its own observation allows it.
+repair the paid binding through stopped remount custody. a failed paid startup
+leaves its host disabled. after repair, start the host and verify the new
+binding before enabling it and remounting the app.
+
+### one-time historical quota release
+
+obtain the scoped release authority before stopping writers. under the
+existing custody, inventory `jarvis list-parked` and the current compression
+mark. match the incident's generation, address, source and original run evidence.
+also establish continuous occupation of the current mark from complete writer
+and operator history or a durable matching revision. the same error code and
+address can be created again after a clear. changed or unknown occupation stays
+held for disposition. only on a match, under the same custody, run
+`jarvis memory retry-compression`, then reread the mark before releasing writers.
+verify the node commits after fresh personal availability. for each separate
+foreground quota hold, resolve original effects and authority first. release
+only its exact reviewed ids and verify resulting delivery and original receipts.
+leave the november 24 calendar case under its recorded hold.
+[incident and digests](issues/compactor-quota-park.md)
 
 ## Restart and recovery
 

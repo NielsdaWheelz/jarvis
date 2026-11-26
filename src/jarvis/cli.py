@@ -51,7 +51,7 @@ from jarvis.actions import (
 )
 from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
-from jarvis.codex_config import CodexHostConfig
+from jarvis.codex_config import NEON_CONTROL_SOCKET, CodexHostConfig
 from jarvis.config import ConfigurationError
 from jarvis.connectors import GoogleTokenManager
 from jarvis.db import (
@@ -60,7 +60,6 @@ from jarvis.db import (
     create_engine,
     home_notice,
     message,
-    native_attempt,
     normalize_database_url,
 )
 from jarvis.definitions import (
@@ -81,10 +80,12 @@ from jarvis.home_http import create_home_app
 from jarvis.home_notices import deliver_workspace_match
 from jarvis.home_pages import DEFAULT_EXPORT, NOTES_ROOT
 from jarvis.kernel import (
-    CodexStandby,
+    DeferredRoute,
+    RouteSelector,
     build_agent_runtime,
     build_kernel_runtime,
     main_provider_configuration,
+    resolve_neon_provider,
     resolve_role_providers,
 )
 from jarvis.memory_config import MEMORY_IDENTITIES, MemoryConfig
@@ -106,6 +107,7 @@ from jarvis.native_cutover import (
 from jarvis.native_diagnostics import log_native_failure
 from jarvis.native_runtime import (
     NativeRunner,
+    neon_paid_ready,
     recover_native_products,
 )
 from jarvis.ownership import (
@@ -219,18 +221,18 @@ async def _isolated_provider(
     settings: MemoryJobSettings,
     host: CodexHostConfig,
     role: Literal["compactor", "dreamer"],
-) -> AsyncIterator[tuple[ProviderConfiguration, CodexProvider, CodexStandby]]:
+) -> AsyncIterator[tuple[ProviderConfiguration, CodexProvider, RouteSelector]]:
     runtime = build_agent_runtime(
         provider_state_root=settings.runtime_state_directory,
-        codex_endpoints=host.endpoints,
+        codex_endpoints={"personal": host.personal.socket},
     )
     kernel = None
     try:
-        providers = await resolve_role_providers(runtime, host.accounts[0].key, role)
+        providers = await resolve_role_providers(runtime, host.personal.key, role)
         kernel = build_kernel_runtime(
             runtime=runtime, shared_cwd_parent=Path(host.cognition_cwd_parent)
         )
-        yield providers[role], kernel.provider, CodexStandby(runtime, host)
+        yield providers[role], kernel.provider, RouteSelector(runtime, host)
     finally:
         if kernel is None:
             await runtime.close()
@@ -456,16 +458,15 @@ async def _compose_main(
     google_api_http: httpx.AsyncClient,
     maps_http: httpx.AsyncClient,
     brave_http: httpx.AsyncClient,
-    qualify_accounts: bool = False,
+    qualify_neon: bool = False,
 ) -> tuple[ToolComposition, RoleDefinitions, AgentController]:
     """Compose the release's tools and role plans from the live codex catalog."""
 
     providers = await resolve_role_providers(
-        agent_runtime, host.accounts[0].key, "main", "compactor", "dreamer"
+        agent_runtime, host.personal.key, "main", "compactor", "dreamer"
     )
-    if qualify_accounts:
-        for account in host.accounts[1:]:
-            await resolve_role_providers(agent_runtime, account.key, *providers)
+    if qualify_neon and host.google_neon.socket.is_socket():
+        await resolve_neon_provider(agent_runtime)
     agents = AgentController(
         cli_path=settings.agent_cli_path,
         state_directory=settings.agent_state_directory,
@@ -536,7 +537,6 @@ async def _serve(
                 # A scope without canonical control would read as unpaused.
                 if await store.current_control(owner.scope_id) is None:
                     raise StartupDefect("serve requires initialized canonical control")
-                await _require_standby_data(database, owner.scope_id)
                 paused = PausedState(store, owner.scope_id)
                 dispatch_lane = asyncio.Lock()
                 async with AsyncExitStack() as clients:
@@ -564,7 +564,9 @@ async def _serve(
                         owner_zone=ZoneInfo(settings.owner_timezone),
                         enrollment=tokens.enrollment,
                     )
-                    await recover_native_products(owner, workspace=workspace)
+                    await recover_native_products(
+                        owner, workspace=workspace, settle_losses=False
+                    )
                     actions = ActionStore(database)
                     work = WorkStore(
                         database,
@@ -585,6 +587,7 @@ async def _serve(
                     agent_runtime = build_agent_runtime(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=host.endpoints,
+                        neon_origin=host.google_neon.adapter_origin,
                     )
                     composition, definitions, agents = await _compose_main(
                         owner=owner,
@@ -614,7 +617,17 @@ async def _serve(
                         runtime=agent_runtime,
                         shared_cwd_parent=Path(host.cognition_cwd_parent),
                     )
-                    standby = CodexStandby(agent_runtime, host)
+                    from provider_runtime.agent_runtime.neon_control import NeonControl
+
+                    neon_control = NeonControl(NEON_CONTROL_SOCKET)
+
+                    async def paid_route() -> ProviderConfiguration | DeferredRoute:
+                        deferred = await neon_paid_ready(owner, neon_control)
+                        if deferred is not None:
+                            return deferred
+                        return await resolve_neon_provider(agent_runtime)
+
+                    routes = RouteSelector(agent_runtime, host, paid_route=paid_route)
 
                     compactor = MemoryWorker(
                         definitions=definitions.compactor,
@@ -622,7 +635,7 @@ async def _serve(
                         owner=owner,
                         provider=kernel_runtime.provider,
                         memory=memory,
-                        standby=standby,
+                        routes=routes,
                     )
                     dreamer = DreamerWorker(
                         definition=definitions.dreamer,
@@ -630,7 +643,7 @@ async def _serve(
                         owner=owner,
                         provider=kernel_runtime.provider,
                         memory=memory,
-                        standby=standby,
+                        routes=routes,
                         owner_timezone=settings.owner_timezone,
                         nightly_time=settings.memory_nightly_time,
                     )
@@ -639,12 +652,34 @@ async def _serve(
                         PHONE_DIRECTORY / "slot.json",
                         lambda: service.request_delivery(),
                     )
+                    action_recovery = ActionRecovery(
+                        actions=actions,
+                        work=work,
+                        events=events,
+                        attachments=composition.attachments,
+                        mail_files=composition.mail_files,
+                        plan=definitions.plans["main"],
+                        source_conversation_id=settings.owner_scope,
+                        wait_changed=agents.notify_wait_changed,
+                    )
+
+                    async def recover_original(
+                        action_id: UUID, *, allow_queued_execution: bool
+                    ) -> None:
+                        async with dispatch_lane:
+                            await action_recovery.recover_action(
+                                action_id,
+                                allow_queued_execution=allow_queued_execution,
+                            )
+
                     runner = NativeRunner(
                         settings=settings,
                         store=store,
                         owner=owner,
                         kernel_runtime=kernel_runtime,
-                        standby=standby,
+                        route_selector=routes,
+                        recover_action=recover_original,
+                        neon_control=neon_control,
                         definitions=definitions,
                         actions=actions,
                         dispatcher_factory=lambda checkpoint, journal: (
@@ -682,17 +717,6 @@ async def _serve(
                             deliver_workspace_match, delivery, phone
                         ),
                     )
-                    action_recovery = ActionRecovery(
-                        actions=actions,
-                        work=work,
-                        events=events,
-                        attachments=composition.attachments,
-                        mail_files=composition.mail_files,
-                        plan=definitions.plans["main"],
-                        source_conversation_id=settings.owner_scope,
-                        wait_changed=agents.notify_wait_changed,
-                    )
-
                     work_timer = WorkWakeTimer(
                         work=work, paused=paused, on_event=lambda: runner.notify_work()
                     )
@@ -1065,6 +1089,7 @@ async def check_activation(
                     agent_runtime = build_agent_runtime(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=selected_host.endpoints,
+                        neon_origin=selected_host.google_neon.adapter_origin,
                     )
                     resources.push_async_callback(agent_runtime.close)
                     memory = await resources.enter_async_context(
@@ -1088,7 +1113,7 @@ async def check_activation(
                         google_api_http=http,
                         maps_http=http,
                         brave_http=http,
-                        qualify_accounts=True,
+                        qualify_neon=True,
                     )
                 except (
                     AgentRuntimeError,
@@ -1204,7 +1229,6 @@ async def _activation_prerequisites(
     try:
         require_native_files(settings.runtime_state_directory)
         await require_native_data(database, conversation_id=settings.owner_scope)
-        await _require_standby_data(database, settings.owner_scope)
     except NativeActivationDefect as error:
         return (
             ActivationFinding(
@@ -1259,46 +1283,6 @@ async def _activation_prerequisites(
                 ),
             )
     return ()
-
-
-async def _require_standby_data(database: Database, scope: str) -> None:
-    async with database.connect() as connection:
-        old_attempt = await connection.scalar(
-            select(native_attempt.c.id)
-            .where(
-                native_attempt.c.conversation_id == scope,
-                native_attempt.c.request["schema_version"]
-                .as_string()
-                .is_distinct_from("jarvis-native-request.v3"),
-                native_attempt.c.terminal_at.is_(None),
-                native_attempt.c.product_outcome.is_(None),
-                or_(
-                    native_attempt.c.recovery_pending,
-                    native_attempt.c.fenced_at.is_(None),
-                ),
-            )
-            .limit(1)
-        )
-        if old_attempt is not None:
-            raise NativeActivationDefect(
-                "retired native opening requires original-release disposition",
-                old_attempt,
-            )
-        old_retry = await connection.scalar(
-            select(message.c.id)
-            .where(
-                message.c.source_conversation_id == scope,
-                message.c.native_retry_after.is_not(None),
-                message.c.processing_parked_at.is_(None),
-                message.c.request_state.in_(("pending", "waiting")),
-                message.c.trace["native_retry"]["attempt_id"].as_string().is_(None),
-            )
-            .limit(1)
-        )
-        if old_retry is not None:
-            raise NativeActivationDefect(
-                "retired native retry requires original-release disposition", old_retry
-            )
 
 
 def _changed_action_authority(
@@ -1486,7 +1470,7 @@ async def dream_once(
             _isolated_provider(settings, host, "dreamer") as (
                 provider,
                 kernel,
-                standby,
+                routes,
             ),
         ):
             definition, plan = build_dreamer(
@@ -1500,7 +1484,7 @@ async def dream_once(
                 owner=JarvisOwner(database, settings.owner_scope),
                 provider=kernel,
                 memory=memory,
-                standby=standby,
+                routes=routes,
                 owner_timezone=settings.owner_timezone,
                 nightly_time=settings.memory_nightly_time,
             )
@@ -1569,7 +1553,7 @@ async def rebuild_memory(
             _isolated_provider(memory_settings, host, "compactor") as (
                 provider,
                 kernel,
-                standby,
+                routes,
             ),
         ):
             definitions, plan = build_compactor(
@@ -1583,15 +1567,21 @@ async def rebuild_memory(
                 owner=JarvisOwner(database, settings.owner_scope),
                 provider=kernel,
                 memory=memory,
-                standby=standby,
+                routes=routes,
             )
             async with database.begin() as connection:
                 await memory.library.rebuild(
                     connection, start, count, generation=generation
                 )
-            await worker.ensure_ready(
-                await memory.library.cutoff(), CancellationToken()
-            )
+            cutoff = await memory.library.cutoff()
+            try:
+                await worker.ensure_ready(cutoff, CancellationToken())
+            except MemoryError as error:
+                if error.code != "compaction_blocked":
+                    raise
+                raise RuntimeError(
+                    f"memory rebuild remains incomplete at cutoff {cutoff}"
+                ) from None
             if node is None:
                 while rows := await memory.library.embedding_candidates(
                     EMBEDDING_BATCH_SIZE

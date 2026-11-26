@@ -113,6 +113,13 @@ requests retain their original contracts.
 
 ## accepted native recovery and memory availability target
 
+[adr 0114](docs/decisions/0114-automatic-foreground-recovery.md) governs automatic
+foreground recovery. capacity waits stay pending. the journal settles original
+effects from evidence and admits independent read-only recovery when an
+ordinary retry lacks authority. only actual unresolved effects, exhausted
+actionable work and needed intervention warrant a hold. the same-owner stopped
+historical catch-up and the installed cut have separate acceptance.
+
 [adr 0106](docs/decisions/0106-interrupted-answers-and-parked-work.md) amends
 native completion and parking at schema `0023`. a proved superseded assistant
 draft can coexist with a valid final. each parking operation records one private
@@ -1084,7 +1091,9 @@ waking input gets the one delayed fresh opening specified in adr 0086. another
 loss before its own valid disposition parks it for operator repair. model
 computation may repeat. original actions, paid-read barriers and receipts
 survive every opening. `origin_message_id` is a stable root pointer, not
-sufficient recovery authority. parked input remains operator-only.
+sufficient recovery authority. adr 0114 defines eligible automatic
+continuations before quarantine and the exact, separately authorized historical
+catch-up. ordinary scans exclude parked inputs.
 
 public commentary and final output use distinct persisted messages under the
 phase contract in section 4.2. malformed structured output cannot be replaced
@@ -1925,6 +1934,12 @@ memory transactions are host bookkeeping and do not pass through `llm-tools`.
 
 ### 7.4 Native main and isolated steps
 
+adr 0114 binds restricted recovery to its exact original attempt and input
+delivery before native entry. its frozen plan permits only scoped reads and
+product settlement. the effective native policy disables shell, files, browser,
+children and workers. a failure or restart retains the restriction. completed
+effects retain their original identities and receipts.
+
 main uses the shared `run_native` contract:
 
 1. validate exact capabilities, model/reasoning, strict output and frozen plan;
@@ -2428,8 +2443,10 @@ validation; current request/source/consent fences govern publication separately.
   `native_attempt.recovery_pending`.
 - `processing_parked_at` is nullable `timestamptz` and canonical
   operator-quarantine control. ordinary input scans exclude parked rows until
-  explicit operator repair clears them.
-  `trace` may record a bounded reason code but is never queried as control state.
+  explicit operator repair or an authorized adr 0114 historical disposition
+  clears them. bounded retry provenance in `trace.native_retry` binds eligible
+  continuation to the original journal and current delivery. a diagnostic
+  reason alone never grants admission authority.
 - `control_kind`, monotonic `control_sequence` and exact `control_targets` record
   owner stop/pause/resume. pause truth lives in these canonical rows, not a file.
 - Assistant messages are inserted before delivery. A null `source_message_id` is

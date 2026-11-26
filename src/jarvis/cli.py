@@ -123,6 +123,7 @@ from jarvis.proactivity import WorkWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
+from jarvis.recovery_catchup import CatchupInventory, queue_catchup
 from jarvis.service import JarvisService
 from jarvis.settings import (
     CutoverSettings,
@@ -939,6 +940,16 @@ async def release_parked(
             await MessageStore(database).clear_parked(
                 source_conversation_id=settings.owner_scope, message_ids=message_ids
             )
+    finally:
+        await engine.dispose()
+
+
+async def queue_recovery_catchup(settings: PausedSettings, path: Path) -> UUID:
+    inventory = CatchupInventory.model_validate_json(path.read_bytes())
+    engine = create_engine(settings.database_url.get_secret_value())
+    try:
+        async with deployment_ownership(engine) as database:
+            return await queue_catchup(database, settings.owner_scope, inventory)
     finally:
         await engine.dispose()
 
@@ -1787,6 +1798,11 @@ def _parser() -> argparse.ArgumentParser:
         help="release explicitly named parked input after operator correction",
     )
     release.add_argument("message_ids", metavar="MESSAGE_ID", type=UUID, nargs="+")
+    catchup = commands.add_parser(
+        "queue-recovery-catchup",
+        help="queue a reviewed read-only parked mail inventory",
+    )
+    catchup.add_argument("inventory", metavar="INVENTORY", type=Path)
     return parser
 
 
@@ -1823,6 +1839,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if arguments.command == "list-parked":
             print(asyncio.run(list_parked(PausedSettings.from_env())))
+            return 0
+        if arguments.command == "queue-recovery-catchup":
+            identifier = asyncio.run(
+                queue_recovery_catchup(PausedSettings.from_env(), arguments.inventory)
+            )
+            print(identifier)
             return 0
         if arguments.command == "release-parked":
             message_ids = tuple(arguments.message_ids)

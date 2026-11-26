@@ -95,9 +95,11 @@ class WorkspaceResult(_Closed):
         return value
 
 
-def workspace_read_receipts(grant_id: str) -> Select[Any]:
-    """A recorded successful reply at its own native read position on this grant."""
-    return (
+def workspace_read_receipts(
+    grant_id: str, *, require_success: bool = True
+) -> Select[Any]:
+    """A recorded reply at its own native read position on this grant."""
+    receipts = (
         select(
             native_invocation.c.id,
             native_invocation.c.tool_id,
@@ -116,14 +118,18 @@ def workspace_read_receipts(grant_id: str) -> Select[Any]:
             native_invocation.c.reply_receipt["type"].as_string() == "tool_result_ref",
             native_invocation.c.reply_receipt["result_ref"].as_string()
             == read_position.c.position,
-            native_invocation.c.reply_receipt["success"].as_boolean().is_(True),
             read_position.c.state == "completed",
             read_position.c.contract["tool_id"].as_string()
             == native_invocation.c.tool_id,
             read_position.c.contract["workspace_grant_id"].as_string() == grant_id,
-            read_position.c.result["type"].as_string() == "Success",
         )
     )
+    if require_success:
+        return receipts.where(
+            native_invocation.c.reply_receipt["success"].as_boolean().is_(True),
+            read_position.c.result["type"].as_string() == "Success",
+        )
+    return receipts
 
 
 def completed_workspace_reads(

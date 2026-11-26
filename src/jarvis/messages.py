@@ -35,6 +35,13 @@ if TYPE_CHECKING:
 
 MessageRole = Literal["owner", "assistant", "host"]
 
+CATCHUP_SOURCE = "recovery_catchup"
+_recovery_kind = message.c.trace["native_retry"]["kind"].as_string()
+native_recovery_input = (
+    (message.c.role == "host") & (message.c.source == CATCHUP_SOURCE)
+) | func.coalesce(_recovery_kind == "read_only", False)
+
+
 # A capacity refusal retains its origin but only explicit pins steer admission.
 native_retry_pin = case(
     (
@@ -49,9 +56,28 @@ def current_native_retry() -> ColumnElement[bool]:
     from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA
 
     retry = message.c.trace["native_retry"]
+    origin = native_attempt.alias("recovery_origin")
+    original_delivery = native_input_delivery.alias("recovery_origin_delivery")
     return (
         retry["selection"].as_string().in_(("fresh", "pinned"))
+        & (_recovery_kind.is_(None) | (_recovery_kind == "read_only"))
         & retry["route"].as_string().in_(NATIVE_ROUTES)
+        & (
+            _recovery_kind.is_(None)
+            | select(origin.c.id)
+            .join(original_delivery, original_delivery.c.attempt_id == origin.c.id)
+            .where(
+                sql_cast(origin.c.id, Text) == retry["origin_attempt_id"].as_string(),
+                origin.c.conversation_id == message.c.source_conversation_id,
+                origin.c.fenced_at.is_not(None),
+                origin.c.request["schema_version"].as_string() == NATIVE_REQUEST_SCHEMA,
+                original_delivery.c.message_id == message.c.id,
+                original_delivery.c.was_waking,
+                original_delivery.c.state != "rejected",
+            )
+            .correlate(message)
+            .exists()
+        )
         & select(native_attempt.c.id)
         .where(
             sql_cast(native_attempt.c.id, Text) == retry["attempt_id"].as_string(),
@@ -64,6 +90,8 @@ def current_native_retry() -> ColumnElement[bool]:
             .where(
                 native_input_delivery.c.attempt_id == native_attempt.c.id,
                 native_input_delivery.c.message_id == message.c.id,
+                native_input_delivery.c.was_waking,
+                native_input_delivery.c.state != "rejected",
             )
             .correlate(message, native_attempt)
             .exists(),
@@ -118,6 +146,17 @@ class StoredMessage:
     native_retry_after: datetime | None = None
 
 
+def native_retry_evidence(trace: dict[str, object]) -> dict[str, object]:
+    retry = trace.get("native_retry")
+    return cast(dict[str, object], retry) if isinstance(retry, dict) else {}
+
+
+def is_recovery_input(value: StoredMessage) -> bool:
+    return (
+        value.role == "host" and value.source == CATCHUP_SOURCE
+    ) or native_retry_evidence(value.trace).get("kind") == "read_only"
+
+
 @dataclass(frozen=True, slots=True)
 class InboundInsert:
     message: StoredMessage
@@ -139,11 +178,15 @@ class ParkedInput:
 _parked_input = message.c.role.in_(("owner", "host")) & (
     message.c.processing_parked_at.is_not(None)
 )
-_releasable_parked_input = _parked_input & (
-    (message.c.request_state == "pending")
-    | (
-        (message.c.request_state == "waiting")
-        & (message.c.wait_reason == "configuration")
+_releasable_parked_input = (
+    _parked_input
+    & ~native_recovery_input
+    & (
+        (message.c.request_state == "pending")
+        | (
+            (message.c.request_state == "waiting")
+            & (message.c.wait_reason == "configuration")
+        )
     )
 )
 
@@ -618,12 +661,20 @@ class MessageStore:
                     .where(message.c.id.in_(targets))
                     .values(
                         request_state="stopped",
-                        native_retry_after=None,
+                        native_retry_after=case(
+                            (native_recovery_input, message.c.native_retry_after)
+                        ),
                         wait_reason=None,
                         processed_at=timestamp,
-                        trace=message.c.trace.op("-")("waiting_action_ids")
-                        .op("-")("native_context_retry")
-                        .op("-")("native_retry"),
+                        trace=case(
+                            (
+                                native_recovery_input,
+                                message.c.trace.op("-")("waiting_action_ids"),
+                            ),
+                            else_=message.c.trace.op("-")("waiting_action_ids")
+                            .op("-")("native_context_retry")
+                            .op("-")("native_retry"),
+                        ),
                     )
                 )
                 await cancel_unentered_actions(connection, targets, timestamp)
@@ -682,6 +733,9 @@ class MessageStore:
                 message.c.native_retry_after.is_(None)
                 | (message.c.native_retry_after <= func.now())
             ),
+            ~native_recovery_input
+            if steer
+            else message.c.native_retry_after.is_(None) | current_native_retry(),
             message.c.processing_parked_at.is_(None),
             message.c.id.not_in(exclude_ids),
             *(
@@ -703,7 +757,15 @@ class MessageStore:
                     await connection.execute(
                         query.order_by(
                             case((message.c.request_state == "pending", 0), else_=1),
-                            case((message.c.role == "owner", 0), else_=1),
+                            case(
+                                (
+                                    (message.c.role == "owner")
+                                    & ~native_recovery_input,
+                                    0,
+                                ),
+                                (message.c.role == "owner", 1),
+                                else_=2,
+                            ),
                             message.c.created_at,
                             message.c.id,
                         ).limit(limit)
@@ -715,6 +777,22 @@ class MessageStore:
         if not rows or rows[0]["request_state"] != "pending":
             return ()
         return tuple(map(_stored_message, rows))
+
+    async def next_native_retry_at(
+        self, source_conversation_id: str
+    ) -> datetime | None:
+        async with self._engine.connect() as connection:
+            return await connection.scalar(
+                select(func.min(message.c.native_retry_after)).where(
+                    message.c.source_conversation_id == source_conversation_id,
+                    message.c.role.in_(("owner", "host")),
+                    message.c.request_state == "pending",
+                    message.c.control_kind.is_(None),
+                    message.c.processing_parked_at.is_(None),
+                    message.c.native_retry_after > func.now(),
+                    current_native_retry(),
+                )
+            )
 
     async def waiting_input_count(
         self,
@@ -759,89 +837,11 @@ class MessageStore:
 
     async def list_parked(self, source_conversation_id: str) -> tuple[ParkedInput, ...]:
         """Read parked inputs and corroborate their attempt in one snapshot."""
-        notice = message.alias("park_notice")
-        attempt_ref = message.c.trace["native_attempt_id"].as_string()
-        has_delivery = (
-            select(native_input_delivery.c.message_id)
-            .where(
-                native_input_delivery.c.attempt_id == native_attempt.c.id,
-                native_input_delivery.c.message_id == message.c.id,
-            )
-            .exists()
-        )
-        has_notice = (
-            select(notice.c.id)
-            .where(
-                notice.c.source_conversation_id == message.c.source_conversation_id,
-                notice.c.role == "assistant",
-                notice.c.source == "native_failure",
-                notice.c.processed_at == message.c.processing_parked_at,
-                notice.c.trace["native_attempt_id"].as_string() == attempt_ref,
-            )
-            .exists()
-        )
         async with self._engine.begin() as connection:
             await connection.execute(
                 sql_text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             )
-            rows = (
-                (
-                    await connection.execute(
-                        select(
-                            message.c.id,
-                            message.c.role,
-                            message.c.source,
-                            message.c.trace,
-                            message.c.processing_parked_at,
-                            native_attempt.c.id.label("attempt_id"),
-                            native_attempt.c.attempt_seq,
-                            _releasable_parked_input.label("releasable"),
-                        )
-                        .select_from(message)
-                        .outerjoin(
-                            native_attempt,
-                            (native_attempt.c.conversation_id == source_conversation_id)
-                            & (sql_cast(native_attempt.c.id, Text) == attempt_ref)
-                            & has_delivery
-                            & has_notice,
-                        )
-                        .where(
-                            message.c.source_conversation_id == source_conversation_id,
-                            _parked_input,
-                        )
-                        .order_by(message.c.processing_parked_at, message.c.id)
-                    )
-                )
-                .mappings()
-                .all()
-            )
-        inputs: list[ParkedInput] = []
-        for row in rows:
-            watermark = row["trace"].get("released_through_native_attempt", 0)
-            sequence = row["attempt_seq"]
-            reason = row["trace"].get("failure_code")
-            claim = row["trace"].get("native_attempt_id")
-            claimed_attempt_id = None
-            if isinstance(claim, str):
-                with suppress(ValueError):
-                    claimed_attempt_id = UUID(claim)
-            inputs.append(
-                ParkedInput(
-                    id=row["id"],
-                    role=row["role"],
-                    source=row["source"],
-                    reason=reason if isinstance(reason, str) else None,
-                    parked_at=row["processing_parked_at"],
-                    attempt_id=row["attempt_id"]
-                    if sequence is not None
-                    and type(watermark) is int
-                    and 0 <= watermark < sequence
-                    else None,
-                    claimed_attempt_id=claimed_attempt_id,
-                    releasable=bool(row["releasable"]),
-                )
-            )
-        return tuple(inputs)
+            return await parked_inputs(connection, source_conversation_id)
 
     async def clear_parked(
         self,
@@ -901,6 +901,94 @@ class MessageStore:
                     ),
                 )
             )
+
+
+async def parked_inputs(
+    connection: AsyncConnection,
+    source_conversation_id: str,
+    ids: tuple[UUID, ...] | None = None,
+) -> tuple[ParkedInput, ...]:
+    """Corroborate current parks inside the caller's snapshot or custody."""
+    notice = message.alias("park_notice")
+    attempt_ref = message.c.trace["native_attempt_id"].as_string()
+    has_delivery = (
+        select(native_input_delivery.c.message_id)
+        .where(
+            native_input_delivery.c.attempt_id == native_attempt.c.id,
+            native_input_delivery.c.message_id == message.c.id,
+        )
+        .exists()
+    )
+    has_notice = (
+        select(notice.c.id)
+        .where(
+            notice.c.source_conversation_id == message.c.source_conversation_id,
+            notice.c.role == "assistant",
+            notice.c.source == "native_failure",
+            notice.c.processed_at == message.c.processing_parked_at,
+            notice.c.trace["native_attempt_id"].as_string() == attempt_ref,
+        )
+        .exists()
+    )
+    rows = (
+        (
+            await connection.execute(
+                select(
+                    message.c.id,
+                    message.c.role,
+                    message.c.source,
+                    message.c.trace,
+                    message.c.processing_parked_at,
+                    native_attempt.c.id.label("attempt_id"),
+                    native_attempt.c.attempt_seq,
+                    _releasable_parked_input.label("releasable"),
+                )
+                .select_from(message)
+                .outerjoin(
+                    native_attempt,
+                    (native_attempt.c.conversation_id == source_conversation_id)
+                    & (sql_cast(native_attempt.c.id, Text) == attempt_ref)
+                    & has_delivery
+                    & has_notice,
+                )
+                .where(
+                    message.c.source_conversation_id == source_conversation_id,
+                    _parked_input,
+                    *(() if ids is None else (message.c.id.in_(ids),)),
+                )
+                .order_by(message.c.processing_parked_at, message.c.id)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    inputs: list[ParkedInput] = []
+    for row in rows:
+        watermark = row["trace"].get("released_through_native_attempt", 0)
+        sequence = row["attempt_seq"]
+        reason = row["trace"].get("failure_code")
+        claim = row["trace"].get("native_attempt_id")
+        claimed_attempt_id = None
+        if isinstance(claim, str):
+            with suppress(ValueError):
+                claimed_attempt_id = UUID(claim)
+        inputs.append(
+            ParkedInput(
+                id=row["id"],
+                role=row["role"],
+                source=row["source"],
+                reason=reason if isinstance(reason, str) else None,
+                parked_at=row["processing_parked_at"],
+                attempt_id=row["attempt_id"]
+                if sequence is not None
+                and type(watermark) is int
+                and 0 <= watermark < sequence
+                else None,
+                claimed_attempt_id=claimed_attempt_id,
+                releasable=bool(row["releasable"]),
+            )
+        )
+    return tuple(inputs)
 
 
 def _stored_message(row: RowMapping) -> StoredMessage:

@@ -35,9 +35,8 @@ ProtectHome=read-only
 ProtectSystem=strict
 ProtectClock=true
 ProtectControlGroups=true
-ProtectKernelLogs=true
 ProtectKernelModules=true
-ProtectKernelTunables=true
+@KERNEL_PROTECTION@
 ProtectProc=ptraceable
 ReadWritePaths=@SOCKET_ROOT@ @ACCOUNT_HOME@ /var/lib/jarvis-notes
 NoNewPrivileges=true

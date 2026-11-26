@@ -119,13 +119,24 @@ for ((i=0; i<host_count; i++)); do
   [[ "$(systemctl show --property=ProtectSystem --value "$unit")" == strict ]]
   [[ "$(systemctl show --property=ProcSubset --value "$unit")" == all ]]
   [[ "$(systemctl show --property=ProtectProc --value "$unit")" == ptraceable ]]
-  [[ "$(systemctl show --property=ProtectKernelTunables --value "$unit")" == yes ]]
   [[ "$(systemctl show --property=NoNewPrivileges --value "$unit")" == yes ]]
   [[ -z "$(systemctl show --property=CapabilityBoundingSet --value "$unit")" ]]
   host_write_paths="$(systemctl show --property=ReadWritePaths --value "$unit")"
   [[ " $host_write_paths " == *" /var/lib/jarvis-notes "* ]]
   host_pid="$(systemctl show --property=MainPID --value "$unit")"
   [[ "$host_pid" =~ ^[1-9][0-9]*$ ]]
+  if ((i == 0)); then
+    [[ "$(systemctl show -p ProtectKernelTunables --value "$unit")" == yes ]]
+    [[ "$(systemctl show -p ProtectKernelLogs --value "$unit")" == yes ]]
+  else
+    [[ "$(systemctl show -p ProtectKernelTunables --value "$unit")" == no ]]
+    [[ "$(systemctl show -p ProtectKernelLogs --value "$unit")" == no ]]
+    [[ "$(systemctl show -p SystemCallFilter --value "$unit")" == '~syslog:EPERM' ]]
+    [[ "$(systemctl show -p PrivateDevices --value "$unit")" == yes ]]
+    sys_mount_options="$(nsenter --target "$host_pid" --mount \
+      findmnt --target /sys --noheadings --output VFS-OPTIONS)"
+    [[ ",$sys_mount_options," == *,ro,* ]]
+  fi
   host_user="$(systemctl show -p User --value "$unit")"
   pids+=("$host_pid")
   users+=("$host_user")

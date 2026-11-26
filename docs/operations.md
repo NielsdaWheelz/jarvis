@@ -402,12 +402,16 @@ bootstrap derives the same host mount layout while that host is stopped and
 creates no active control endpoint. cleanup removes only owned ephemeral aliases
 and placeholder; the notes checkout is untouched. the worker receives no native credentials.
 
-native host uses default `ProcSubset=all` so installed bwrap can read the kernel's
-overflow uid/gid metadata before sandbox startup; application keeps
-`ProcSubset=pid`. this exposes ordinary additional readonly kernel/system metadata
-to the trusted native domain. `ProtectKernelTunables=true`,
-`ProtectProc=ptraceable`, no-new-privileges and empty capabilities remain.
-no change to the shared coding daemon, rpc relay or copied account is involved.
+native hosts use default `ProcSubset=all` so installed bwrap can read the
+kernel's overflow uid/gid metadata before sandbox startup. the application
+uses `ProcSubset=pid`. both native hosts use `ProtectProc=ptraceable`,
+no-new-privileges and empty capabilities. the personal host uses
+`ProtectKernelTunables=true` and `ProtectKernelLogs=true`. on ubuntu these
+settings add proc submounts that prevent unprivileged bwrap from mounting
+fresh procfs. the paid host uses read-only `/sys`, private devices and a
+`syslog` syscall denial. its non-root uid and empty capabilities enforce the
+host proc tunable and kernel log permissions. paid startup requires private
+pid isolation, fresh procfs and credential denial in the stock sandbox.
 
 on an established deployment, `deploy/install-private-state` publishes a
 private-configuration change under named custody and both stopped writer locks.

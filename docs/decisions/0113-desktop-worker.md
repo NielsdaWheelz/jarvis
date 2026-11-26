@@ -12,7 +12,9 @@ desktop can report unavailable. macbook and dev-server must answer.
 
 finish v12 assignments and their outstanding result acknowledgements under v12.
 stopped preflight and startup reject retirement while either obligation remains.
-settled evidence stays under its original action id. no database migration is
+settled assignments retain their public terminal handle and bounded answer
+preview under the original action id. `worker_answer` pages the exact bytes.
+the private skid reference stays internal. no database migration is
 needed. shared memory enrollment has a separate identity and admission decision.
 
 activate before adding desktop to skid. verify the service account can list the

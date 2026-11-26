@@ -873,6 +873,12 @@ owns managed assignments and explicit terminal controls. settled old worker
 rows remain opaque evidence. unfinished incompatible contracts block
 admission and require disposition under their original release.
 
+for a joint release and worker-client change, provide the exact verified client
+through `deploy/activate-release --change "$id" --agent-client "$manifest" "$to"`.
+the manifest carries `owner`, `state`, `executable` and `sha256`. the release hold
+preserves the enrolled state directory and checks the copied binary before
+service startup. the private environment stays under its existing owner.
+
 `JARVIS_AGENT_CLI_PATH` and `JARVIS_AGENT_STATE_DIRECTORY` select the qualified
 skid cli and enrolled computer's live state. run `deploy/install-private-state --change "$id"` to install the matching executable and prepare `/run/jarvis-skid-state` as a
 root-owned read-only id-mapped mount. the service keeps its own uid, empty

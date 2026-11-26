@@ -72,7 +72,9 @@ systemctl start "$unit"
 [[ "$(stat -c '%u:%g:%a:%d:%i' "$source_state")" == "$source_metadata" ]]
 [[ "$(stat -c '%d:%i' "$state")" == "$(stat -c '%d:%i' "$source_state")" ]]
 verify_agent_client "$candidate" "$state"
+sync -f "$candidate"
 mv -fT -- "$candidate" "$cli"
+sync -f "$(dirname "$cli")"
 sudo -n -u jarvis "$cli" version
 sha256sum "$cli"
 printf 'installed live enrolled state mount; jarvis remains stopped\n'

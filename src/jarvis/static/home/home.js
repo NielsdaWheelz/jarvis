@@ -550,8 +550,11 @@ $("composer").onsubmit = async (e) => {
   }
 };
 $("message").onkeydown = (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !$("send").disabled)
-    $("composer").requestSubmit();
+  if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+  // Some IMEs report keyCode 229 even after isComposing clears.
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  if (!e.repeat) $("send").click();
 };
 
 function linkDestination(text, start) {

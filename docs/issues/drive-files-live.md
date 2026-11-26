@@ -6,12 +6,12 @@ the combined controlled rehearsal covers all eleven tools, the 100 mib boundary,
 
 verify the eleven operations through the selected agent composition, both reader lanes, max byte transport, stale etag and docs revision rejection, consent and revocation. verify the signed physical handset, stopped import and separate restored database on the selected release. close after the evidence is independently reviewed and disposable files and grants are accounted for.
 
-the owner prefers using their existing google account for the live check. the
-retained probe calls account-wide `drive.recent`, so it cannot confine that
-check to sample files. a sample-only check on that account needs a bounded
-probe, disposable grants and a scoped [data-use determination](google-workspace-retention.md).
-the account-wide behavior still needs evidence from an account where that
-read is permitted. the existing setup authorizes an isolated test account.
+the owner authorized a sample-only importer check on their existing google
+account. use a fresh desktop client in the test project, exact
+`openid drive.file` scopes and only the folder and file it creates. the
+[scoped determination](google-workspace-retention.md#sample-only-importer-check)
+covers this check. the full probe calls account-wide `drive.recent` and still
+requires separate permission for that read.
 
 on november 26 the published create tool accepted a supplied id for blobs and
 folders. the published mcp catalog still exposed no tool that issues those ids.

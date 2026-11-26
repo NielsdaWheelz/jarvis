@@ -46,3 +46,20 @@ the [drive files cut](../decisions/0120-drive-files.md) also needs a determinati
   also constrains task reuse, covered technical information and retention
   after disconnection. no existing evidence resolves the mixed records or
   proves deletion across their destinations. [api terms](https://developers.google.com/terms#e_prohibitions_on_content) · [workspace ai addendum](https://workspace.google.com/terms/ai-tools/) · [effective date](https://developers.google.com/workspace/guides/quota-usage-tiers)
+
+## sample-only importer check
+
+on november 26 the owner authorized a one-off check on their existing google
+account. the published terms permit the narrow task as designed. create a synthetic file
+at its intended destination, read it back to verify the bytes, and trash it.
+this uses a disposable operator app in the fresh test project with only
+`openid` and `drive.file`. it creates the folder and addresses only its own
+generated ids. it reads no existing files, lists, mail or docs. identity and
+test responses stay in process. jarvis, model providers, chat history and
+backups receive none of them. local evidence records the synthetic digest and
+check outcomes. cleanup trashes the two generated objects and revokes the
+test app's grant. the trashed samples remain in the account until normal expiry.
+[per-file scope](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) · [drive terms](https://developers.google.com/workspace/drive/api/terms) · [trash behavior](https://developers.google.com/workspace/drive/api/guides/delete) · [revocation](https://developers.google.com/identity/protocols/oauth2/native-app#tokenrevoke)
+
+this determination covers the importer smoke only. the production archive,
+agent and human reader grants, and the import of existing originals remain open.

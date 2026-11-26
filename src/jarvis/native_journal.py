@@ -43,6 +43,7 @@ from llm_tools import (
     canonical_json_bytes,
 )
 from provider_runtime.agent_runtime import (
+    AgentAccepted,
     AgentAttempt,
     AgentControlReceipt,
     AgentFailure,
@@ -736,14 +737,23 @@ class PostgresNativeJournal:
                 self.owner,
                 attempt_id,
                 native_attempt.c.native_binding,
+                native_attempt.c.submission_evidence,
+                native_attempt.c.request["provider_attempt"].label("provider_attempt"),
                 live=False,
+            )
+            accepted = _evidence(
+                AgentAccepted(AgentAttempt(**row["provider_attempt"]), native_turn)
             )
             if row["native_binding"] is not None and row["native_binding"] != binding:
                 raise NativeDefect("native turn binding changed")
+            if row["submission_evidence"] not in (None, accepted):
+                raise NativeDefect(
+                    "native turn contradicts its original submission evidence"
+                )
             await connection.execute(
                 update(native_attempt)
                 .where(native_attempt.c.id == row["id"])
-                .values(native_binding=binding)
+                .values(native_binding=binding, submission_evidence=accepted)
             )
 
     async def record_invocation(
@@ -1542,6 +1552,13 @@ class PostgresNativeJournal:
                         or not isinstance(ref, AgentTurnRef)
                         or ref.session_ref.profile_key
                         != self.definition.provider.auth.profile_key
+                        or ref.session_ref.backend != self.definition.provider.backend
+                        or ref.session_ref.transport
+                        != self.definition.provider.transport
+                        or (
+                            self.antigravity is not None
+                            and self.antigravity.turn != ref
+                        )
                     ):
                         raise NativeDefect(
                             "native terminal changed the prepared attempt or account"

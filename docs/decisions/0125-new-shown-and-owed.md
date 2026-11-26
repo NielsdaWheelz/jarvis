@@ -44,7 +44,7 @@ the gate is deliberately liberal. a mark may dry on something he did not read if
 
 **mark.** each new message hangs a small lozenge in the gutter beside its stamp row. it is a 0.45rem square rotated 45°, with a 1.5px border and fill in `--ink`. it sits outside the article box, centred 0.825rem before the content edge and 0.42rem below the article's top, with no flow height. it is sticky at 1rem inside its article, so it rides beside a message taller than the screen. a selected article offsets it past the selection bar. it is the closed form of the todo chevron and shares no shape with the selection or proposal bars.
 
-**drying.** when the message is shown the fill becomes transparent and the border `--muted`, over 700ms with `cubic-bezier(0.22, 0.61, 0.36, 1)`. this is the application's only animation. reduced motion makes it instant. the hollow mark stays until the visit ends and is absent on the next. if it proves unused after a month, delete that one rule.
+**drying.** when the message is shown the fill becomes transparent and the border `--muted`, over 700ms with `cubic-bezier(0.22, 0.61, 0.36, 1)`. the other motion is specified in [adr 0126](0126-presence.md#what-the-owner-sees). reduced motion makes it instant. the hollow mark stays until the visit ends and is absent on the next. if it proves unused after a month, delete that one rule.
 
 **standing.** a mark appears only once a message has been new for 1.5 seconds. a reply shown as it lands gets its receipt and never a mark. only messages that carried a mark leave a hollow one.
 
@@ -230,8 +230,9 @@ predecessor’s trusted release certificate.
 named receipts and artifact hashes are under
 `~/.local/state/jarvis/qualification/adr0125-implementation/`.
 the [installed follow-up](../issues/new-shown-owed-installed.md) owns the
-physical accessibility, handset, firebase and owner-trial witnesses. the
-stopped shared-receipt cut follows that trial and installed drive custody.
+first-cut rollout, the owner’s dedicated-check waiver, the real firebase tap
+and the owner trial. the stopped shared-receipt cut follows that trial and
+installed drive custody.
 
 ## not in this decision
 

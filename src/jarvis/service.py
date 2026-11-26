@@ -24,6 +24,7 @@ from jarvis.messages import IngressUnavailable, MessageStore
 from jarvis.native_runtime import NativeRunOutcome
 from jarvis.ownership import Database
 from jarvis.phone import PhoneSlot
+from jarvis.presence import Presence
 from jarvis.proactivity import WorkWakeTimer
 from jarvis.settings import Settings
 from jarvis.state import PausedState
@@ -75,11 +76,13 @@ class JarvisService:
         work_timer: WorkWakeTimer,
         event_poller: EventPoller,
         attachments: AttachmentStore,
+        presence: Presence,
         workspace: WorkspaceHost | None = None,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
         self._attachments = attachments
+        self.presence = presence
         self._memory = memory
         self._work_timer = work_timer
         self._event_poller = event_poller
@@ -344,9 +347,11 @@ class JarvisService:
                 self._active_cancellation = cancellation
             try:
                 outcome = await self._runner.run(cancellation)
+                self.presence.deferral = outcome.deferral
             finally:
                 async with self._active_lock:
                     self._active_cancellation = None
+                    self.presence.clear_attempt()
             self.request_delivery()
             LOGGER.info(
                 "native main completed: status=%s elapsed_ms=%.3f",

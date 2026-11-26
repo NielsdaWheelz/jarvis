@@ -5,11 +5,15 @@ first cut and at least one week of owner use before adopting permanent shared
 receipts. until then, a message shown on one device can still appear new on
 another. the first cut keeps the current viewer contract and needs no migration.
 
-- exercise web with a physical screen reader. controlled chrome and webkit
-  covered document focus and aria semantics.
-- qualify the matched release on the signed s22+ against an isolated service.
-  run the notification and talkback journeys on the phone. the mac adb and
-  wireless discovery checks on november 26 found no physical handset.
+the owner waived dedicated physical screen-reader, s22+ and talkback sessions
+for this first-cut trial. emulator and browser evidence qualify the source.
+during ordinary use, tap one real firebase alert and confirm that it opens the
+exact reply.
+
+the read-only check on november 26 selected the running release `22e9d2a`,
+which expects schema `0025`. the matched source expects `0027`. the
+[drive files rollout](drive-files-deploy.md) owns that predecessor cut.
+
 - record the installed first cut and the owner’s week of use. include cases
   where marks dried too soon or remained after display. settle any change to
   the gate before adopting permanent receipts.

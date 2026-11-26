@@ -244,13 +244,15 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     const body = document.createTreeWalker(reader, NodeFilter.SHOW_TEXT);
     let firstLine;
     for (let text = body.nextNode(); text && !firstLine; text = body.nextNode()) {
-      if (!text.textContent.trim()) continue;
+      if (!text.textContent.trim() || text.parentElement.closest('[aria-hidden="true"]')) continue;
       range.selectNodeContents(text);
       firstLine = [...range.getClientRects()].find((rect) => rect.height && rect.width);
     }
     firstLine ??= node.querySelector(".stamp").getBoundingClientRect();
     const end = node.controls?.lastElementChild || reader;
     range.selectNodeContents(end);
+    const trailing = end.lastElementChild;
+    if (trailing?.getAttribute("aria-hidden") === "true") range.setEndBefore(trailing);
     const lastLine = [...range.getClientRects()].findLast((rect) => rect.height && rect.width)
       ?? end.getBoundingClientRect();
     return [firstLine, lastLine].map((line) =>
@@ -385,6 +387,19 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       for (const id of added) if (fresh(id)) arrivals.add(id);
     },
     setOwed(ids) { owed = new Set(ids); },
+    clearProjection() {
+      clearTimeout(pendingClear?.timeout);
+      pendingClear = null;
+      known.clear();
+      owed.clear();
+      samples.clear();
+      marks.clear();
+      arrivals.clear();
+      boundary = null;
+      separator.remove();
+      live.textContent = "";
+      paint();
+    },
     render(node, message) {
       node.dataset.messageId = message.id;
       if (!tracked(message)) return;

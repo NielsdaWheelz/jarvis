@@ -2,6 +2,7 @@ package dev.niels.jarvis
 
 import android.content.Context
 import android.graphics.Rect
+import android.net.Uri
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
@@ -26,7 +27,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.json.JSONException
 import org.json.JSONObject
 
 internal data class ChatStamp(val id: String, val at: Instant) : Comparable<ChatStamp> {
@@ -36,7 +36,9 @@ internal data class ChatStamp(val id: String, val at: Instant) : Comparable<Chat
 internal class ChatMessage(val json: JSONObject) {
     val stamp = ChatStamp(json.getString("id"), Instant.parse(json.getString("at")))
     val id get() = stamp.id
-    val tracked = json.getString("role") == "assistant" && json.getString("source") != "native_progress"
+    private val source = json.getString("source")
+    val tracked = json.getString("role") == "assistant" && source != "native_progress"
+    val terminal = source == "native_final" || source == "native_failure"
 }
 
 internal class ChatShown(context: Context) {
@@ -92,6 +94,18 @@ internal class ChatPage(page: JSONObject) {
     val owed = page.getJSONArray("owed").let { ids -> List(ids.length(), ids::getString) }
 }
 
+internal suspend fun readChatPage(
+    api: HomeApi, notices: PhoneNotices, before: String?, timeoutMillis: Long? = null,
+): ChatPage {
+    val active = notices.snapshot()
+    val path = "/api/messages" + (before?.let { "?before=${Uri.encode(it)}" } ?: "")
+    return ChatPage(api.read(path, timeoutMillis) ?: throw IOException("conversation unavailable")).also {
+        notices.sweep(active, it)
+    }
+}
+
+internal data class ChatRead(val finals: List<String>, val arrivals: Set<String>)
+
 internal class ChatHistory(private val shown: ChatShown) {
     private val reads = Mutex()
     private var outside by mutableStateOf(emptyList<ChatStamp>())
@@ -99,9 +113,11 @@ internal class ChatHistory(private val shown: ChatShown) {
     private val timings = mutableMapOf<String, Dwell>()
     private val observations = mutableStateMapOf<String, ChatStamp>()
     val reportPending get() = observations.values.any(::canRecord)
-    private var readProblem by mutableStateOf<String?>(null)
-    private var writeProblem by mutableStateOf<String?>(null)
-    val problem get() = readProblem ?: writeProblem
+    val latest = ReadState<ChatRead>()
+    var authorizationEpoch by mutableIntStateOf(0)
+        private set
+    var writeProblem by mutableStateOf<String?>(null)
+        private set
     private var lastFrame = 0L
     private var absentAt: Long? = null
     private var awayFrom: Instant? = null
@@ -113,8 +129,7 @@ internal class ChatHistory(private val shown: ChatShown) {
         private set
     var before by mutableStateOf<String?>(null)
         private set
-    var received by mutableStateOf(false)
-        private set
+    private var received = false
     var attending by mutableStateOf(false)
         private set
     var visit by mutableIntStateOf(0)
@@ -168,9 +183,10 @@ internal class ChatHistory(private val shown: ChatShown) {
             awayThrough?.let { message.stamp.at <= it } == true)
 
     suspend fun refresh(revisit: Boolean, page: suspend (String?) -> ChatPage) = reads.withLock {
-        read {
+        applyRead {
             val initial = !received || rows.isEmpty()
-            val oldEdge = if (revisit) rows.firstOrNull() else rows.lastOrNull()
+            val previous = rows
+            val oldEdge = if (revisit) previous.firstOrNull() else previous.lastOrNull()
             val head = page(null)
             val retained = mutableListOf<ChatPage>()
             val oldMarks = mutableListOf<ChatStamp>()
@@ -209,32 +225,47 @@ internal class ChatHistory(private val shown: ChatShown) {
                 placedVisit = visit
             }
             received = true
+            val terminals = rows.filter { it.terminal }
+            val floor = previous.firstOrNull()?.stamp
+            val known = previous.mapTo(mutableSetOf()) { it.id }
+            val arrivals = terminals.filter { floor != null && it.stamp >= floor && it.id !in known }
+            ChatRead(terminals.map { it.id }, arrivals.mapTo(mutableSetOf()) { it.id })
         }
+    }
+
+    suspend fun rejectAccess(error: SignInRequired) = reads.withLock {
+        applyRead { throw error }
     }
 
     suspend fun earlier(page: suspend (String?) -> ChatPage) = reads.withLock {
         val cursor = before ?: return@withLock
-        read {
+        applyRead {
             val older = page(cursor)
             rows = older.messages + rows
             older.messages.forEach { learnedAt(it.id) }
             before = older.before
             outside = outside.filter { stamp -> stamp < (rows.firstOrNull()?.stamp ?: stamp) }
             owed = older.owed
+            latest.data
         }
     }
 
-    private suspend fun read(request: suspend () -> Unit) {
-        try {
-            request()
-            readProblem = null
-        } catch (_: SignInRequired) {
-            readProblem = "sign in"
-        } catch (_: IOException) {
-            readProblem = "could not refresh"
-        } catch (_: JSONException) {
-            readProblem = "could not read this response"
+    private suspend fun applyRead(read: suspend () -> ChatRead?): Boolean {
+        val paired = latest.refresh(read)
+        if (latest.authorityLost && received) {
+            rows = emptyList()
+            owed = emptyList()
+            outside = emptyList()
+            before = null
+            received = false
+            boundary = null
+            placedVisit = -1
+            learned.clear()
+            marked.clear()
+            timings.clear()
+            authorizationEpoch++
         }
+        return paired
     }
 
     fun clear(through: ChatStamp) {
@@ -318,15 +349,17 @@ internal class ChatViewport {
     val cards = mutableMapOf<String, Pair<ChatMessage, LayoutCoordinates>>()
 
     @Composable
-    fun Observe(history: ChatHistory, line: Float, hasNew: Boolean) {
+    fun Observe(history: ChatHistory, line: Float, hasNew: Boolean, excludedId: String? = null) {
         val view = LocalView.current
         val accessibility = view.context.getSystemService(AccessibilityManager::class.java)
-        LaunchedEffect(this, history.attending, hasNew, line) {
+        LaunchedEffect(this, history.attending, hasNew, line, excludedId) {
             if (!history.attending || !hasNew) return@LaunchedEffect
             try {
                 while (true) withFrameMillis { now ->
                     val inner = viewport?.screenRect()
-                    val candidates = if (inner == null) emptyList() else cards.values.filter { history.isNew(it.first) }
+                    val candidates = if (inner == null) emptyList() else cards.values.filter {
+                        it.first.id != excludedId && history.isNew(it.first)
+                    }
                     val focus = if (candidates.isEmpty() || !accessibility.isEnabled) null else {
                         view.accessibilityNodeProvider?.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)?.let { node ->
                             Rect().also(node::getBoundsInScreen)

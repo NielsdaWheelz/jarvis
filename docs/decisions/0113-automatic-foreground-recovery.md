@@ -63,6 +63,11 @@ request-fit limits. keep foreground input responsive and independent work
 eligible. compaction and nightly dreaming retain their existing capacity and
 schedule rules.
 
+if its grant changes after a restricted opening, a still-live matching input
+gets a scoped hold. the original outcome cannot publish or rearm on the new
+grant. stopped or superseded inputs keep their established disposition.
+generic operator release treats restricted holds as inspection-only.
+
 ## restricted continuation
 
 jarvis reuses the contained native session and frozen capability plan used
@@ -168,7 +173,8 @@ original unsealed answer as evidence without publishing it as a valid final.
   unverified availability.
 - the catch-up uses one private report. one temporary read failure can
   delay the report, while earlier proved reads remain available through
-  their original receipts. absent observations stay outstanding. a changed
+  their original receipts, including after a fenced unsealed loss has been
+  settled. absent observations stay outstanding. a changed
   frozen inventory holds only the catch-up input and requires a fresh
   selection.
 - the v5 cut requires predecessor executable work to settle under its

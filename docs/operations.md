@@ -1206,7 +1206,8 @@ settled originals remain available through their recorded receipts.
 on the selected recovery release, capacity waits remain quiet and recheck
 on the service wake. a bounded continuation uses the original effects as
 evidence and runs independently answerable work with read-only authority.
-`list-parked` remains the inventory for holds that need intervention.
+`list-parked` remains the inventory for holds that need intervention. a
+restricted hold is inspection-only under the generic release command.
 
 for the separately authorized historical mail catch-up, refresh the parked
 inventory while the assistant is stopped. pass a private json file with

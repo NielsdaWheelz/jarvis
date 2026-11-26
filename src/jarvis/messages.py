@@ -178,11 +178,15 @@ class ParkedInput:
 _parked_input = message.c.role.in_(("owner", "host")) & (
     message.c.processing_parked_at.is_not(None)
 )
-_releasable_parked_input = _parked_input & (
-    (message.c.request_state == "pending")
-    | (
-        (message.c.request_state == "waiting")
-        & (message.c.wait_reason == "configuration")
+_releasable_parked_input = (
+    _parked_input
+    & ~native_recovery_input
+    & (
+        (message.c.request_state == "pending")
+        | (
+            (message.c.request_state == "waiting")
+            & (message.c.wait_reason == "configuration")
+        )
     )
 )
 

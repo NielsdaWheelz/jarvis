@@ -1,4 +1,4 @@
-"""Current native messages and the read-only decoder for predecessor seals."""
+"""Current native message and scoped plan contracts."""
 
 from dataclasses import replace
 from typing import Self
@@ -136,9 +136,6 @@ class JarvisTerminal(terminal.JarvisTerminal):
 
     @classmethod
     def from_seal(cls, name: str, value: object) -> Self:
-        if name == terminal.NATIVE_OUTPUT_NAME:
-            old = terminal.JarvisTerminal.from_seal(name, value)
-            return cls(**old.model_dump(), workspace_result=None)
         if name != NATIVE_OUTPUT_NAME:
             raise ValueError("unrecognized native seal contract")
         return cls.model_validate(value)

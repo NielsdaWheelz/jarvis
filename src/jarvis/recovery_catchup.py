@@ -393,7 +393,11 @@ async def _read_evidence(
             native_input_delivery.c.was_waking,
             proven_native_delivery,
             (native_attempt.c.id == attempt_id)
-            | native_attempt.c.product_outcome.is_not(None),
+            | native_attempt.c.product_outcome.is_not(None)
+            | (
+                native_attempt.c.fenced_at.is_not(None)
+                & ~native_attempt.c.recovery_pending
+            ),
             native_invocation.c.proposal["input_ids"] == [str(input_id)],
             native_invocation.c.tool_id == "gmail.get_message",
         )

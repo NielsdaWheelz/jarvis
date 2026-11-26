@@ -55,6 +55,9 @@ _HOST_SOURCES = {
     "work_wake": "scheduled check",
 }
 _OPENINGS = {
+    "workspace_recovery_grant_changed": (
+        "workspace access changed while i was recovering this work."
+    ),
     "mail_catchup_inventory_changed": (
         "the authorized mail inventory changed before the catch-up could finish."
     ),

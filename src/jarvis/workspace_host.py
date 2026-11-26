@@ -30,7 +30,7 @@ from jarvis.db import (
     work,
 )
 from jarvis.event_tools import EmailAdded
-from jarvis.messages import latest_control, native_retry_evidence
+from jarvis.messages import CATCHUP_SOURCE, latest_control, native_retry_evidence
 from jarvis.ownership import lock_conversation
 from jarvis.workspace_checks import (
     CheckRead,
@@ -304,12 +304,14 @@ class WorkspaceHost:
     async def permits_local_read(
         self, lineage: NativeDispatchLineage, tool: str, arguments: dict[str, Any]
     ) -> bool:
-        """A check can inspect its own todo and the receipts of its current request."""
+        """Limit restricted sessions to local reads for the delivered request."""
         async with self.owner.database.connect() as connection:
             rows = await self._delivered_inputs(connection, lineage)
         for origin in rows:
             refresh = origin.home and origin.home.get("workspace_refresh")
-            if refresh:
+            if origin.role == "host" and origin.source == CATCHUP_SOURCE:
+                todo_id = None
+            elif refresh:
                 todo_id = refresh["todo_id"]
             elif is_workspace_wake(origin.source, origin.wake_text):
                 todo_id = json.loads(origin.wake_text)["record"]["id"]
@@ -324,7 +326,11 @@ class WorkspaceHost:
                 return False
             if tool == "receipt.read":
                 return arguments.get("request_ref") == str(origin.id)
-            return tool == "work.get" and arguments.get("id") == todo_id
+            return (
+                todo_id is not None
+                and tool == "work.get"
+                and arguments.get("id") == todo_id
+            )
         return True
 
     async def read_access(
@@ -543,7 +549,6 @@ class WorkspaceHost:
         original: str | None,
     ) -> None:
         from jarvis.recovery_catchup import (
-            RECOVERY_CATCHUP_SOURCE,
             CatchupStale,
             catchup_mail_ids,
         )
@@ -555,7 +560,7 @@ class WorkspaceHost:
         ):
             raise WorkspaceError("workspace_input_changed")
         if origin.role == "host" and tool == "gmail.get_message":
-            if origin.source == RECOVERY_CATCHUP_SOURCE:
+            if origin.source == CATCHUP_SOURCE:
                 try:
                     allowed = await catchup_mail_ids(
                         connection,

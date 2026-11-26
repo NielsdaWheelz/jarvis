@@ -2065,11 +2065,19 @@ async def commit_product(
                     )
                     for identifier, row in inputs.items()
                 }
-                or attempt["recovery_grant"] != _recovery_grant(grant)
                 or await connection.scalar(latest_control(owner.scope_id)) == "pause"
             ):
                 raise StaleNativeProduct(
                     "restricted result lost its original authority"
+                )
+            if attempt["recovery_grant"] != _recovery_grant(grant):
+                return await _hold_restricted_result(
+                    connection,
+                    owner,
+                    attempt,
+                    inputs,
+                    timestamp,
+                    "workspace_recovery_grant_changed",
                 )
             if (
                 set(statuses) != set(inputs)
@@ -2114,26 +2122,14 @@ async def commit_product(
                             allow_retry=not _fault_retry_used(origin),
                         )
                     except CatchupStale:
-                        await _fail_inputs(
+                        return await _hold_restricted_result(
                             connection,
                             owner,
+                            attempt,
                             inputs,
+                            timestamp,
                             "mail_catchup_inventory_changed",
-                            attempt_id=turn.attempt_id,
                         )
-                        await connection.execute(
-                            update(native_attempt)
-                            .where(native_attempt.c.id == attempt["id"])
-                            .values(
-                                recovery_pending=False,
-                                fenced_at=attempt["fenced_at"] or timestamp,
-                                product_outcome={
-                                    "status": "stale",
-                                    "reason": "mail_catchup_inventory_changed",
-                                },
-                            )
-                        )
-                        return ProductSettlement("stale", eligibility_changed=True)
                     if coverage.retry_after is not None:
                         await _queue_retry(
                             connection,
@@ -2779,6 +2775,27 @@ async def _fail_inputs(
         timestamp=timestamp,
         attempt_id=attempt_id,
     )
+
+
+async def _hold_restricted_result(
+    connection: AsyncConnection,
+    owner: JarvisOwner,
+    attempt: RowMapping,
+    inputs: dict[UUID, RowMapping],
+    timestamp: datetime,
+    reason: str,
+) -> ProductSettlement:
+    await _fail_inputs(connection, owner, inputs, reason, attempt_id=str(attempt["id"]))
+    await connection.execute(
+        update(native_attempt)
+        .where(native_attempt.c.id == attempt["id"])
+        .values(
+            recovery_pending=False,
+            fenced_at=attempt["fenced_at"] or timestamp,
+            product_outcome={"status": "stale", "reason": reason},
+        )
+    )
+    return ProductSettlement("stale", eligibility_changed=True)
 
 
 async def defer_first_sample_refusal(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
@@ -98,6 +99,7 @@ class JarvisService:
         self._delegations = delegations
         self._dream_sleep = dream_sleep
         self._work = asyncio.Event()
+        self._native_wake: asyncio.TimerHandle | None = None
         self._shutdown = asyncio.Event()
         self._dispatch_lane = dispatch_lane
         self._delivery_work = asyncio.Event()
@@ -213,6 +215,7 @@ class JarvisService:
                 if self._delegation_task.done():
                     self._delegation_task.result()
                     raise RuntimeError("delegation observer stopped unexpectedly")
+                self._set_native_wake(None)
                 await self._drain()
         finally:
             self.request_shutdown()
@@ -275,8 +278,19 @@ class JarvisService:
             self._active_background.request_interrupt(self._background_cancellation)
         self._work.set()
 
+    def _set_native_wake(self, deadline: datetime | None) -> None:
+        if self._native_wake is not None:
+            self._native_wake.cancel()
+            self._native_wake = None
+        if deadline is not None and not self._shutdown.is_set():
+            delay = max(0.0, (deadline - datetime.now(UTC)).total_seconds())
+            self._native_wake = asyncio.get_running_loop().call_later(
+                delay, self.request_work
+            )
+
     def request_shutdown(self) -> None:
         self._shutdown.set()
+        self._set_native_wake(None)
         self._event_poller.notify_changed()
         self._attachments.stop_captures()
         self._attachment_work.set()
@@ -369,6 +383,19 @@ class JarvisService:
                 continue
             if self._work.is_set():
                 return
+            retry_at = await self._store.next_native_retry_at(
+                source_conversation_id=self._settings.owner_scope
+            )
+            self._set_native_wake(
+                min(
+                    (
+                        deadline
+                        for deadline in (retry_at, outcome.retry_at)
+                        if deadline is not None
+                    ),
+                    default=None,
+                )
+            )
             dreamed = False
             if self._dream_due:
                 dreamed = await self._run_background_once(self._dreamer)

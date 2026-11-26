@@ -10,6 +10,11 @@ worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
 runtime change, release, deployment or resumption.
 
+[automatic foreground recovery 0114](decisions/0114-automatic-foreground-recovery.md)
+has [source and detached qualification](decisions/0114-automatic-foreground-recovery.md#source-qualification)
+at `a922811/0025`. installed recovery precedes separately authorized historical
+disposition.
+
 [direct google quota recovery](decisions/0110-neon-quota-recovery.md) reconciles the 0108/0109 standby branch with the merged 0107 workspace contract. the adr assigns four feature owners, their designer specimens, temporary red/green/refactor proof and the historical release. qualify the stock-to-google transport and data eligibility before real paid routing. opus 5.5 passed the design on november 25 (adr sha-256 `955fbf068b3ac515c47605cf5b0ddeeb319727318cd6484100f2dab1e2706e94`). the owner later approved translating interleaved trusted instructions into google’s system channel with source positions. a fresh personal opening leaves inputs owned by a safe, pinned neon continuation alone. [open live qualification](issues/neon-live-qualification.md)
 
 [SPEC.md](../SPEC.md) remains normative. the

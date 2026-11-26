@@ -38,6 +38,7 @@ from jarvis._secrets import contains_secret
 from jarvis.agent_tools import AGENT_READ_IDS
 from jarvis.attachment_tools import ATTACHMENT_READ_IDS
 from jarvis.event_tools import EVENT_READ_IDS
+from jarvis.native_protocol import FOREGROUND_RECOVERY_PROFILE
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
 from jarvis.receipt_tools import RECEIPT_READ_ID
 from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
@@ -205,6 +206,15 @@ class ReadToolDispatcher:
         if not hasattr(validated_input, "model_dump"):
             raise ToolDispatchDefect("kernel supplied an invalid decoded tool input")
         value = cast("Any", validated_input).model_dump(mode="json")
+        recovery = plan.profile.id == FOREGROUND_RECOVERY_PROFILE
+        if recovery and (
+            not isinstance(lineage, NativeDispatchLineage)
+            or (
+                tool_id == RECEIPT_READ_ID
+                and value.get("request_ref") not in lineage.input_ids
+            )
+        ):
+            return host_rejected("recovery_read_outside_input")
         if str(tool_id).startswith("web.") and contains_secret(
             value, self._host_secrets
         ):
@@ -218,7 +228,9 @@ class ReadToolDispatcher:
                     or self._workspace is None
                 ):
                     return host_rejected("workspace_read_not_authorized")
-                access = await self._workspace.read_access(lineage, str(tool_id), value)
+                access = await self._workspace.read_access(
+                    lineage, str(tool_id), value, recovery=recovery
+                )
             elif (
                 isinstance(lineage, NativeDispatchLineage)
                 and self._workspace is not None

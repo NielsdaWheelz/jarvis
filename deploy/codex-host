@@ -251,9 +251,11 @@ def start(config: CodexHostConfig, account: StockHost) -> None:
                 "-c",
                 (
                     "import os,sys; "
-                    "fresh = os.path.samefile('/proc/1/ns/pid', '/proc/self/ns/pid'); "
-                    "raise SystemExit(not fresh or os.access(sys.argv[1], os.R_OK))"
+                    "fresh = (os.readlink('/proc/self/ns/pid') != sys.argv[1] "
+                    "and os.readlink('/proc/self') == str(os.getpid())); "
+                    "raise SystemExit(not fresh or os.access(sys.argv[2], os.R_OK))"
                 ),
+                os.readlink("/proc/self/ns/pid"),
                 str(key_path),
             ],
             cwd=config.notes_repository,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from hashlib import sha256
 from typing import Annotated, Literal, Self
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -419,6 +420,11 @@ class DraftObservation(DraftRef):
     observed_at: AwareDatetime
 
 
+class DraftSnapshot(_GmailEnvelope):
+    sender: Mailbox
+    files: Annotated[tuple[MailFile, ...], Field(max_length=MAIL_MAX_FILES)]
+
+
 class FrozenCompose(_StrictModel):
     tool: Literal["gmail.create_draft", "gmail.prepare_replacement"]
     old: DraftObservation | None
@@ -428,6 +434,18 @@ class FrozenCompose(_StrictModel):
     # Only the digest of the verified parent's quoted text is needed for readback.
     quote_digest: Sha256 | None
     expected_body_digest: Sha256 | None
+
+    def matches_observed_body(self, body: str) -> bool:
+        if (
+            self.expected_body_digest is not None
+            and sha256(body.encode()).hexdigest() != self.expected_body_digest
+        ):
+            return False
+        authored = self.content.body_text
+        return body == authored or (
+            body.startswith(authored)
+            and sha256(body[len(authored) :].encode()).hexdigest() == self.quote_digest
+        )
 
 
 class FrozenDiscard(_StrictModel):

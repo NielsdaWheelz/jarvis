@@ -73,6 +73,7 @@ function save() {
   sessionStorage.setItem(draftKey, JSON.stringify({ ...draft, files }));
 }
 const isDetail = (path) => path.startsWith("/m/");
+const draftRevisionRoute = /^\/mail\/([^/]+)\/revision\/([^/]+)$/;
 
 function changeState(values, path = location.href) {
   history.replaceState({ ...history.state, ...values }, "", path);
@@ -616,27 +617,12 @@ const fileState = {
   deleting: "deleting original",
   failed: "original unavailable",
 };
-function emailBody(label, load) {
-  const disclosure = el("details");
-  const body = el("p", "", "prose");
-  let loading = false;
-  let loaded = false;
-  disclosure.append(el("summary", label), body);
-  disclosure.addEventListener("toggle", async () => {
-    if (!disclosure.open || loading || loaded) return;
-    loading = true;
-    try {
-      const content = await load();
-      if (typeof content !== "string") throw new Error("email body unavailable.");
-      body.textContent = content || "empty email body";
-      loaded = true;
-    } catch (error) {
-      body.textContent = error.message;
-    } finally {
-      loading = false;
-    }
-  });
-  return disclosure;
+function draftRevisionLink(messageId, actionId) {
+  return link(
+    "open draft revision",
+    "/mail/" + messageId + "/revision/" + actionId,
+    "result draft-revision-link",
+  );
 }
 function renderMessage(m) {
   const node = el("article");
@@ -666,14 +652,14 @@ function renderMessage(m) {
     const group = el("section", undefined, "proposal");
     group.append(
       el("strong", proposal.title),
-      proposal.read_email ? el("p", proposal.detail, "prose") : prose(proposal.detail),
+      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : prose(proposal.detail),
       el("p", proposal.status_label || proposal.status.replaceAll("_", " "), "secondary"),
     );
-    if (proposal.read_email)
-      group.append(emailBody("read email", async () =>
-        (await read("/api/messages/" + m.id + "?mail_body=true"))
-          ?.proposals.find((item) => item.action_id === proposal.action_id)?.mail_body
-      ));
+    if (proposal.draft_revision_id) {
+      const revision = draftRevisionLink(m.id, proposal.draft_revision_id);
+      revision.setAttribute("aria-label", "open draft revision · " + proposal.title);
+      group.append(revision);
+    }
     if (proposal.decision)
       group.append(
         link("owner reply · " + proposal.decision, "/m/" + proposal.owner_message_id, "result"),
@@ -688,29 +674,12 @@ function renderMessage(m) {
     group.append(reply);
     node.append(group);
   }
-  if (m.saved_draft_error === "integrity")
-    node.append(el("p", "saved draft receipt failed integrity checks.", "draft-evidence"));
-  if (m.saved_draft) {
-    const draft = m.saved_draft;
-    const group = el("section", undefined, "draft-evidence");
-    group.append(
-      el("strong", draft.subject || "(no subject)"),
-      el("p", "draft revision verified at " + time(draft.observed_at), "secondary"),
-    );
-    for (const field of ["to", "cc", "bcc"]) {
-      const names = draft[field].map(({ name, address }) => name ? name + " <" + address + ">" : address);
-      group.append(el("p", field + " · " + (names.join(", ") || "none")));
-    }
-    if (draft.files.length) {
-      const files = el("ul");
-      for (const file of draft.files)
-        files.append(el("li", file.filename + " · " + file.size_bytes.toLocaleString() + " bytes"));
-      group.append(files);
-    }
-    group.append(emailBody("read saved draft", async () =>
-      (await read("/api/messages/" + m.id + "?mail_body=true"))?.saved_draft?.body_text
-    ));
-    node.append(group);
+  if (m.draft_revision_error === "integrity")
+    node.append(el("p", "draft revision failed integrity checks.", "draft-evidence"));
+  if (m.draft_revision_id) {
+    const revision = draftRevisionLink(m.id, m.draft_revision_id);
+    revision.classList.add("draft-evidence");
+    node.append(revision);
   }
   if (m.present)
     node.append(link("open " + label(m.present.ref), objectPath(m.present.ref), "result"));
@@ -729,12 +698,8 @@ function merge(items) {
   const anchor =
     !pinned && Array.from(list.children).find((node) => node.getBoundingClientRect().bottom > top);
   const previousTop = anchor ? anchor.getBoundingClientRect().top : null;
-  for (let m of items) {
+  for (const m of items) {
     const existing = $("msg-" + m.id);
-    if (existing && !Object.hasOwn(m, "saved_draft")) {
-      const { saved_draft, saved_draft_error } = JSON.parse(existing.dataset.version);
-      if (saved_draft !== undefined) m = { ...m, saved_draft, saved_draft_error };
-    }
     if (m.present) presentations.set(m.present.request_id, m.present.ref);
     if (existing?.dataset.version === JSON.stringify(m)) continue;
     const node = renderMessage(m);
@@ -794,6 +759,16 @@ async function messages(ver) {
     initialized = true;
   }
   const rows = chunks.reverse().flat();
+  const returning = !isDetail(location.pathname) && history.state.revisionReturn;
+  if (
+    returning && !$("msg-" + returning.messageId) &&
+    !rows.some((row) => row.id === returning.messageId)
+  ) {
+    const origin = await read("/api/messages/" + returning.messageId);
+    if (ver !== routeVersion) return;
+    if (origin) rows.unshift(origin);
+    else changeState({ revisionReturn: null });
+  }
   merge(rows);
   if (rows.length) latest = rows.at(-1).id;
   $("older").hidden = !earliest;
@@ -801,6 +776,7 @@ async function messages(ver) {
     $("chat").scrollTop += selectedMessageOffset() - openingOffset;
     reloadReading = null;
   }
+  if (!isDetail(location.pathname)) restoreRevisionReturn();
 }
 $("older").onclick = async () => {
   const b = $("older");
@@ -826,6 +802,22 @@ function rememberReading() {
     changeState({ reading: { id: selectedMessage, offset: selectedMessageOffset() } });
 }
 $("chat").addEventListener("scrollend", rememberReading);
+function restoreRevisionReturn() {
+  const returning = history.state.revisionReturn;
+  if (!returning) return;
+  const article = $("msg-" + returning.messageId);
+  const chat = $("chat");
+  if (!article || !chat.clientHeight) return;
+  changeState({ revisionReturn: null });
+  const offset = article.getBoundingClientRect().top - chat.getBoundingClientRect().top;
+  chat.scrollTop += offset - returning.offset;
+  if (document.activeElement === document.body || $("draft-revision")?.contains(document.activeElement)) {
+    Array.from(article.querySelectorAll(".draft-revision-link"))
+      .find((anchor) => anchor.getAttribute("href") === returning.path)
+      ?.focus({ preventScroll: true });
+  }
+}
+
 function navigate(path, { origin, canvasSelection = path } = {}) {
   armed = null;
   if (
@@ -837,18 +829,35 @@ function navigate(path, { origin, canvasSelection = path } = {}) {
     return;
   rememberOverview(origin);
   rememberReading();
-  let state = { canvasSelection };
+  const revision = draftRevisionRoute.exec(path);
+  const fromRevision = draftRevisionRoute.test(location.pathname);
+  const fromRevisionMessage = Boolean(
+    revision && origin?.classList.contains("draft-revision-link") && !fromRevision,
+  );
+  if (fromRevisionMessage) {
+    const article = $("msg-" + revision[1]);
+    changeState({
+      revisionReturn: {
+        messageId: revision[1],
+        path,
+        offset: article.getBoundingClientRect().top - $("chat").getBoundingClientRect().top,
+      },
+    });
+  }
+  let state = { canvasSelection, ...(fromRevisionMessage ? { fromRevisionMessage } : {}) };
   if (path.startsWith("/t/")) {
     state = { ...todoEntry(path.slice(3)), hasOrigin: true };
   } else if (isDetail(path)) {
+    const canvasAddress = isDetail(location.pathname)
+      ? history.state.canvasAddress
+      : location.pathname + location.search;
     state = {
-      ...history.state,
+      ...(fromRevision ? { canvasSelection: "/" } : history.state),
       panel: true,
       fromCanvas: true,
-      canvasAddress: isDetail(location.pathname)
-        ? history.state.canvasAddress
-        : location.pathname + location.search,
+      canvasAddress: fromRevision ? "/" : canvasAddress,
       reading: null,
+      revisionReturn: null,
     };
   }
   history.pushState(state, "", path);
@@ -878,7 +887,10 @@ document.addEventListener("click", (e) => {
     e.button !== 0
   )
     return;
-  if (a.origin === location.origin && /^\/(?:$|overview$|[mftv]\/)/.test(a.pathname)) {
+  if (
+    a.origin === location.origin &&
+    (/^\/(?:$|overview$|[mftv]\/)/.test(a.pathname) || draftRevisionRoute.test(a.pathname))
+  ) {
     e.preventDefault();
     navigate(a.pathname + a.search, { origin: a });
   }
@@ -915,12 +927,82 @@ function startRoute() {
   selectedMessage = null;
   document.querySelector(".selected")?.classList.remove("selected");
   if ((detail || path.startsWith("/t/")) && document.activeElement === $("message")) $("message").blur();
+  if (draftRevisionRoute.test(displayed) && !draftRevisionRoute.test(location.pathname)) {
+    $("object").replaceChildren();
+    displayed = "";
+  }
   restoreOverview = Boolean(history.state.position && !detail && !history.state.panel);
   revealTodo = path.startsWith("/t/") && !history.state.targetRevealed ? path.slice(3) : null;
   if (!restoreOverview && !detail && !history.state.panel) $("canvas").scrollTop = 0;
   $("todo-return").hidden = !path.startsWith("/t/");
   setPanel();
   refresh();
+}
+
+async function draftRevisionRead(ver, path, messageId) {
+  let sheet = $("draft-revision");
+  if (displayed !== path) {
+    current = null;
+    displayed = path;
+    $("location").textContent = "draft revision";
+    $("object-tools").hidden = true;
+    const back = link("back to message", "/m/" + messageId);
+    back.addEventListener("click", (event) => {
+      if (
+        history.state.fromRevisionMessage &&
+        event.button === 0 && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
+      ) {
+        event.preventDefault();
+        history.back();
+      }
+    });
+    const title = el("h1", "draft revision");
+    title.tabIndex = -1;
+    sheet = el("section");
+    sheet.id = "draft-revision";
+    const content = el("div");
+    const loading = el("p", "loading draft revision…");
+    loading.setAttribute("role", "status");
+    content.append(loading);
+    sheet.append(back, title, content);
+    $("object").replaceChildren(sheet);
+    $("canvas").scrollTop = 0;
+    title.focus({ preventScroll: true });
+  }
+  if (sheet.dataset.loaded) return;
+  const revision = await read("/api" + path);
+  if (ver !== routeVersion) return;
+  const content = sheet.lastElementChild;
+  if (revision === null) {
+    content.replaceChildren(el("p", "draft revision is not available for this message."));
+  } else if (revision.status === "integrity") {
+    content.replaceChildren(el("p", "draft revision failed integrity checks."));
+  } else if (revision.status === "complete") {
+    content.replaceChildren();
+    content.append(el("h2", revision.subject || "(no subject)"));
+    if (revision.observed_at) content.append(el("p", "recorded at " + time(revision.observed_at), "secondary"));
+    const envelope = el("dl");
+    for (const [field, mailboxes] of [
+      ["from", [revision.from]],
+      ["to", revision.to],
+      ["cc", revision.cc],
+      ["bcc", revision.bcc],
+    ]) {
+      const names = mailboxes.map(({ name, address }) => name ? name + " <" + address + ">" : address);
+      envelope.append(el("dt", field), el("dd", names.join(", ") || "none"));
+    }
+    content.append(envelope);
+    if (revision.files.length) {
+      const files = el("ol");
+      for (const file of revision.files)
+        files.append(el("li", file.filename + " · " + file.size_bytes.toLocaleString() + " bytes"));
+      content.append(el("h2", "attachments"), files);
+    }
+    content.append(el("p", revision.body_text || "empty email body", "prose draft-revision-body"));
+  } else {
+    throw new Error("could not load this draft revision.");
+  }
+  sheet.dataset.loaded = "true";
 }
 
 async function canvasRead(ver) {
@@ -965,6 +1047,11 @@ async function canvasRead(ver) {
     return;
   }
   const url = new URL(path, location.origin);
+  const revision = draftRevisionRoute.exec(url.pathname);
+  if (revision) {
+    await draftRevisionRead(ver, url.pathname, revision[1]);
+    return;
+  }
   const [, kind, key, more] = url.pathname.split("/");
   if (kind === "v") {
     if (!ref)
@@ -1375,6 +1462,7 @@ async function detailRead(ver) {
     $("chat").scrollTop += selectedMessageOffset() - (restore ? reloadReading.offset : 0);
     if (restore && !initialized) reloadReading.appliedOffset = selectedMessageOffset();
     else reloadReading = null;
+    restoreRevisionReturn();
   }
 }
 

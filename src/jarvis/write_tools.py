@@ -692,6 +692,15 @@ AUTOMATIC_WRITE_TOOL_IDS = frozenset(
 )
 WRITE_TOOL_IDS = frozenset(spec.id for spec in (*_GMAIL_SPECS, *_CALENDAR_SPECS))
 WORKSPACE_IMPLEMENTATION = "jarvis-workspace-write-v1"
+WORKSPACE_MAIL_IMPLEMENTATION = "jarvis-workspace-mail-preview-v2"
+
+
+def workspace_implementation(tool: ToolId) -> str:
+    return (
+        WORKSPACE_MAIL_IMPLEMENTATION
+        if tool == GMAIL_CREATE_DRAFT_SPEC.id
+        else WORKSPACE_IMPLEMENTATION
+    )
 
 
 def _workspace_binding(
@@ -707,7 +716,7 @@ def _workspace_binding(
         spec=spec,
         execute=Available(execute),
         replay_policy=ReplayPolicy.BilledOnce,
-        implementation_revision=WORKSPACE_IMPLEMENTATION,
+        implementation_revision=workspace_implementation(spec.id),
         policy_epoch=PolicyEpoch("jarvis-workspace-owner-v1"),
         policy_inputs={
             "action_max_attempts": 1,

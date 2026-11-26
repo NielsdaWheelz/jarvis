@@ -21,7 +21,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from jarvis.attachments import AttachmentStore, WebUpload
 from jarvis.db import attachment, message
 from jarvis.home_pages import HOME_ORIGIN, PAGE_CSP, HomePages
-from jarvis.home_reads import conversation, todo_results, visible_message
+from jarvis.home_reads import conversation, mail_revision, todo_results, visible_message
 from jarvis.home_uploads import attachment_response, read_submission
 from jarvis.messages import (
     IngressUnavailable,
@@ -188,11 +188,16 @@ def create_home_app(
             except ValueError as exc:
                 raise HTTPException(422, "invalid cursor") from exc
 
-    async def one_message(identifier: UUID, mail_body: bool = False) -> dict[str, Any]:
+    async def one_message(identifier: UUID) -> dict[str, Any]:
         async with database.connect() as conn:
-            row = await visible_message(
-                conn, scope, identifier, include_mail_body=mail_body
-            )
+            row = await visible_message(conn, scope, identifier)
+        if row is None:
+            raise HTTPException(404)
+        return row
+
+    async def revision(message_id: UUID, action_id: UUID) -> dict[str, Any]:
+        async with database.connect() as conn:
+            row = await mail_revision(conn, scope, message_id, action_id)
         if row is None:
             raise HTTPException(404)
         return row
@@ -304,6 +309,9 @@ def create_home_app(
     app.add_api_route("/api/submissions/{submission_id}", submission, methods=["GET"])
     app.add_api_route("/api/messages", history, methods=["GET"])
     app.add_api_route("/api/messages/{identifier}", one_message, methods=["GET"])
+    app.add_api_route(
+        "/api/mail/{message_id}/revision/{action_id}", revision, methods=["GET"]
+    )
     app.add_api_route("/api/todos", todo_list, methods=["GET"])
     app.add_api_route("/api/todos/{identifier}", todo, methods=["GET"])
     app.add_api_route("/api/todos/{identifier}/results", results, methods=["GET"])
@@ -316,6 +324,7 @@ def create_home_app(
     app.add_api_route("/api/views/{slug}", view, methods=["GET"])
     app.add_api_route("/api/views/{slug}/{rev}", view, methods=["GET"])
     app.add_api_route("/content/{slug}/{rev}", content, methods=["GET"])
+    app.add_api_route("/mail/{message_id}/revision/{action_id}", shell, methods=["GET"])
     app.add_api_route("/", shell, methods=["GET"])
     app.add_api_route("/t/{identifier}", shell, methods=["GET"])
     app.add_api_route("/m/{identifier}", shell, methods=["GET"])

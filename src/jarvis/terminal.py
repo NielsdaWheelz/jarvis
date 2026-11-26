@@ -16,10 +16,9 @@ from pydantic_core import PydanticCustomError
 
 from jarvis.action_requests import CanonicalUuid
 from jarvis.home_refs import (
-    DriveFileRef,
     FilePageRef,
     FileRef,
-    PageNumber,
+    NativeDriveFileRef,
     SourceRef,
     ViewRef,
 )
@@ -59,12 +58,6 @@ class Source(_StrictModel):
     item: str
     reads: list[CanonicalUuid]
     passage: str | None
-
-
-class NativeDriveFileRef(DriveFileRef):
-    """Native output spells out null; the owner submission may omit the page."""
-
-    page: PageNumber | None = Field(...)
 
 
 class Presentation(_StrictModel):

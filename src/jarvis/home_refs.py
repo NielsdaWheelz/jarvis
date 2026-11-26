@@ -34,10 +34,15 @@ DRIVE_ID_PATTERN = r"^[A-Za-z0-9_-]{1,255}$"
 type DriveId = Annotated[str, Field(pattern=DRIVE_ID_PATTERN)]
 
 
-class DriveFileRef(_Ref):
+class NativeDriveFileRef(_Ref):
     kind: Literal["drive_file"]
     subject: DriveId
     id: DriveId
+    # Native structured output emits every key, including null for a whole file.
+    page: PageNumber | None
+
+
+class DriveFileRef(NativeDriveFileRef):
     page: PageNumber | None = None
 
 

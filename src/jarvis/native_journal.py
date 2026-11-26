@@ -308,10 +308,11 @@ async def recover_sealed_turn(
         return None
     if row["conversation_id"] != scope:
         raise NativeDefect("sealed inference is outside this conversation")
-    output = row["output"]
+    raw_output = row["output"]
+    output = cast(dict[str, Any], raw_output) if isinstance(raw_output, dict) else None
     if (
         row["request_schema"] != NATIVE_REQUEST_SCHEMA
-        or not isinstance(output, dict)
+        or output is None
         or output.get("name") != NATIVE_OUTPUT_NAME
     ):
         raise NativeDefect(

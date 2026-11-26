@@ -545,13 +545,14 @@ async def bind_sources(
     sources: Sequence[Source],
     grant: WorkspaceEnrollment | None,
 ) -> list[Data]:
+    sources = sources[:MAX_SOURCES]
     slots: list[Data] = [dict(state="unavailable", kind=s.kind) for s in sources]
     if not sources or grant is None:
         return slots
     eligible = named - stopped
     candidates = [
         (i, s)
-        for i, s in enumerate(sources[:MAX_SOURCES])
+        for i, s in enumerate(sources)
         if UUID(s.request_id) in eligible
         and 1 <= len(s.reads) <= 8
         and len(set(s.reads)) == len(s.reads)

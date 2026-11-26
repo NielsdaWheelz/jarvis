@@ -871,7 +871,7 @@ document.addEventListener("click", (e) => {
     e.button !== 0
   )
     return;
-  if (!a.hasAttribute("href") || !address(a.href)) return;
+  if (!address(a.getAttribute("href"))) return;
   e.preventDefault();
   if (a.id === "artifact-return" && history.state.artifactBack) history.back();
   else navigate(a.pathname + a.search, { origin: a, replace: a.hasAttribute("data-file-page") });
@@ -1390,8 +1390,9 @@ async function readTodoPart(row, part, force) {
 }
 
 async function detailRead(ver) {
-  const [, kind, id] = location.pathname.split("/");
-  if (kind === "m" && isDetail(location.pathname)) {
+  const route = address(location.href);
+  if (route?.kind === "message") {
+    const { id } = route;
     const m = await read("/api/messages/" + id);
     if (ver !== routeVersion) return;
     if (!m) {

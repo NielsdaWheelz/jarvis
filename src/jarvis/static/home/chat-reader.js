@@ -21,7 +21,7 @@ function destination(raw) {
   if (url.origin !== location.origin) return url.href;
   if (raw.includes("#") || (raw.includes("?") && !url.search)) return null;
   const path = url.pathname + url.search;
-  const route = address(path);
+  const route = address(raw);
   return route && !["source", "table"].includes(route.kind) ? path : null;
 }
 

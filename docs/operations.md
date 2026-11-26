@@ -1118,6 +1118,7 @@ service stops are independent. select the owning service before stopping it.
 | --- | --- | --- |
 | `memory status` | neither | read-only status |
 | `list-parked` | neither | read-only owner-scope inventory, jarvis with runtime login |
+| `queue-recovery-catchup INVENTORY` | assistant | jarvis with runtime login. queues a named read-only mail report under [adr 0113](decisions/0113-automatic-foreground-recovery.md) |
 | `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
 | `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
 | schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT --generation 2]` | both, assistant key then memory key | full rebuild uses the migrator and `embedding.env`. node-only rebuild uses the runtime login and compactor, with no embedding credential |
@@ -1194,6 +1195,31 @@ leave the november 24 calendar case under its recorded hold.
 [incident and digests](issues/compactor-quota-park.md)
 
 ## Restart and recovery
+
+### automatic foreground recovery
+
+settle predecessor seals, active openings and outstanding retries under their
+original release before an adr 0113 activation. activation rejects retired
+executable native requests, including sealed requests with unsettled product.
+settled originals remain available through their recorded receipts.
+
+on the selected recovery release, capacity waits remain quiet and recheck
+on the service wake. a bounded continuation uses the original effects as
+evidence and runs independently answerable work with read-only authority.
+`list-parked` remains the inventory for holds that need intervention.
+
+for the separately authorized historical mail catch-up, refresh the parked
+inventory while the assistant is stopped. pass a private json file with
+`members`, each carrying `id`, `parked_at`, `attempt_id`, and
+`informational_only`. use the recorded timestamp including its offset.
+give mail from a mixed-owner turn or with an unresolved original action
+informational scope. keep the four calendar-turn inputs under their
+original disposition. run
+`jarvis queue-recovery-catchup INVENTORY` through the existing independent
+maintenance wrapper. the command returns the canonical host input id.
+after restart verify the one logical report, the exact coverage
+dispositions and the absence of new executor entries. do not release the
+mail inputs into ordinary full main for this operation.
 
 Startup first reconciles every queued or executing action whose original turn
 cannot safely resume. Each exact current binding and immutable execution

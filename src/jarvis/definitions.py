@@ -70,7 +70,9 @@ from jarvis.config import decode_config_json
 from jarvis.event_tools import EVENT_MUTATION_IDS, EVENT_READ_IDS
 from jarvis.native_protocol import (
     NATIVE_OUTPUT_NAME,
+    NATIVE_REQUEST_SCHEMA,
     JarvisNativeMessage,
+    foreground_recovery_native,
     workspace_check_native,
 )
 from jarvis.receipt_tools import RECEIPT_READ_ID
@@ -405,6 +407,7 @@ DEFAULT_NATIVE_CONTEXT_LIMITS = NativeContextLimits()
 class RoleDefinitions:
     main: NativeDefinition
     workspace_check: NativeDefinition
+    foreground_recovery: NativeDefinition
     compactor: tuple[AgentDefinition, ...]
     dreamer: AgentDefinition
     plans: Mapping[str, FrozenToolPlan]
@@ -715,16 +718,19 @@ def build_definitions(
             "native main configuration exceeds its explicit operation bounds"
         )
 
-    check, check_plan = workspace_check_native(main, catalog)
+    check, check_plan = workspace_check_native(main, main_plan, catalog)
+    recovery, recovery_plan = foreground_recovery_native(main, main_plan, catalog)
     return RoleDefinitions(
         main=main,
         workspace_check=check,
+        foreground_recovery=recovery,
         compactor=compactor,
         dreamer=dreamer,
         plans=MappingProxyType(
             {
                 "main": main_plan,
                 "workspace_check": check_plan,
+                "foreground_recovery": recovery_plan,
                 "compactor": compactor_plan,
                 "dreamer": dreamer_plan,
             }
@@ -791,6 +797,8 @@ def _role_revision(role_id: str, provider: ProviderConfiguration) -> str:
         "role": role.model_dump(),
         "role_id": role_id,
     }
+    if role_id == "main":
+        value["native_request_schema"] = NATIVE_REQUEST_SCHEMA
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 

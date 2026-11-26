@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from itertools import takewhile
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
@@ -80,6 +81,7 @@ from jarvis.messages import (
     MessageStore,
     StoredMessage,
     causal_component_ids,
+    is_recovery_input,
     latest_control,
 )
 from jarvis.native_diagnostics import log_native_failure
@@ -89,6 +91,7 @@ from jarvis.native_journal import (
     NeonOpeningUnavailable,
     PostgresNativeJournal,
     ProductSettlement,
+    StaleCatchupInventory,
     StaleNativeProduct,
     commit_product,
     consume_fenced_losses,
@@ -96,17 +99,26 @@ from jarvis.native_journal import (
     fail_native_product,
     native_loss_product,
     never_submitted,
-    park_oversized_input,
+    park_unadmitted_input,
     recover_sealed_turn,
     yield_workspace_input,
 )
-from jarvis.native_protocol import JarvisTerminal
+from jarvis.native_protocol import (
+    FOREGROUND_RECOVERY_PROFILE,
+    WORKSPACE_CHECK_PROFILE,
+    JarvisTerminal,
+)
 from jarvis.ownership import (
     DeploymentOwnershipDefect,
     lock_conversation,
 )
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.receipt_tools import original_read_position, receipt_scope
+from jarvis.recovery_catchup import (
+    RECOVERY_CATCHUP_SOURCE,
+    CatchupStale,
+    catchup_mail_ids,
+)
 from jarvis.settings import Settings
 from jarvis.stock_observations import StockObservationWriter
 from jarvis.terminal import render_terminal
@@ -124,6 +136,7 @@ LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class NativeRunOutcome:
     status: Literal["no_work", "progressed", "blocked", "stopped"]
+    retry_at: datetime | None = None
 
 
 def _host_inputs(
@@ -166,6 +179,18 @@ def _workspace_input(item: StoredMessage) -> bool:
     )
 
 
+def _opening_profile(item: StoredMessage) -> str:
+    if is_recovery_input(item):
+        return FOREGROUND_RECOVERY_PROFILE
+    if _workspace_input(item):
+        return WORKSPACE_CHECK_PROFILE
+    return "main"
+
+
+def _ordinary_prefix(values: tuple[StoredMessage, ...]) -> tuple[StoredMessage, ...]:
+    return tuple(takewhile(lambda item: _opening_profile(item) == "main", values))
+
+
 async def fit_native_inputs(
     owner: JarvisOwner,
     store: MessageStore,
@@ -177,10 +202,6 @@ async def fit_native_inputs(
     exclude_ids: tuple[UUID, ...],
     steer: bool = False,
 ) -> tuple[tuple[HostInput, ...], PromptSections, NativeRequestFit]:
-    for index, item in enumerate(values):
-        if _workspace_input(item):
-            values = values[:index] if index else values[:1]
-            break
     while True:
         omitted = await store.waiting_input_count(
             owner.scope_id,
@@ -217,11 +238,9 @@ class NativeInputs:
         maximum_batch_size: int,
         accept_steers: bool,
         workspace: WorkspaceHost | None,
-        opened_workspace_check: bool,
     ) -> None:
         self.owner, self.store, self.plan = owner, store, plan
         self.workspace = workspace
-        self._opened_workspace_check = opened_workspace_check
         self.owner_preempted = False
         self.definition = definition
         self.memory_cutoff = memory_cutoff
@@ -253,7 +272,7 @@ class NativeInputs:
                 or attempt["fenced_at"] is not None
             ):
                 return Preempt("owner_fenced")
-            if not self.accept_steers and not self._opened_workspace_check:
+            if not self.accept_steers and self.plan.profile.id == "main":
                 return NoNewInput()
             deliveries = {
                 row.message_id: row.state
@@ -283,20 +302,20 @@ class NativeInputs:
         )
         # The checked session has immutable provider permissions. Leave an
         # interrupting owner request pending for a fresh ordinary session.
-        if self._opened_workspace_check:
+        if self.plan.profile.id != "main":
             if (
                 values
                 and values[0].role == "owner"
                 and values[0].request_state == "pending"
             ):
+                if self.plan.profile.id == FOREGROUND_RECOVERY_PROFILE:
+                    self.owner_preempted = True
+                    return Preempt("recovery_owner_steer")
                 if await yield_workspace_input(self.owner, request, values[0].id):
                     self.owner_preempted = True
                     return Preempt("workspace_owner_steer")
             return NoNewInput()
-        for index, item in enumerate(values):
-            if _workspace_input(item):
-                values = values[:index]
-                break
+        values = _ordinary_prefix(values)
         if not values:
             return NoNewInput()
         as_of = datetime.now(UTC)
@@ -396,6 +415,8 @@ class NativeRunner:
     async def record(self, attempt_id: str, message: AgentMessage) -> None:
         if self._journal is None:
             raise NativeDefect("public message has no active native journal")
+        if self._journal.plan.profile.id == FOREGROUND_RECOVERY_PROFILE:
+            return
         await self._journal.record(attempt_id, message)
         await self.memory.publish()
 
@@ -422,20 +443,48 @@ class NativeRunner:
         if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
             return NativeRunOutcome("stopped")
         excluded: list[NativeRoute | None] = []
+        excluded_inputs: list[UUID] = []
+        retry_at: datetime | None = None
         while True:
             pending = await self.store.pending_inputs(
                 source_conversation_id=self.owner.scope_id,
                 limit=self.settings.maximum_batch_size,
+                exclude_ids=tuple(excluded_inputs),
                 exclude_retry_routes=tuple(excluded),
             )
             if not pending:
-                return NativeRunOutcome("blocked" if excluded else "no_work")
+                return NativeRunOutcome(
+                    "blocked" if excluded or excluded_inputs else "no_work", retry_at
+                )
             await self.owner.require_current(
                 self.owner.permit("jarvis-codex-admission")
             )
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 return NativeRunOutcome("stopped")
-            pinned = _retry_pin(pending[0])
+            first = pending[0]
+            if first.role == "host" and first.source == RECOVERY_CATCHUP_SOURCE:
+                grant = None if self.workspace is None else self.workspace.enrollment()
+                if grant is None:
+                    excluded_inputs.append(first.id)
+                    continue
+                try:
+                    async with self.owner.database.connect() as connection:
+                        await catchup_mail_ids(
+                            connection,
+                            self.owner.scope_id,
+                            first.id,
+                            grant.account,
+                            grant.grant_id,
+                        )
+                except CatchupStale:
+                    if await park_unadmitted_input(
+                        self.owner, first.id, "catch-up inventory no longer matches"
+                    ):
+                        self.notify_delivery()
+                        return NativeRunOutcome("progressed")
+                    excluded_inputs.append(first.id)
+                    continue
+            pinned = _retry_pin(first)
             selected = await self.route_selector.choose_route("main", pinned=pinned)
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 return NativeRunOutcome("stopped")
@@ -445,7 +494,16 @@ class NativeRunner:
                     cohort, selected, pinned, cancellation
                 )
                 if outcome is not None:
-                    return outcome
+                    if outcome.status != "blocked" or retry_at is None:
+                        return outcome
+                    return NativeRunOutcome(
+                        "blocked", min(retry_at, outcome.retry_at or retry_at)
+                    )
+            elif selected.reset_at is not None and selected.reset_at > datetime.now(
+                UTC
+            ):
+                if retry_at is None or selected.reset_at < retry_at:
+                    retry_at = selected.reset_at
             excluded.append(pinned)
 
     async def _run_selected(
@@ -455,12 +513,19 @@ class NativeRunner:
         pinned: NativeRoute | None,
         cancellation: CancellationToken,
     ) -> NativeRunOutcome | None:
-        scoped = _workspace_input(pending[0])
-        definition = (
-            self.definitions.workspace_check if scoped else self.definitions.main
-        )
+        profile = _opening_profile(pending[0])
+        match profile:
+            case "foreground_recovery":
+                definition = self.definitions.foreground_recovery
+            case "workspace_check":
+                definition = self.definitions.workspace_check
+            case "main":
+                definition = self.definitions.main
+            case _:
+                raise NativeDefect("unknown opening profile")
+        pending = _ordinary_prefix(pending) if profile == "main" else pending[:1]
         definition = with_main_provider(definition, selected.provider)
-        plan = self.definitions.plans["workspace_check" if scoped else "main"]
+        plan = self.definitions.plans[profile]
         try:
             pending_publication = await self.memory.pending_publication()
             await self.memory.project_pending(pending_publication)
@@ -485,7 +550,7 @@ class NativeRunner:
             if actual <= limit:
                 actual, limit, unit = size.wire_bytes, size.max_bytes, "wire bytes"
             reason = f"the opening needed {actual} {unit}, limit {limit}"
-            parked = await park_oversized_input(self.owner, pending[0].id, reason)
+            parked = await park_unadmitted_input(self.owner, pending[0].id, reason)
             if parked:
                 self.notify_delivery()
             return NativeRunOutcome("progressed" if parked else "blocked")
@@ -535,6 +600,12 @@ class NativeRunner:
                     owner=self.owner,
                     memory=self.memory,
                     neon_control=self.neon_control,
+                    workspace_grant=(
+                        self.workspace.enrollment()
+                        if profile == FOREGROUND_RECOVERY_PROFILE
+                        and self.workspace is not None
+                        else None
+                    ),
                 )
                 self._journal = journal
                 native_inputs = NativeInputs(
@@ -545,9 +616,8 @@ class NativeRunner:
                     memory_cutoff=cutoff,
                     cancellation=cancellation,
                     maximum_batch_size=self.settings.maximum_batch_size,
-                    accept_steers=pinned is None,
+                    accept_steers=pinned is None and profile == "main",
                     workspace=self.workspace,
-                    opened_workspace_check=scoped,
                 )
                 dispatcher = self.dispatcher_factory(native_inputs, journal)
                 dispatcher.on_effect_settled = self.notify_work
@@ -578,6 +648,11 @@ class NativeRunner:
                 self.route_selector.opening_failed(selected.route)
                 LOGGER.warning("paid native control unavailable before submission")
                 return None
+            except StaleCatchupInventory:
+                parked = await park_unadmitted_input(
+                    self.owner, pending[0].id, "catch-up inventory no longer matches"
+                )
+                return NativeRunOutcome("progressed" if parked else "blocked")
             except NativeDefect as error:
                 log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="run")
                 terminal = None
@@ -945,8 +1020,9 @@ async def neon_paid_ready(
         evidence = local["neon_capacity"]
         if evidence["status"] == "ready":
             return None
-        if datetime.fromisoformat(evidence["check_after"]) > now:
-            return DeferredRoute("google_neon", evidence["status"], now)
+        check_after = datetime.fromisoformat(evidence["check_after"])
+        if check_after > now:
+            return DeferredRoute("google_neon", evidence["status"], now, check_after)
         if not evidence["requires_billing_probe"]:
             return None
         next_check = now + NEON_REFILL_INTERVAL
@@ -964,6 +1040,9 @@ async def neon_paid_ready(
             )
         )
     probe = await control.probe()
+    check_after = now + max(
+        NEON_REFILL_INTERVAL, timedelta(seconds=probe.retry_after or 0)
+    )
     async with owner.database.begin() as connection:
         await lock_conversation(connection, owner.scope_id)
         await connection.execute(
@@ -981,13 +1060,7 @@ async def neon_paid_ready(
                         "neon_capacity": {
                             "status": probe.status,
                             "requires_billing_probe": True,
-                            "check_after": (
-                                now
-                                + max(
-                                    NEON_REFILL_INTERVAL,
-                                    timedelta(seconds=probe.retry_after or 0),
-                                )
-                            ).isoformat(),
+                            "check_after": check_after.isoformat(),
                         }
                     }
                 )
@@ -996,7 +1069,7 @@ async def neon_paid_ready(
     return (
         None
         if probe.status == "ready"
-        else DeferredRoute("google_neon", probe.status, now)
+        else DeferredRoute("google_neon", probe.status, now, check_after)
     )
 
 

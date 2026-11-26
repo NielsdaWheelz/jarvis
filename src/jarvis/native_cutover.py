@@ -133,9 +133,9 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
                 native_attempt.c.request["schema_version"]
                 .as_string()
                 .is_distinct_from(NATIVE_REQUEST_SCHEMA),
-                native_attempt.c.terminal_at.is_(None),
                 native_attempt.c.product_outcome.is_(None),
                 or_(
+                    native_attempt.c.terminal_at.is_not(None),
                     native_attempt.c.recovery_pending,
                     native_attempt.c.fenced_at.is_(None),
                 ),
@@ -144,7 +144,7 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
         )
         if old_attempt is not None:
             raise NativeActivationDefect(
-                "retired native opening requires original-release disposition",
+                "retired native attempt requires original-release disposition",
                 old_attempt,
             )
         old_retry = await connection.scalar(

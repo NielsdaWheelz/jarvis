@@ -54,8 +54,6 @@ from provider_runtime.agent_runtime import (
     AgentTerminal,
     NativeTerminalEvidence,
     OutputSchemaMismatch,
-    decode_agent_output,
-    thaw_json_value,
 )
 from sqlalchemy import case, func, or_, select, true, update
 from universal_memory import MemoryError, render_ready_view
@@ -106,7 +104,6 @@ from jarvis.native_journal import (
 from jarvis.native_protocol import (
     FOREGROUND_RECOVERY_PROFILE,
     WORKSPACE_CHECK_PROFILE,
-    JarvisTerminal,
 )
 from jarvis.ownership import (
     DeploymentOwnershipDefect,
@@ -1102,7 +1099,8 @@ async def _settle_native_product(
     workspace: WorkspaceHost | None = None,
     recover_action: RecoverAction | None = None,
 ) -> ProductSettlement:
-    turn = await recover_sealed_turn(owner.database, owner, attempt_id)
+    async with owner.database.connect() as connection:
+        turn = await recover_sealed_turn(connection, owner.scope_id, attempt_id)
     if turn is None:
         raise NativeDefect("product settlement lacks a sealed native terminal")
     if turn.terminal.status != "succeeded":
@@ -1116,11 +1114,8 @@ async def _settle_native_product(
             turn.terminal.failure,
             initial_delivery_proven=turn.initial_delivery_proven,
         )
-    if turn.output is None:
-        raise NativeDefect("original output schema is absent")
     try:
-        value = decode_agent_output(turn.output, turn.terminal)
-        final = JarvisTerminal.from_seal(turn.output.name, thaw_json_value(value))
+        final = turn.decode_final()
         rendered = render_terminal(final)
     except (TypeError, ValueError, OutputSchemaMismatch) as error:
         log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="terminal")

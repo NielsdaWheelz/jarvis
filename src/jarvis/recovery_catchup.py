@@ -31,7 +31,9 @@ from jarvis.messages import (
     parked_inputs,
     queue_native_retry,
 )
+from jarvis.native_journal import recover_sealed_turn
 from jarvis.ownership import Database, lock_conversation
+from jarvis.terminal import Answered, Partial
 from jarvis.workspace_checks import workspace_read_receipts
 from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_reads import Failure, MailObservation
@@ -388,6 +390,18 @@ async def resume_catchup_quota(
             or request.get("route") not in NATIVE_ROUTES
         ):
             raise CatchupStale("the held attempt lost its restricted read grant")
+        turn = await recover_sealed_turn(connection, scope, str(attempt_id))
+        if turn is None:
+            raise CatchupStale("missing sealed catch-up attempt")
+        final = turn.decode_final()
+        if (
+            not isinstance(final.response, Answered | Partial)
+            or final.workspace_result is not None
+            or len(final.input_outcomes) != 1
+            or final.input_outcomes[0].input_id != str(identifier)
+            or final.input_outcomes[0].disposition != "continue"
+        ):
+            raise CatchupStale("the sealed catch-up did not request continued coverage")
         held_at = row["processing_parked_at"]
         payload = await _load(
             connection,

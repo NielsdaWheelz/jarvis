@@ -59,6 +59,7 @@ from provider_runtime.agent_runtime import (
     JsonSchemaAgentOutput,
     NativeTerminalEvidence,
     codex_wire_request_fit,
+    decode_agent_output,
     ref_to_json,
     terminal_from_json,
     terminal_to_json,
@@ -225,6 +226,12 @@ class _SealedNativeTurn:
     terminal: AgentTerminal
     initial_delivery_proven: bool
 
+    def decode_final(self) -> JarvisTerminal:
+        if self.output is None:
+            raise NativeDefect("original output schema is absent")
+        value = decode_agent_output(self.output, self.terminal)
+        return JarvisTerminal.from_seal(self.output.name, thaw_json_value(value))
+
 
 @dataclass(frozen=True, slots=True)
 class ProductSettlement:
@@ -253,35 +260,34 @@ class StaleCatchupInventory(StaleNativeProduct):
 
 
 async def recover_sealed_turn(
-    database: Database, owner: JarvisOwner, attempt_id: str
+    connection: AsyncConnection, scope: str, attempt_id: str
 ) -> _SealedNativeTurn | None:
     """Reopen inference facts without current provider or execution authority."""
-    async with database.connect() as connection:
-        row = (
-            (
-                await connection.execute(
-                    select(
-                        native_attempt.c.conversation_id,
-                        native_attempt.c.terminal,
-                        native_attempt.c.request["provider_attempt"].label(
-                            "provider_attempt"
-                        ),
-                        native_attempt.c.request["output"].label("output"),
-                        native_attempt.c.request["input_ids"].label("input_ids"),
-                        native_attempt.c.request["route"].as_string().label("route"),
-                        native_attempt.c.request["schema_version"]
-                        .as_string()
-                        .label("request_schema"),
-                        native_attempt.c.native_binding,
-                    ).where(native_attempt.c.id == UUID(attempt_id))
-                )
+    row = (
+        (
+            await connection.execute(
+                select(
+                    native_attempt.c.conversation_id,
+                    native_attempt.c.terminal,
+                    native_attempt.c.request["provider_attempt"].label(
+                        "provider_attempt"
+                    ),
+                    native_attempt.c.request["output"].label("output"),
+                    native_attempt.c.request["input_ids"].label("input_ids"),
+                    native_attempt.c.request["route"].as_string().label("route"),
+                    native_attempt.c.request["schema_version"]
+                    .as_string()
+                    .label("request_schema"),
+                    native_attempt.c.native_binding,
+                ).where(native_attempt.c.id == UUID(attempt_id))
             )
-            .mappings()
-            .one_or_none()
         )
+        .mappings()
+        .one_or_none()
+    )
     if row is None or row["terminal"] is None:
         return None
-    if row["conversation_id"] != owner.scope_id:
+    if row["conversation_id"] != scope:
         raise NativeDefect("sealed inference is outside this conversation")
     terminal = terminal_from_json(row["terminal"])
     prepared = AgentAttempt(**row["provider_attempt"])

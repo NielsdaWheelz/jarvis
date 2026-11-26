@@ -1088,8 +1088,8 @@ def main():
     elif command == "close-native":
         path, receipt = require_held(args.id)
         require(
-            (path / "applying").exists() and NATIVE in receipt["binding"]["units"],
-            "native host is outside the applying operation",
+            NATIVE in receipt["binding"]["units"],
+            "native host is outside the stopped operation",
         )
         guard_units([NATIVE])
         publish(path / NATIVE, b"")

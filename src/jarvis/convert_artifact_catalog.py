@@ -120,7 +120,9 @@ def _convert(
     if plan != bound:
         raise ValueError("frozen catalog digests or member exports differ")
     if live == target:
-        status = "verified" if command == "verify" else "already applied"
+        status = "already applied" if command == "apply" else "verified"
+    elif command == "check-plan" and live == source:
+        status = "verified source"
     elif command == "apply" and live == source:
         replace_bytes(path, target, 0o640)
         if path.read_bytes() != target:
@@ -140,12 +142,12 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=DEFAULT_EXPORT)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("plan").add_argument("--new-empty", action="store_true")
-    for verb in ("apply", "verify", "check", "check-empty"):
+    for verb in ("check-plan", "apply", "verify", "check", "check-empty"):
         commands.add_parser(verb)
     args = parser.parse_args()
     try:
         bound = None
-        if args.command in {"apply", "verify"}:
+        if args.command in {"check-plan", "apply", "verify"}:
             bound = _Plan.model_validate(decode_config_json(sys.stdin.buffer.read()))
         lock = fcntl.LOCK_EX if args.command == "apply" else fcntl.LOCK_SH
         with publication_lock(args.root, lock):

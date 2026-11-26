@@ -240,13 +240,11 @@ def _sections(value: Any) -> PromptSections:
 class _SealedNativeTurn:
     attempt_id: str
     input_ids: tuple[InputId, ...]
-    output: JsonSchemaAgentOutput | None
+    output: JsonSchemaAgentOutput
     terminal: AgentTerminal
     initial_delivery_proven: bool
 
     def decode_final(self) -> JarvisTerminal:
-        if self.output is None:
-            raise NativeDefect("original output schema is absent")
         value = decode_agent_output(self.output, self.terminal)
         return JarvisTerminal.from_seal(self.output.name, thaw_json_value(value))
 
@@ -307,13 +305,11 @@ async def recover_sealed_turn(
         return None
     if row["conversation_id"] != scope:
         raise NativeDefect("sealed inference is outside this conversation")
-    raw_output = row["output"]
-    output = cast(dict[str, Any], raw_output) if isinstance(raw_output, dict) else None
-    if (
-        row["request_schema"] != NATIVE_REQUEST_SCHEMA
-        or output is None
-        or output.get("name") != NATIVE_OUTPUT_NAME
-    ):
+    output: dict[str, Any] = row["output"]
+    if row["request_schema"] != NATIVE_REQUEST_SCHEMA or output != {
+        "name": NATIVE_OUTPUT_NAME,
+        "schema": JarvisNativeMessage.model_json_schema(),
+    }:
         raise NativeDefect(
             "retired native contract requires original-release settlement"
         )

@@ -210,7 +210,7 @@ if [[ "$change" == bootstrap ]]; then
   check_source_activation "$release"
   if [[ ! -e "$pages/catalog.json" ]]; then
     catalog_bootstrap="$(mktemp)"
-    trap 'rm -f -- "$catalog_bootstrap"' EXIT
+    trap 'rm -f -- "$catalog_bootstrap"; if [[ "$incoming" != none ]]; then rm -rf -- "$incoming"; fi' EXIT
     catalog_writer plan --new-empty >"$catalog_bootstrap"
     catalog_writer apply <"$catalog_bootstrap"
     catalog_reader verify <"$catalog_bootstrap"
@@ -434,31 +434,37 @@ if [[ "$source_schema" != "$target_schema" ]]; then
   if [[ "$rehearsal" != none ]]; then
     cmp -s "$rehearsal" "$qualification" || refuse "held $change already binds another qualification receipt"
   fi
-elif [[ "$phase" == held && "$repair_of" == none ]] &&
-    ! check_maintenance "$preflight_release" "$scratch/authority.json" "$scratch/source-check.json"; then
-  if [[ -s "$scratch/source-check.json" ]]; then cat "$scratch/source-check.json"; fi
-  if safe_source_return "$scratch/source-check.json" && check_source_activation "$source_release"; then
-    "$custody" not-applied "$change" --evidence "$scratch/source-check.json"
-    "$custody" start "$change"
+elif [[ "$phase" == held && "$repair_of" == none ]]; then
+  if [[ -f "$held/preflight-$change.json" ]]; then
+    cp -- "$held/preflight-$change.json" "$scratch/source-check.json"
+  elif ! check_maintenance "$preflight_release" "$scratch/authority.json" "$scratch/source-check.json"; then
+    if [[ -s "$scratch/source-check.json" ]]; then cat "$scratch/source-check.json"; fi
+    if safe_source_return "$scratch/source-check.json" && check_source_activation "$source_release"; then
+      "$custody" not-applied "$change" --evidence "$scratch/source-check.json"
+      "$custody" start "$change"
+    fi
+    refuse "change $change blocked by stopped compatibility checks"
   fi
-  refuse "change $change blocked by stopped compatibility checks"
 fi
+# Inventory and candidate schema checks use the stopped database and files.
+# A repair may already have closed the contained host.
+stopped_native_check() (
+  CODEX_SOCKET_PROPERTIES=()
+  deployment_runtime_check "$@"
+)
+
 source_native_contract="$(native_contract_of "$source_release")"
 target_native_contract="$(native_contract_of "$release")"
 if [[ "$source_schema" == "$target_schema" && "$source_native_contract" != "$target_native_contract" ]]; then
-  native_inventory="$held/native-inventory-$change.json"
+  native_inventory="$held/native-inventory.json"
   if [[ "$phase" == held && ! -f "$native_inventory" ]]; then
-    deployment_runtime_check "$source_release" 0 "$source_release/.venv/bin/jarvis" cutover-native
-    inventory_source="$(deployment_runtime_check "$source_release" 0 "$source_release/.venv/bin/python" -c '
+    stopped_native_check "$source_release" 0 "$source_release/.venv/bin/jarvis" cutover-native
+    inventory_source="$(stopped_native_check "$source_release" 0 "$source_release/.venv/bin/python" -c '
 from jarvis.settings import CutoverSettings
 
 print(CutoverSettings.from_env().runtime_state_directory / "one-main-cutover.json")
 ')"
-    persist "$inventory_source" "$native_inventory"
-  fi
-  [[ -f "$native_inventory" ]] || refuse "held $change. original native inventory is missing"
-  if [[ "$phase" == held ]]; then
-    deployment_runtime_check "$release" 0 "$release/.venv/bin/python" - <<'PYCODE'
+    stopped_native_check "$release" 0 "$release/.venv/bin/python" - <<'PYCODE'
 import asyncio
 
 from jarvis.db import create_engine
@@ -479,19 +485,27 @@ async def check():
 
 asyncio.run(check())
 PYCODE
+    persist "$inventory_source" "$native_inventory"
   fi
+  [[ -f "$native_inventory" ]] || refuse "held $change. original native inventory is missing"
 fi
 
 # Retain the preimage and exact target in the named hold. A repair takes
 # custody of the same directory and can continue a verified partial cut.
 catalog_plan="$held/artifact-catalog.json"
-"$custody" check "$change"
-if [[ ! -f "$source_release/src/jarvis/convert_artifact_catalog.py" &&
-      ! -f "$catalog_plan" ]]; then
-  [[ "$phase" == held ]] || refuse "held $change. artifact catalog preimage is missing"
-  catalog_writer plan >"$scratch/artifact-catalog.json"
-  persist "$scratch/artifact-catalog.json" "$catalog_plan"
-elif [[ ! -f "$catalog_plan" ]]; then
+if [[ ! -f "$source_release/src/jarvis/convert_artifact_catalog.py" || -f "$catalog_plan" ]]; then
+  if [[ -f "$scratch/source-check.json" && ! -f "$held/preflight-$change.json" ]]; then
+    persist "$scratch/source-check.json" "$held/preflight-$change.json"
+  fi
+  "$custody" close-native "$change"
+  "$custody" check "$change"
+  if [[ ! -f "$catalog_plan" ]]; then
+    [[ "$phase" == held ]] || refuse "held $change. artifact catalog preimage is missing"
+    catalog_writer plan >"$scratch/artifact-catalog.json"
+    persist "$scratch/artifact-catalog.json" "$catalog_plan"
+  fi
+  catalog_reader check-plan <"$catalog_plan"
+else
   catalog_reader check
 fi
 

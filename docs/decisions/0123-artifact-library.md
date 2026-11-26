@@ -71,8 +71,10 @@ freeze the old catalog and hashes of member exports outside scratch. carry
 exact membership, order, home, current and html bytes. use the same metadata
 extractor on member exports, including a later deliberate republication. old dates
 are null. never infer publication from git time, mtime or loose exports.
-invalid pointers, duplicate revisions, missing member bytes or ambiguous
-missing catalog stop before replacement. initialize an explicitly verified
+invalid pointers, duplicate revisions, unreadable or invalid member bytes,
+and ambiguous missing catalog stop before replacement. close every publisher
+host before taking the snapshot. the application identity checks that same
+snapshot before replacement. initialize an explicitly verified
 new empty installation. target runtime treats a missing catalog as an error.
 bind preimage and validated target digests to the named cut before replacement.
 enter the existing `applying` phase before the first mutation, even at the
@@ -209,8 +211,9 @@ freeze the shared shapes first. a and b define producer/consumer examples.
 c and d can build against them independently. integrate on the selected
 drive, chat and sidebar baseline. whichever of 0120, 0123 and
 adr 0124 lands later rebases shared
-files on the earlier main revision and rotates main and its output contract once
-for that cut. b owns the artifact authoring and handoff prompt changes.
+files on the earlier main revision and rotates the main binding, output name
+and viewer header once for the composed cut. stopped activation and sealed
+recovery verify the exact output schema. b owns the artifact authoring and handoff prompt changes.
 preserve integrated source slots and the unrelated draft
 presentation when composing `message.home`. each feature's designer freezes good and
 bad examples before red. run temporary end-to-end tests against the actual

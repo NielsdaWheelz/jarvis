@@ -155,6 +155,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0114](0114-automatic-foreground-recovery.md) | automatic foreground recovery | source and isolated candidate qualified. installed recovery and historical disposition are separate. |
 | [0114](0114-skid-worker-placement.md) | skid worker placement | installed. jarvis captures the enrolled machine when admitting a write. |
 | [0115](0115-web-home-address.md) | web home address | accepted. ordinary navigation stays at the bare domain and exact objects keep their links. |
+| [0116](0116-chat-composer-attachments.md) | attach files to the open chat draft | implemented. isolated web, service and handset acceptance passed. installation pending. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 the two decisions numbered 0114 likewise retain their distinct titles and paths.

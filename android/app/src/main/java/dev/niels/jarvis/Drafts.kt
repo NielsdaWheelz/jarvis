@@ -2,25 +2,34 @@ package dev.niels.jarvis
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.AtomicFile
+import android.webkit.MimeTypeMap
 import androidx.core.content.IntentCompat
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
+import java.lang.ref.Reference
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -68,16 +77,37 @@ internal enum class Transfer(val label: String) {
     val active: Boolean get() = this == Sending || this == Checking
 }
 
+internal data class DraftChanges(
+    val pending: Int = 0,
+    val copies: Int = 0,
+    val failures: Long = 0,
+    val error: String? = null,
+)
+
 internal class Drafts private constructor(private val context: Context) {
     private val store = File(context.noBackupFilesDir, "drafts")
     private val process = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val edits = Mutex()
     private val changes = MutableStateFlow(0L)
     private val operations = MutableStateFlow<Map<String, Transfer>>(emptyMap())
+    private val tails = mutableMapOf<String, Job>()
+    private val mutations = MutableStateFlow<Map<String, DraftChanges>>(emptyMap())
+    val fileChanges = mutations.asStateFlow()
     val revision = changes.asStateFlow()
     val transfers = operations.asStateFlow()
 
     init {
-        store.listFiles()?.filter { it.name.startsWith(".incoming-") }?.forEach { it.deleteRecursively() }
+        val existing = store.listFiles().orEmpty()
+        process.launch {
+            for (dir in existing) {
+                if (dir.name.startsWith(".incoming-")) {
+                    dir.deleteRecursively()
+                } else synchronized(this@Drafts) {
+                    val draft = try { load(dir.name) } catch (_: IOException) { null }
+                    if (draft != null) reclaimUnreferenced(draft)
+                }
+            }
+        }
     }
 
     suspend fun create(id: String, ref: DiscussionRef? = null): Draft = withContext(Dispatchers.IO) {
@@ -107,7 +137,7 @@ internal class Drafts private constructor(private val context: Context) {
             var remaining = BodyLimit
             for (index in 0 until minOf(count, FileLimit)) {
                 val uri = share.getOrNull(index)
-                val name = if (index == share.size) "shared text.txt" else fileName(uri, index)
+                val name = if (index == share.size) "shared text.txt" else fileName(uri, "file ${index + 1}")
                 val stored = File(staging, "file-$index")
                 val result = try {
                     val input = if (index == share.size) {
@@ -145,6 +175,139 @@ internal class Drafts private constructor(private val context: Context) {
         }
     }
 
+    fun append(id: String, uris: List<Uri>, imeExtras: Bundle?) {
+        if (uris.isEmpty()) return
+        changeFiles(id, copying = true) {
+            try {
+                appendFiles(id, uris)
+            } finally {
+                // Compose carries the IME's temporary read permission in the delivered content.
+                Reference.reachabilityFence(imeExtras)
+            }
+        }
+    }
+
+    fun remove(id: String, slot: Int?) = changeFiles(id, copying = false) {
+        synchronized(this) {
+            val draft = load(id) ?: throw DraftChangeProblem("draft unavailable")
+            if (draft.state != DraftState.Editing) throw DraftChangeProblem("this draft is frozen")
+            val edited = if (slot == null) draft.copy(ref = null)
+                else draft.copy(files = draft.files.filterNot { it.slot == slot })
+            if (edited != draft) {
+                saveEdit(edited)
+                if (slot != null) File(directory(id), "file-$slot").delete()
+            }
+        }
+    }
+
+    // Admit in gesture order before a subsequent send, discard or back can observe the draft.
+    @Synchronized
+    private fun changeFiles(id: String, copying: Boolean, change: () -> Unit) {
+        if (operations.value[id]?.active == true) return
+        val previous = tails[id]
+        val before = mutations.value[id] ?: DraftChanges()
+        val copies = if (copying) 1 else 0
+        val admitted = before.copy(
+            pending = before.pending + 1, copies = before.copies + copies,
+            error = before.error.takeIf { previous != null },
+        )
+        mutations.update { it + (id to admitted) }
+        tails[id] = process.launch {
+            previous?.join()
+            val failure = try {
+                change()
+                null
+            } catch (e: DraftChangeProblem) {
+                e.message
+            } catch (_: IOException) {
+                if (copying) "could not save these files · check free space and add them again"
+                else "could not save this change"
+            }
+            synchronized(this@Drafts) {
+                val current = mutations.value.getValue(id)
+                val next = current.copy(
+                    pending = current.pending - 1, copies = current.copies - copies,
+                    failures = current.failures + if (failure == null) 0 else 1,
+                    error = failure ?: current.error,
+                )
+                if (next.pending == 0) tails.remove(id)
+                mutations.update { if (next == DraftChanges()) it - id else it + (id to next) }
+            }
+        }
+    }
+
+    suspend fun awaitFileChanges(id: String) {
+        mutations.first { (it[id]?.pending ?: 0) == 0 }
+    }
+
+    private fun reclaimUnreferenced(draft: Draft) {
+        val retained = draft.files.map { "file-${it.slot}" }.toSet()
+        directory(draft.id).listFiles()?.filter { it.name.startsWith("file-") && it.name !in retained }
+            ?.forEach { it.delete() }
+    }
+
+    private fun appendFiles(id: String, uris: List<Uri>) {
+        val before = load(id) ?: throw DraftChangeProblem("draft unavailable")
+        if (before.state != DraftState.Editing) throw DraftChangeProblem("this draft is frozen")
+        if (uris.size > FileLimit - before.files.size) throw DraftChangeProblem("at most ten files · remove a file first")
+
+        val staging = Files.createTempDirectory(store.toPath(), ".incoming-").toFile()
+        val copied = mutableListOf<DraftFile>()
+        try {
+            var remaining = BodyLimit - before.files.sumOf { it.size }
+            var slot = (before.files.maxOfOrNull { it.slot } ?: -1) + 1
+            for (uri in uris) {
+                var name = "file ${slot + 1}"
+                val original = try {
+                    val type = context.contentResolver.getType(uri)
+                    val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(type)
+                    val fallback = if (type?.startsWith("image/") == true && ext != null) "pasted image.$ext" else name
+                    name = fileName(uri, fallback)
+                    val input = context.contentResolver.openInputStream(uri) ?: throw FileNotFoundException()
+                    input.use { copyOriginal(it, File(staging, "file-$slot"), slot, name, remaining) }
+                } catch (_: ShareTooLarge) {
+                    throw DraftChangeProblem("$name exceeds the 90 mib message limit")
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    throw DraftChangeProblem("could not copy $name · add it again", e)
+                }
+                copied.add(original)
+                remaining -= original.size
+                slot++
+            }
+            synchronized(this) {
+                val latest = load(id) ?: throw DraftChangeProblem("draft unavailable")
+                if (latest.state != DraftState.Editing) throw DraftChangeProblem("this draft is frozen")
+                val result = latest.copy(files = latest.files + copied)
+                try {
+                    for (file in copied) {
+                        val target = File(directory(id), "file-${file.slot}")
+                        Files.move(File(staging, target.name).toPath(), target.toPath(), ATOMIC_MOVE)
+                    }
+                    if (encode(result).contentLength() > BodyLimit) throw DraftChangeProblem("message and files exceed 90 mib")
+                    saveEdit(result)
+                } catch (e: IOException) {
+                    // A failed readback can leave publication uncertain. Only the recovered manifest owns deletion.
+                    load(id)?.let(::reclaimUnreferenced)
+                    throw e
+                }
+            }
+        } finally {
+            staging.deleteRecursively()
+        }
+    }
+
+    suspend fun thumbnail(id: String, slot: Int): Bitmap? = withContext(Dispatchers.IO) {
+        try {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(File(directory(id), "file-$slot"))) { decoder, info, _ ->
+                val largest = maxOf(info.size.width, info.size.height)
+                if (largest > 144) decoder.setTargetSampleSize((largest + 143) / 144)
+            }
+        } catch (_: IOException) {
+            null
+        }
+    }
+
     suspend fun get(id: String): Draft? = withContext(Dispatchers.IO) { load(id) }
 
     suspend fun list(): List<Draft> = withContext(Dispatchers.IO) {
@@ -157,32 +320,28 @@ internal class Drafts private constructor(private val context: Context) {
         }
     }
 
-    suspend fun edit(id: String, text: String, removeSlot: Int? = null, detach: Boolean = false) {
+    suspend fun edit(id: String, text: String) = edits.withLock {
         withContext(Dispatchers.IO) {
             synchronized(this@Drafts) {
-                val original = load(id) ?: return@synchronized
-                if (original.state != DraftState.Editing) return@synchronized
-                val edited = original.copy(
-                    text = text,
-                    ref = if (detach) null else original.ref,
-                    files = original.files.filterNot { it.slot == removeSlot },
-                )
-                if (edited != original) {
-                    save(edited)
-                    operations.update {
-                        if (it[id] == Transfer.TooLarge || it[id] == Transfer.Invalid) it - id else it
-                    }
-                    removeSlot?.let { File(directory(id), "file-$it").delete() }
+                val draft = load(id) ?: return@synchronized
+                if (draft.state == DraftState.Editing && operations.value[id]?.active != true && draft.text != text) {
+                    saveEdit(draft.copy(text = text))
                 }
             }
         }
     }
 
+    private fun saveEdit(draft: Draft) {
+        save(draft)
+        operations.update { if (it[draft.id] in setOf(Transfer.TooLarge, Transfer.Invalid)) it - draft.id else it }
+    }
+
     suspend fun discard(id: String): Boolean = withContext(Dispatchers.IO) {
         synchronized(this@Drafts) {
-            if (operations.value[id]?.active == true) return@synchronized false
+            if (operations.value[id]?.active == true || id in tails) return@synchronized false
             if (directory(id).exists() && !directory(id).deleteRecursively()) return@synchronized false
             operations.update { it - id }
+            mutations.update { it - id }
             changes.update { it + 1 }
             true
         }
@@ -235,11 +394,15 @@ internal class Drafts private constructor(private val context: Context) {
 
     @Synchronized
     private fun operation(id: String, transfer: Transfer, run: suspend () -> Transfer?) {
-        if (operations.value[id]?.active == true) return
+        val files = mutations.value[id]
+        if (operations.value[id]?.active == true || (files?.copies ?: 0) > 0) return
+        val priorEdit = tails[id]
+        val failures = files?.failures ?: 0
         operations.update { it + (id to transfer) }
         process.launch {
+            priorEdit?.join()
             val final = try {
-                run()
+                if ((mutations.value[id]?.failures ?: 0) == failures) run() else null
             } catch (_: SignInRequired) {
                 Transfer.SignedOut
             } catch (_: IOException) {
@@ -310,14 +473,18 @@ internal class Drafts private constructor(private val context: Context) {
                 }
             })
         val manifest = AtomicFile(File(directory, "draft.json"))
+        val bytes = data.toString().toByteArray(Charsets.UTF_8)
         val stream = manifest.startWrite()
         try {
-            stream.write(data.toString().toByteArray(Charsets.UTF_8))
+            stream.write(bytes)
+            stream.fd.sync()
             manifest.finishWrite(stream)
         } catch (e: IOException) {
             manifest.failWrite(stream)
             throw e
         }
+        // AtomicFile.finishWrite logs rename failures; acknowledge only the recovered bytes.
+        if (!manifest.readFully().contentEquals(bytes)) throw IOException("could not save this draft")
     }
 
     private fun Intent.sharedStreams(): List<Uri?> = when {
@@ -329,7 +496,7 @@ internal class Drafts private constructor(private val context: Context) {
         else -> listOf(IntentCompat.getParcelableExtra(this, Intent.EXTRA_STREAM, Uri::class.java))
     }
 
-    private fun fileName(uri: Uri?, slot: Int): String {
+    private fun fileName(uri: Uri?, fallback: String): String {
         val name = if (uri?.scheme != "content") null else try {
             context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { if (it.moveToFirst()) it.getString(0) else null }
@@ -339,7 +506,7 @@ internal class Drafts private constructor(private val context: Context) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             null
         }
-        return displayFileName(name, "file ${slot + 1}")
+        return displayFileName(name, fallback)
     }
 
     companion object {
@@ -360,6 +527,8 @@ internal fun canonicalUuid(value: String): Boolean = try {
 } catch (_: IllegalArgumentException) {
     false
 }
+
+private class DraftChangeProblem(message: String, cause: Throwable? = null) : IOException(message, cause)
 
 private class ShareTooLarge : IOException("upload exceeds 90 mib · re-share or remove")
 

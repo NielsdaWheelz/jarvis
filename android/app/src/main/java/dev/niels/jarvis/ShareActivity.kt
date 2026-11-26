@@ -2,11 +2,17 @@ package dev.niels.jarvis
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,8 +23,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -34,22 +43,25 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -123,6 +135,7 @@ internal class ShareCapture : ViewModel() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun DraftComposer(id: String, onReturn: () -> Unit, onReceived: (String) -> Unit) {
     val context = LocalContext.current
@@ -132,6 +145,9 @@ internal fun DraftComposer(id: String, onReturn: () -> Unit, onReceived: (String
     val access = remember { Access.get(context) }
     val version by drafts.revision.collectAsState()
     val authVersion by access.revision.collectAsState()
+    val changes by drafts.fileChanges.collectAsState()
+    val fileChange = changes[id]
+    val copying = (fileChange?.copies ?: 0) > 0
     val transfers by drafts.transfers.collectAsState()
     val transfer = transfers[id]
     val active = transfer?.active == true
@@ -159,22 +175,27 @@ internal fun DraftComposer(id: String, onReturn: () -> Unit, onReceived: (String
     }
 
     val scope = rememberCoroutineScope()
-    var editor by rememberSaveable(id, stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(draft.text)) }
+    val editor = rememberSaveable(id, saver = TextFieldState.Saver) { TextFieldState(draft.text) }
+    val caption = editor.text.toString()
+    var returning by remember(id) { mutableStateOf(false) }
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
     var checkedAuthVersion by remember(id) { mutableStateOf<Int?>(null) }
     var localError by remember(id) { mutableStateOf<String?>(null) }
     val editable = draft.state == DraftState.Editing && !active
-    val valid = editor.text.toByteArray(Charsets.UTF_8).size <= TextLimit && '\u0000' !in editor.text
-    val canSend = !active && valid && draft.files.none { it.problem != null } &&
+    val valid = caption.toByteArray(Charsets.UTF_8).size <= TextLimit && '\u0000' !in editor.text
+    val canSend = !active && !copying && valid && draft.files.none { it.problem != null } &&
         (editor.text.isNotBlank() || draft.files.isNotEmpty()) &&
         draft.state in setOf(DraftState.Editing, DraftState.Frozen) &&
         transfer !in setOf(Transfer.TooLarge, Transfer.Invalid)
 
-    LaunchedEffect(id, editor.text) {
-        try {
-            drafts.edit(id, editor.text)
-        } catch (_: IOException) {
-            localError = "could not save this change"
+    LaunchedEffect(id, editor) {
+        snapshotFlow { editor.text.toString() }.collect { text ->
+            try {
+                drafts.edit(id, text)
+                localError = null
+            } catch (_: IOException) {
+                localError = "could not save this change"
+            }
         }
     }
     LaunchedEffect(id, draft.state, authVersion, transfer) {
@@ -200,25 +221,40 @@ internal fun DraftComposer(id: String, onReturn: () -> Unit, onReceived: (String
         }
     }
 
-    fun saveEdit(removeSlot: Int? = null, detach: Boolean = false, returnAfter: Boolean = false) {
+    fun saveAndReturn() {
+        if (returning) return
+        returning = true
+        val failures = drafts.fileChanges.value[id]?.failures ?: 0
         scope.launch {
             try {
-                drafts.edit(id, editor.text, removeSlot, detach)
-                if (returnAfter) onReturn()
+                while (true) {
+                    drafts.awaitFileChanges(id)
+                    val current = editor.text.toString()
+                    drafts.edit(id, current)
+                    val latest = drafts.fileChanges.value[id]
+                    if ((latest?.failures ?: 0) != failures) return@launch
+                    if ((latest?.pending ?: 0) == 0 && current == editor.text.toString()) {
+                        onReturn()
+                        return@launch
+                    }
+                }
             } catch (_: IOException) {
                 localError = "could not save this change"
+            } finally {
+                returning = false
             }
         }
     }
 
-    BackHandler { saveEdit(returnAfter = true) }
+    BackHandler(onBack = ::saveAndReturn)
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Heading("message jarvis")
         val status = when (draft.state) {
-            DraftState.Editing -> transfer?.label ?: if (editor.text == draft.text) "saved on this phone" else "saving changes"
+            DraftState.Editing -> if (copying) "adding files" else transfer?.label ?:
+                if (caption == draft.text && (fileChange?.pending ?: 0) == 0) "saved on this phone" else "saving changes"
             DraftState.Frozen -> if (transfer == Transfer.SignedOut) "send unconfirmed · sign in to check receipt"
                 else transfer?.label ?: Transfer.Unconfirmed.label
             DraftState.Conflict -> "submission conflict · discard this frozen draft"
@@ -227,28 +263,39 @@ internal fun DraftComposer(id: String, onReturn: () -> Unit, onReceived: (String
         BodyStatus(localError ?: status)
         draft.ref?.let { ref ->
             Text("about ${ref.label}", style = MaterialTheme.typography.bodyMedium)
-            if (editable) TextButton(onClick = { saveEdit(detach = true) }) {
+            if (editable) TextButton(onClick = { drafts.remove(id, null) }) {
                 Text("remove reference")
             }
         }
         OutlinedTextField(
-            value = editor,
-            onValueChange = {
-                editor = it
-                localError = null
-            },
-            modifier = Modifier.fillMaxWidth(),
+            state = editor,
+            modifier = Modifier.fillMaxWidth().then(if (editable) Modifier.contentReceiver { content ->
+                val uris = mutableListOf<Uri>()
+                val remainder = content.consume { item ->
+                    val uri = item.uri
+                    if (uri?.scheme == "content") uris.add(uri) else false
+                }
+                if (uris.isNotEmpty()) drafts.append(id, uris, content.platformTransferableContent?.extras)
+                remainder
+            } else Modifier),
             label = { Text("instruction") },
             readOnly = !editable,
             isError = !valid,
             supportingText = if (valid) null else ({ Text("instruction exceeds 16 kib or contains invalid text") }),
-            minLines = 4,
+            lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 4),
         )
-        for (file in draft.files) {
+        fileChange?.error?.let { BodyStatus(it) }
+        for (file in draft.files) key(file.slot, file.sha256) {
             HorizontalDivider()
+            if (file.sha256 != null) {
+                val preview by produceState<Bitmap?>(null, id, file.slot, file.sha256) {
+                    value = drafts.thumbnail(id, file.slot)
+                }
+                preview?.let { Image(it.asImageBitmap(), null, Modifier.size(64.dp)) }
+            }
             Text(file.name)
             if (file.problem != null) BodyStatus(file.problem)
-            if (editable) TextButton(onClick = { saveEdit(removeSlot = file.slot) }) {
+            if (editable) TextButton(onClick = { drafts.remove(id, file.slot) }) {
                 Text("remove ${file.name}")
             }
         }
@@ -258,13 +305,13 @@ internal fun DraftComposer(id: String, onReturn: () -> Unit, onReceived: (String
             } else {
                 Button(enabled = canSend, onClick = {
                     localError = null
-                    drafts.send(id, editor.text, api)
+                    drafts.send(id, editor.text.toString(), api)
                 }) {
                     Text(if (draft.state == DraftState.Frozen) "retry this submission" else "send")
                 }
             }
-            TextButton(onClick = { saveEdit(returnAfter = true) }) { Text("save and return") }
-            TextButton(enabled = !active, onClick = { confirmDiscard = true }) { Text("discard draft") }
+            TextButton(onClick = ::saveAndReturn) { Text("save and return") }
+            TextButton(enabled = !active && (fileChange?.pending ?: 0) == 0, onClick = { confirmDiscard = true }) { Text("discard draft") }
         }
     }
     if (confirmDiscard) {

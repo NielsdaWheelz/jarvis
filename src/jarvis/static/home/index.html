@@ -56,11 +56,19 @@
       <section id="records" class="panel" aria-label="work records" hidden></section>
       <section id="workspace-approval" aria-label="google approval" hidden></section>
       <form id="composer">
-        <div id="context" hidden></div>
+        <div id="context" hidden>
+          <span id="ref-label"></span>
+          <button id="remove-ref" type="button">remove reference</button>
+        </div>
         <div id="draft-choice" hidden></div>
         <label class="sr-only" for="message">message jarvis</label>
         <textarea id="message" rows="2" placeholder="message jarvis…"></textarea>
         <div id="file-list"></div>
+        <div id="file-problem" role="status"></div>
+        <div id="uncertain-help" hidden>
+          the earlier message may still arrive.
+          <a href="/" target="_blank" rel="noopener">open an empty draft</a>
+        </div>
         <div class="compose-actions">
           <label class="attach">attach<input id="files" type="file" multiple /></label>
           <button id="send" type="submit">send</button>

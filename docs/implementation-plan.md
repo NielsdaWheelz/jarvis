@@ -58,9 +58,10 @@ the [live calendar check](decisions/0096-calendar-on-demand.md#live-google-calen
 
 ## skid worker placement
 
-[adr 0114](decisions/0114-skid-worker-placement.md) specifies the accepted
-v14 target on the selected v13 predecessor (`00f579e`). implementation,
-candidate proof and installed acceptance are pending.
+[adr 0114](decisions/0114-skid-worker-placement.md) specifies the v14 cut from
+the v13 worker binding. source and the paired macbook candidate are qualified.
+the installed cut uses the currently selected application schema and records
+its own acceptance evidence.
 
 1. **skid cli.** add the id selector to start parsing, help and fleet-client
    routing. use the existing machine-handle parser, peer lookup and start

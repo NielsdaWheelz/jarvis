@@ -7,6 +7,7 @@ and takes its machine and worker. its lookup omits the prior origin's component
 membership check. a follow-up can therefore address an unrelated request's
 worker in the same chat. this is a source finding. no misdelivery was observed.
 
-resolved when the [placement cut](../decisions/0114-skid-worker-placement.md)
-rejects that case before inserting the follow-up, makes zero skid writes and
-continues to accept a related job using its original machine handle.
+the [placement candidate](../decisions/0114-skid-worker-placement.md#candidate-evidence)
+rejected that case before insertion with zero skid writes and accepted a related
+job on the original machine handle. close this issue after the qualified binding
+is selected in production.

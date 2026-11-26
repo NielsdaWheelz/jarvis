@@ -73,7 +73,7 @@ private routing evidence.
   require the prior job's origin to belong to the current request's causal
   component, as `receipt.read` already does. an unrelated or unpinned job
   returns `job_not_found` with zero dispatches. a busy or departed worker
-  gets its skid outcome. [current registration gap](../issues/worker-follow-up-scope.md)
+  gets its skid outcome. [predecessor registration gap](../issues/worker-follow-up-scope.md)
   removal, rename, an unreachable gateway or a change of profile never selects
   a replacement. preserve pause and current ownership at effect entry.
   reconcile an uncertain submission on its original host. only authoritative
@@ -118,3 +118,25 @@ observed status. optional peer outages do not fail the check. a missing
 required peer, a failed required peer or malformed inventory still fails
 it. desktop enrollment and subsequent fleet changes are ordinary skid
 operations once the pair is active. [delivery and proof](../implementation-plan.md#skid-worker-placement)
+
+## candidate evidence
+
+the detached macbook rehearsal paired jarvis `02f4761` at schema `0025` with
+skid `a85a41f`. it ran the candidate cli, real enrollment transitions, a
+disposable postgres 16 action store, and controlled authenticated gateway
+responses. it recreated the observer before dispatch and before ack. it proved
+one job id on the captured handle, one wake, and zero calls to the replacement.
+the same run proved terminal creation across rename, zero sends after removal,
+one-shot uncertainty, pre-insert failures with exact native callback replay,
+causal follow-up scope and v12/v13 retirement and historical receipts.
+
+the rehearsal reopened v12 and v13 answers byte for byte over eleven pages.
+it ran the startup and preflight checks on both sides of each ack settlement.
+terminal payloads and private refs stayed out of public receipts. the deployment
+verifier passed with a fifth offline peer and rejected a missing or failed
+required peer, invalid inventory and a mismatched exit status. the runner
+removed its containers, state and detached checkout.
+
+the installed proof remains a separate gate using the selected service and one
+scoped desktop assignment. the detached receipt and content-free observations
+are in `~/Documents/code/.rehearsal-evidence/jarvis-skid-worker-placement-20261126T061442Z/`.

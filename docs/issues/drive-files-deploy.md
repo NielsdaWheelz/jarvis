@@ -13,8 +13,10 @@ the matched wheel, archive and signed phone package rehashed locally.
 main preserves the two installed quota-recovery fixes. the active backup
 reader is still `0025`. the macbook built and qualified the matched `0027`
 reader against the release lock without accessing production backups.
-the digest-addressed archive, reader proof and reopened hashes are under
-`~/.local/state/jarvis/qualification/adr0125-reader-0027.8m64TgcY/build/`.
+the exact reader also reopened a synthetic `0027` database dump offline
+with the expected read-only grants and rejected a mismatched lock. the
+archive, restore proof and reopened hashes are under
+`~/.local/state/jarvis/qualification/adr0125-reader-0027.8m64TgcY/`.
 verify it again with the actual stopped snapshot. production still holds
 the separate inactive `26f9588` candidate. the installer would prune it;
 confirm its disposition when ready to stage this release.

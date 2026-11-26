@@ -506,15 +506,18 @@ export function openEditor(panel, path, original, digest) {
     } else await held(remote);
   }
   function checkAgain(label, run) {
-    choices.replaceChildren(
-      button(label, async () => {
-        try {
-          await run();
-        } catch (e) {
-          if (!closed) notice(e.message);
-        }
-      }),
-    );
+    const check = button(label, async () => {
+      if (check.disabled) return;
+      check.disabled = true;
+      try {
+        await run();
+      } catch (e) {
+        if (!closed) notice(e.message);
+      } finally {
+        check.disabled = false;
+      }
+    });
+    choices.replaceChildren(check);
   }
   async function held(data, sentHere = false) {
     if (closed) return;
@@ -659,8 +662,13 @@ export function openEditor(panel, path, original, digest) {
           return i === -1 ? entry : slots[i];
         });
         confirmed = writing;
+        blocked = false;
+        choices.replaceChildren();
+        controls();
         redrawFiles();
         notice(generation === writing ? "saved in gmail" : "changes on this device");
+        // A manual lookup can settle after the original request and its autosave loop have ended.
+        if (!inFlight && generation !== confirmed) schedule();
         return true;
       }
       await held(data, kind === "send" && data.operation_id === id && data.kind === kind);

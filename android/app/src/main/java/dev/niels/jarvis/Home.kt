@@ -442,7 +442,8 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
         val action = created.getString("create_action_id")
         val subject = created.string("subject").orEmpty().ifBlank { "(no subject)" }
         val repeated = drafts.count { it.string("subject") == created.string("subject") } > 1
-        val name = if (repeated) "$subject · ${index + 1}" else subject
+        val ordinal = drafts.take(index + 1).count { it.string("subject") == created.string("subject") }
+        val name = if (repeated) "$subject · $ordinal" else subject
         val historical = created.opt("editable") != true
         val label = if (historical) "open draft revision" else "open draft"
         TextButton(onClick = { navigate(Route.Mail(id, action, historical)) }) { Text("$label · $name") }

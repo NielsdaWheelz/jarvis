@@ -63,9 +63,18 @@ const isDetail = (path) => /^\/[mt]\//.test(path);
 const mailId = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const mailRoute = new RegExp("^/mail/(" + mailId + ")/(revision|draft)/(" + mailId + ")$");
 let mailEditor = null;
+let shownIndex = history.state?.entryIndex ?? 0;
+let undoingTraversal = false;
+function pushEntry(state, path) {
+  history.pushState({ ...state, entryIndex: ++shownIndex }, "", path);
+}
+function mayLeaveEditor(canvas) {
+  return !mailEditor?.dirty() || canvas === mailEditor.path ||
+    window.confirm("leave this draft? changes that gmail has not confirmed may be lost.");
+}
 
 function changeState(values, path = location.href) {
-  history.replaceState({ ...history.state, ...values }, "", path);
+  history.replaceState({ entryIndex: shownIndex, ...history.state, ...values }, "", path);
 }
 function setPanel() {
   const open = Boolean(history.state?.panel);
@@ -81,7 +90,7 @@ function openSidebar() {
   armed = null;
   if (mobile.matches && !history.state?.panel) {
     rememberOverview();
-    history.pushState({ ...history.state, panel: true, fromCanvas: true }, "", location.href);
+    pushEntry({ ...history.state, panel: true, fromCanvas: true }, location.href);
   }
   changeState({ chat: true });
   setPanel();
@@ -680,7 +689,8 @@ function renderMessage(m) {
     const subject = created.subject || "(no subject)";
     const numbered = m.drafts.filter((other) => other.subject === created.subject).length > 1;
     const action = created.editable === true ? "open draft" : "open draft revision";
-    const name = action + " · " + subject + (numbered ? " · " + (i + 1) : "");
+    const ordinal = m.drafts.slice(0, i + 1).filter(other => other.subject === created.subject).length;
+    const name = action + " · " + subject + (numbered ? " · " + ordinal : "");
     node.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
   }
   if (m.present && m.present.ref.kind !== "draft")
@@ -830,8 +840,7 @@ function restoreRevisionReturn() {
 
 function navigate(path, { origin, canvasSelection = path } = {}) {
   armed = null;
-  if (mailEditor?.dirty() && path !== location.pathname &&
-      !window.confirm("leave this draft? changes that gmail has not confirmed may be lost.")) return;
+  if (undoingTraversal || !mayLeaveEditor(canvasSelection)) return;
   if (
     canvasSelection === todosCanvas &&
     location.pathname === "/" &&
@@ -871,7 +880,7 @@ function navigate(path, { origin, canvasSelection = path } = {}) {
         resultCursors: [],
       }
     : { canvasSelection, ...(fromRevisionMessage ? { fromRevisionMessage } : {}) };
-  history.pushState(state, "", path);
+  pushEntry(state, path);
   startRoute();
 }
 for (const control of document.querySelectorAll(".todos-control"))
@@ -898,6 +907,20 @@ document.addEventListener("click", (e) => {
   }
 });
 window.onpopstate = () => {
+  const destination = history.state?.entryIndex ?? 0;
+  if (undoingTraversal && destination === shownIndex) {
+    undoingTraversal = false;
+    return;
+  }
+  if (destination !== shownIndex &&
+      !mayLeaveEditor(history.state?.canvasSelection ?? location.pathname)) {
+    // The address already moved. Restore the same history entry without replacing its editor.
+    undoingTraversal = true;
+    history.go(shownIndex - destination);
+    return;
+  }
+  undoingTraversal = false;
+  shownIndex = destination;
   armed = null;
   startRoute();
 };
@@ -981,8 +1004,9 @@ async function mailRead(ver, path, messageId, kind, actionId) {
   if (ver !== routeVersion) return;
   const content = sheet.lastElementChild;
   content.replaceChildren(draftPreview(revision, editing));
-  if (editing && revision?.status === "complete") {
-    if (revision.editable === true) mailEditor = openEditor(content, path, revision, digest);
+  if (editing) {
+    if (revision?.status === "complete" && revision.editable === true)
+      mailEditor = openEditor(content, path, revision, digest);
     else content.append(el("p", "this saved revision is read-only."));
   }
   sheet.dataset.loaded = "true";
@@ -1408,7 +1432,7 @@ async function poll(part, load) {
   }
 }
 function refresh() {
-  if (document.hidden) return;
+  if (document.hidden || undoingTraversal) return;
   poll("canvas", canvasRead);
   poll("detail", detailRead);
   poll("chat", messages);

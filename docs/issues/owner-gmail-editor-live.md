@@ -12,8 +12,11 @@ send to self. record actual gmail reply/quote shape, empty-recipient autosave,
 competing edits, send result fields and independently measured content and
 attachment hashes. measure the maximum-size upload on the intended host.
 
-then qualify the matching signed android client and real browser access,
-provider revocation, credential isolation and protected backup reader. repeat
-the counts-only historical inventory and settle any affected unfinished work
-before the separately authorized installation. keep the prior
+then qualify the matching signed android client on a physical s22+ device.
+check browser tab sign-in, the on-screen keyboard with send reachable, and
+back to the originating reply. the isolated emulator proves handoff and return.
+also verify real browser access, provider revocation, credential isolation and
+the protected backup reader. repeat the counts-only historical inventory and
+settle any affected unfinished work before the separately authorized
+installation. keep the prior
 [google data-use decision](google-workspace-retention.md) open until resolved.

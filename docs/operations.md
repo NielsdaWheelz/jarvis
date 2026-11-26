@@ -868,7 +868,7 @@ historical evidence remains in adr 0049. its transport is retired; use the
 ## skid-only worker cutover
 
 the [v13 desktop cut](decisions/0113-desktop-worker.md) used a four-name roster.
-for the planned [v14 placement cut](implementation-plan.md#skid-worker-placement),
+for the [v14 placement cut](implementation-plan.md#skid-worker-placement),
 drain the selected release's incompatible actions and outstanding result
 acknowledgements before switching the cli and jarvis together. verify the
 required hosts and desktop's existing enrollment through the service account.

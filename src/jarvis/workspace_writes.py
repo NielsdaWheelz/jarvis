@@ -39,6 +39,7 @@ from jarvis.gmail_drafts import (
     provider_labels,
     reply_subject_matches,
     workspace_draft_content,
+    workspace_draft_snapshot,
     workspace_raw,
     workspace_reply_parent,
 )
@@ -69,6 +70,7 @@ from jarvis.workspace_write_models import (
     DraftEdits,
     DraftObservation,
     DraftRef,
+    DraftSnapshot,
     DraftWriteReceipt,
     DriveBinarySource,
     DriveCopy,
@@ -593,7 +595,9 @@ async def _fresh_drafts(io: _Exchange, targets: tuple[DraftObservation, ...]) ->
             return
 
 
-def _verify_content(expected: FrozenCompose, draft: _Draft, account: str) -> bool:
+def _verify_content(
+    expected: FrozenCompose, draft: _Draft, account: str
+) -> tuple[bool, DraftSnapshot]:
     snapshot, _ = workspace_draft_content(draft.message, account)
     content = expected.content
     if (
@@ -609,21 +613,11 @@ def _verify_content(expected: FrozenCompose, draft: _Draft, account: str) -> boo
         )
     ):
         raise WorkspaceError("draft_content_differs")
-    if (
-        expected.expected_body_digest is not None
-        and _digest(snapshot.body_text.encode()) != expected.expected_body_digest
-    ):
+    if not expected.matches_observed_body(snapshot.body_text):
         raise WorkspaceError("draft_body_differs")
-    if snapshot.body_text == content.body_text:
-        return False
-    if (
-        not snapshot.body_text.startswith(content.body_text)
-        or expected.quote_digest is None
-        or _digest(snapshot.body_text[len(content.body_text) :].encode())
-        != expected.quote_digest
-    ):
-        raise WorkspaceError("draft_body_differs")
-    return True
+    return snapshot.body_text != content.body_text, workspace_draft_snapshot(
+        draft.message, snapshot
+    )
 
 
 def _event_scope(raw: Obj) -> Scope:
@@ -1294,6 +1288,7 @@ class WorkspaceWrites:
         invocation_id: str,
         before_send: Fence,
         record_ack: AckRecorder | None = None,
+        capture_draft: Callable[[DraftSnapshot], None] | None = None,
     ) -> Receipt:
         drive = frozen.tool.startswith(("drive.", "docs."))
         with workspace_attempts(
@@ -1348,6 +1343,7 @@ class WorkspaceWrites:
                     # Final local settlement can still take custody of this ack.
                     return receipt.with_readback("ack_recording_failed")
             verified_fields: Obj = {}
+            snapshot = None
             try:
                 await io.fence()
                 if isinstance(effect, FrozenCompose) and isinstance(
@@ -1367,7 +1363,7 @@ class WorkspaceWrites:
                         )
                     ):
                         raise WorkspaceError("draft_changed")
-                    generated_quote = await asyncio.to_thread(
+                    generated_quote, snapshot = await asyncio.to_thread(
                         _verify_content, effect, live, frozen.account
                     )
                     await io.fence()
@@ -1406,7 +1402,10 @@ class WorkspaceWrites:
                 ):
                     verified_fields = await _drive_readback(io, effect, receipt)
                 await io.fence()
-                return receipt.with_readback(None, **verified_fields)
+                verified = receipt.with_readback(None, **verified_fields)
+                if snapshot is not None and capture_draft is not None:
+                    capture_draft(snapshot)
+                return verified
             except (Exception, asyncio.CancelledError) as exc:
                 # No readback or later ownership failure can revoke the provider's ack.
                 reason = (

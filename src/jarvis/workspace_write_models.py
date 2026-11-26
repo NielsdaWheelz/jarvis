@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Literal, Self
 from uuid import UUID
@@ -24,6 +25,7 @@ from pydantic import (
     model_validator,
 )
 
+from jarvis.home_refs import DriveId as DriveId
 from jarvis.mail_files import (
     MAIL_MAX_FILES,
     DriveMailFileRef,
@@ -424,6 +426,11 @@ class DraftObservation(DraftRef):
     observed_at: AwareDatetime
 
 
+class DraftSnapshot(_GmailEnvelope):
+    sender: Mailbox
+    files: Annotated[tuple[MailFile, ...], Field(max_length=MAIL_MAX_FILES)]
+
+
 class FrozenCompose(_StrictModel):
     tool: Literal["gmail.create_draft", "gmail.prepare_replacement"]
     old: DraftObservation | None
@@ -433,6 +440,18 @@ class FrozenCompose(_StrictModel):
     # Only the digest of the verified parent's quoted text is needed for readback.
     quote_digest: Sha256 | None
     expected_body_digest: Sha256 | None
+
+    def matches_observed_body(self, body: str) -> bool:
+        if (
+            self.expected_body_digest is not None
+            and sha256(body.encode()).hexdigest() != self.expected_body_digest
+        ):
+            return False
+        authored = self.content.body_text
+        return body == authored or (
+            body.startswith(authored)
+            and sha256(body[len(authored) :].encode()).hexdigest() == self.quote_digest
+        )
 
 
 class FrozenDiscard(_StrictModel):
@@ -483,7 +502,6 @@ class FrozenCalendar(_StrictModel):
     preserved_digest: Sha256 | None
 
 
-type DriveId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,255}$")]
 type DriveToken = Annotated[str, Field(min_length=1, max_length=1024)]
 
 

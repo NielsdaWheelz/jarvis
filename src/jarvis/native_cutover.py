@@ -25,6 +25,7 @@ from jarvis.db import (
 from jarvis.messages import causal_component_ids, current_native_retry, latest_control
 from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA
 from jarvis.ownership import Database, lock_conversation
+from jarvis.write_tools import GMAIL_CREATE_DRAFT_SPEC, WORKSPACE_MAIL_IMPLEMENTATION
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +179,12 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
                         .is_distinct_from(AGENT_IMPLEMENTATION_REVISION),
                     ),
                     action.c.tool_name.like("codex.%"),
+                    and_(
+                        action.c.tool_name == GMAIL_CREATE_DRAFT_SPEC.id,
+                        action.c.execution_contract["implementation_revision"]
+                        .as_string()
+                        .is_distinct_from(WORKSPACE_MAIL_IMPLEMENTATION),
+                    ),
                 ),
                 unfinished_action_or_worker_ack(),
             )
@@ -187,6 +194,31 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
             raise NativeActivationDefect(
                 "retired action requires a disposition under the original release",
                 legacy,
+            )
+        old_mail = await connection.scalar(
+            select(native_invocation.c.id)
+            .join(native_attempt, native_attempt.c.id == native_invocation.c.attempt_id)
+            .where(
+                native_attempt.c.conversation_id == conversation_id,
+                native_attempt.c.product_outcome.is_(None),
+                or_(
+                    native_attempt.c.terminal_at.is_not(None),
+                    native_attempt.c.recovery_pending,
+                    native_attempt.c.fenced_at.is_(None),
+                ),
+                native_invocation.c.tool_id == GMAIL_CREATE_DRAFT_SPEC.id,
+                native_invocation.c.validation == "accepted",
+                native_invocation.c.reply_receipt.is_(None),
+                native_invocation.c.frozen_contract["implementation_revision"]
+                .as_string()
+                .is_distinct_from(WORKSPACE_MAIL_IMPLEMENTATION),
+            )
+            .limit(1)
+        )
+        if old_mail is not None:
+            raise NativeActivationDefect(
+                "retired mail invocation requires original-release disposition",
+                old_mail,
             )
         unknown = await connection.scalar(
             select(read_position.c.position)

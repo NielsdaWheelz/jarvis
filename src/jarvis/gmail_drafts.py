@@ -30,6 +30,7 @@ from jarvis.mail_files import (
     MailFile,
     canonical_media_type,
 )
+from jarvis.workspace_write_models import DraftSnapshot
 from jarvis.write_tools import (
     GMAIL_WRITE_POLICY,
     GmailComposeContract,
@@ -455,6 +456,20 @@ def workspace_draft_content(
                 raise ValueError("unsupported draft mime parameter")
     body, files, parts = _plain_parts(message)
     return _envelope_snapshot(message, account, body, files), parts
+
+
+def workspace_draft_snapshot(
+    message: MIMEPart, snapshot: GmailSnapshot
+) -> DraftSnapshot:
+    (sender,) = _mailboxes(message, "From")
+    return DraftSnapshot.model_validate(
+        {
+            **snapshot.model_dump(
+                include={"subject", "to", "cc", "bcc", "body_text", "files"}
+            ),
+            "sender": sender.model_dump(),
+        }
+    )
 
 
 @dataclass(frozen=True, slots=True)

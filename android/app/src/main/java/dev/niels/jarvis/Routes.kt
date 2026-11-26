@@ -11,6 +11,7 @@ internal sealed interface Route {
     data object Overview : Route
     data object Files : Route
     data class Message(val id: String) : Route
+    data class DraftRevision(val messageId: String, val actionId: String) : Route
     data class Todo(val id: String) : Route
     data class File(val id: String, val page: Long?) : Route
     data class DriveFile(val subject: String, val id: String, val page: Long? = null) : Route
@@ -43,6 +44,11 @@ internal object Routes {
         }
         val segments = path.removePrefix("/").split('/')
         val name = segments.getOrNull(1) ?: return null
+        if (segments[0] == "mail") {
+            if (query != null || segments.size != 4 || segments[2] != "revision" ||
+                !uuid.matches(name) || !uuid.matches(segments[3])) return null
+            return Route.DraftRevision(name, segments[3])
+        }
         if (segments[0] == "v") {
             if (query != null || segments.size > 3 || name.length > 64 || !slug.matches(name)) {
                 return null
@@ -75,6 +81,8 @@ internal object Routes {
             Route.Overview -> appendPath("overview")
             Route.Files -> appendPath("files")
             is Route.Message -> appendPath("m").appendPath(route.id)
+            is Route.DraftRevision -> appendPath("mail").appendPath(route.messageId)
+                .appendPath("revision").appendPath(route.actionId)
             is Route.Todo -> appendPath("t").appendPath(route.id)
             is Route.File -> {
                 appendPath("f").appendPath(route.id)

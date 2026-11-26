@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections import Counter
 from datetime import datetime
 from functools import cache
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy import ColumnElement, RowMapping, Text, select, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.concurrency import run_in_threadpool
@@ -18,9 +18,13 @@ from starlette.concurrency import run_in_threadpool
 from jarvis.action_requests import action_request_spec
 from jarvis.actions import ActionPersistenceDefect, recorded_action
 from jarvis.db import action, attachment, message, work
-from jarvis.gmail_drafts import VerifiedDraft, verified_draft
 from jarvis.home_pages import HomePages
-from jarvis.workspace_write_models import DraftWriteReceipt, FrozenCompose
+from jarvis.mail_revisions import (
+    VerifiedCompose,
+    inspect_revision,
+    integrity_failure,
+    verified_compose,
+)
 from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_DELETE_EVENT_SPEC,
@@ -30,12 +34,11 @@ from jarvis.write_tools import (
     DRIVE_CREATE_SPEC,
     DRIVE_REVISE_SPEC,
     GMAIL_DISCARD_DRAFT_SPEC,
+    WORKSPACE_MAIL_IMPLEMENTATION,
     GmailSnapshot,
 )
 
 type Record = dict[str, Any]
-
-LOGGER = logging.getLogger(__name__)
 
 # Extract only owner-facing columns. In particular, never load a native request.
 # Older control replies have the transaction's start time. Their receipt records
@@ -45,6 +48,12 @@ SELECT m.id, m.role, m.source,
        CASE WHEN m.source = 'native_control' THEN COALESCE(m.processed_at, m.created_at)
             ELSE m.created_at END AS at, m.text,
        m.home->'ref' AS ref, m.home->'present' AS present,
+       saved.id AS draft_revision_id,
+       CASE WHEN m.role='assistant' AND m.source IN ('native_final','native_failure')
+         THEN CASE WHEN m.home #>> '{todo_result,draft_ref}' IS NOT NULL
+                        AND saved.id IS NULL THEN 'integrity'
+                   ELSE m.home #>> '{todo_result,draft_error}' END
+       END AS draft_revision_error,
        COALESCE((
            SELECT jsonb_agg(jsonb_build_object(
                'id', f.id, 'name', item->>'name', 'state', f.state,
@@ -57,6 +66,23 @@ SELECT m.id, m.role, m.source,
              AND f.origin_message_id = m.id
        ), '[]') AS files
 FROM message m
+LEFT JOIN action saved
+  ON m.role='assistant' AND m.source IN ('native_final','native_failure')
+ AND saved.id=CASE WHEN pg_input_is_valid(m.home #>> '{todo_result,draft_ref}', 'uuid')
+                   THEN (m.home #>> '{todo_result,draft_ref}')::uuid END
+ AND saved.id::text=m.home #>> '{todo_result,draft_ref}'
+ AND saved.status='succeeded'
+ AND (
+   (saved.tool_name='gmail.create_draft'
+    AND saved.execution_contract->>'implementation_revision' IN
+        ('jarvis-gmail-create_draft-v2', :mail_implementation))
+   OR (saved.tool_name='gmail.update_draft'
+       AND saved.execution_contract->>'implementation_revision'
+             ='jarvis-gmail-update_draft-v2')
+ )
+ AND saved.origin_message_id::text=m.home #>> '{todo_result,request_id}'
+ AND EXISTS (SELECT FROM message origin WHERE origin.id=saved.origin_message_id
+             AND origin.source_conversation_id=m.source_conversation_id)
 WHERE m.source_conversation_id = :scope AND m.role IN ('assistant','owner')
   AND m.source != 'initialize_state'
 """
@@ -80,7 +106,12 @@ async def conversation(
             WHERE CAST(:at AS timestamptz) IS NULL OR (at,id) < (:at,:id)
             ORDER BY at DESC, id DESC LIMIT 51"""
         ),
-        {"scope": scope, "at": at, "id": identifier},
+        {
+            "scope": scope,
+            "at": at,
+            "id": identifier,
+            "mail_implementation": WORKSPACE_MAIL_IMPLEMENTATION,
+        },
     )
     rows = [dict(row) for row in result.mappings()]
     page = rows[:50]
@@ -132,7 +163,7 @@ async def todo_results(
 
 async def draft_for_request(
     connection: AsyncConnection, request_id: UUID, draft_ref: UUID
-) -> VerifiedDraft | tuple[DraftWriteReceipt, FrozenCompose] | None:
+) -> VerifiedCompose | None:
     """Only a successful compose at this already-verified origin can be evidence."""
     candidate = await connection.scalar(
         select(action.c.id).where(
@@ -143,7 +174,6 @@ async def draft_for_request(
                 (
                     "gmail.create_draft",
                     "gmail.update_draft",
-                    "gmail.prepare_replacement",
                 )
             ),
         )
@@ -153,99 +183,25 @@ async def draft_for_request(
     stored = await recorded_action(connection, candidate)
     if stored is None:
         raise ActionPersistenceDefect("saved draft action disappeared")
-    if stored.execution_contract.implementation_revision == (
-        f"jarvis-{stored.tool_name.replace('.', '-')}-workspace-v1"
-    ):
-        frozen = stored.current_execution_contract.workspace
-        if frozen is None or not isinstance(frozen.effect, FrozenCompose):
-            raise ActionPersistenceDefect("saved workspace draft lacks its contract")
-        try:
-            receipt = DraftWriteReceipt.model_validate(
-                (stored.result or {}).get("value")
-            )
-        except ValueError as exc:
-            raise ActionPersistenceDefect(
-                "saved workspace draft lacks its receipt"
-            ) from exc
-        if (
-            receipt.action_id != draft_ref
-            or receipt.account != frozen.account
-            or receipt.grant_id != frozen.grant_id
-        ):
-            raise ActionPersistenceDefect("saved workspace draft authority differs")
-        return (receipt, frozen.effect) if receipt.verification == "verified" else None
-    return verified_draft(stored)
+    return verified_compose(stored)
 
 
 async def visible_message(
-    connection: AsyncConnection,
-    scope: str,
-    identifier: UUID,
-    *,
-    include_mail_body: bool = False,
+    connection: AsyncConnection, scope: str, identifier: UUID
 ) -> Record | None:
     result = await connection.execute(
-        text(
-            "SELECT visible.*, CASE "
-            "WHEN visible.source IN ('native_final','native_failure') "
-            "THEN m.home #> '{todo_result}' END AS todo_result "
-            f"FROM ({_MESSAGES} AND m.id = :id) visible "
-            "JOIN message m ON m.id=visible.id"
-        ),
-        {"scope": scope, "id": identifier},
+        text(_MESSAGES + " AND m.id=:id"),
+        {
+            "scope": scope,
+            "id": identifier,
+            "mail_implementation": WORKSPACE_MAIL_IMPLEMENTATION,
+        },
     )
     row = result.mappings().one_or_none()
     if row is None:
         return None
-    proposals = await _proposals(
-        connection, scope, [identifier], include_mail_body=include_mail_body
-    )
-    detail = dict(row)
-    linked = detail.pop("todo_result")
-    saved_draft = None
-    saved_draft_error = None
-    if linked is not None:
-        saved_draft_error = linked.get("draft_error")
-        if linked.get("draft_ref") is not None:
-            try:
-                verified = await draft_for_request(
-                    connection, UUID(linked["request_id"]), UUID(linked["draft_ref"])
-                )
-                if verified is None:
-                    raise ActionPersistenceDefect("linked saved draft has no receipt")
-            except ActionPersistenceDefect:
-                LOGGER.error(
-                    "saved draft receipt failed integrity checks: message=%s",
-                    identifier,
-                )
-                saved_draft_error = "integrity"
-            else:
-                fields = {"subject", "to", "cc", "bcc", "files"}
-                if include_mail_body:
-                    fields.add("body_text")
-                if isinstance(verified, VerifiedDraft):
-                    saved_draft = {
-                        "draft_ref": verified.receipt.draft_ref,
-                        "observed_at": verified.receipt.observed_at,
-                        **verified.snapshot.model_dump(mode="json", include=fields),
-                    }
-                else:
-                    receipt, frozen = verified
-                    saved_draft = {
-                        "draft_ref": linked["draft_ref"],
-                        "observed_at": receipt.observed_at,
-                        "gmail_url": receipt.new_link,
-                        "files": [
-                            file.model_dump(mode="json") for file in receipt.files
-                        ],
-                        **frozen.content.model_dump(mode="json", include=fields),
-                    }
-    return {
-        **detail,
-        "proposals": proposals[identifier],
-        "saved_draft": saved_draft,
-        "saved_draft_error": saved_draft_error,
-    }
+    proposals = await _proposals(connection, scope, [identifier])
+    return {**row, "proposals": proposals[identifier]}
 
 
 def proposal_presented(scope: str) -> ColumnElement[bool]:
@@ -265,7 +221,7 @@ def proposal_presented(scope: str) -> ColumnElement[bool]:
 # Project the exact action/message relation. A first decision without a published
 # ask belongs to the owner message that supplied it. Matching decision retries
 # retain that original receipt, even when their invocation cites a later message.
-_PROPOSALS = """
+_PROPOSAL_PAIRS = """
 WITH page AS (
     SELECT id,role,source,home FROM message
     WHERE id=ANY(:ids) AND source_conversation_id=:scope
@@ -284,6 +240,11 @@ WITH page AS (
           WHERE ask.source_conversation_id=:scope AND ask.source='native_final'
             AND ask.home->'proposal_ids' ? i.action_id::text)
 )
+"""
+
+_PROPOSALS = (
+    _PROPOSAL_PAIRS
+    + """
 SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,
   codec.binding,
   CASE WHEN codec.binding IS NOT NULL AND a.tool_name!='gmail.send_draft'
@@ -293,10 +254,6 @@ SELECT p.message_id,a.id AS action_id,a.status,a.tool_name,
   CASE WHEN codec.binding = 'historical' AND a.tool_name='gmail.send_draft'
     THEN (a.execution_contract #> '{mail,snapshot}') - 'body_text'
     END AS mail_preview,
-  CASE WHEN :include_mail_body AND codec.binding = 'historical'
-    AND a.tool_name='gmail.send_draft'
-    THEN a.execution_contract #>> '{mail,snapshot,body_text}'
-    END AS mail_body,
   COALESCE(a.result->>'reason_code',a.result #>> '{error,type}') AS reason,
   a.result #>> '{value,sent_message_id}' AS sent_id,
   COALESCE(a.result #>> '{value,event,event_id}',a.result #>> '{value,event_id}')
@@ -318,6 +275,30 @@ LEFT JOIN LATERAL (
 ) first ON true
 ORDER BY a.created_at,a.id
 """
+)
+
+
+_REVISION_RELATION = (
+    _PROPOSAL_PAIRS
+    + """
+SELECT false AS saved, NULL::text AS request_id
+FROM pairs p JOIN action a ON a.id=p.action_id
+JOIN message origin ON origin.id=a.origin_message_id
+  AND origin.source_conversation_id=:scope
+WHERE p.action_id=:action_id
+  AND a.tool_name='gmail.send_draft' AND (CAST(:contracts AS jsonb)->a.tool_name)
+    ->>(a.execution_contract->>'tool_contract_revision')='historical'
+UNION ALL
+SELECT true AS saved, p.home #>> '{todo_result,request_id}'
+FROM page p LEFT JOIN action a ON a.id=:action_id
+LEFT JOIN message origin ON origin.id=a.origin_message_id
+WHERE p.role='assistant' AND p.source IN ('native_final','native_failure')
+  AND p.home #>> '{todo_result,draft_ref}'=CAST(:action_id AS uuid)::text
+  AND (a.id IS NULL OR origin.source_conversation_id=:scope)
+-- A real proposal remains inspectable even if a saved link reused its id.
+ORDER BY saved LIMIT 1
+"""
+)
 
 
 def _calendar_fields(event: Record) -> dict[str, str]:
@@ -519,10 +500,28 @@ def _workspace_proposal(tool: str, effect: Record) -> tuple[str, list[str]]:
 
 
 def _mail_proposal(row: RowMapping) -> Record:
-    body = row["mail_body"]
-    snapshot = GmailSnapshot.model_validate(
-        {**cast(Record, row["mail_preview"]), "body_text": "" if body is None else body}
-    )
+    status = row["status"]
+    label = {
+        "queued": "approved · waiting to send",
+        "awaiting_approval": "awaiting approval",
+        "executing": "sending",
+        "succeeded": "sent",
+        "failed": "send stopped",
+        "uncertain": "unknown whether sent",
+        "cancelled": "denied" if row["decision"] == "deny" else "cancelled",
+    }[status]
+    presentation = {"status_label": label, "draft_revision_id": row["action_id"]}
+    preview = row["mail_preview"]
+    try:
+        snapshot = GmailSnapshot.model_validate(
+            {**preview, "body_text": ""} if isinstance(preview, dict) else None
+        )
+    except ValidationError:
+        return {
+            **presentation,
+            "title": "recorded email send",
+            "detail": "the stored email failed its integrity checks.",
+        }
     title = "send draft · " + (snapshot.subject or "untitled")
     detail = [
         field + " · " + (", ".join(person.address for person in recipients) or "none")
@@ -541,16 +540,6 @@ def _mail_proposal(row: RowMapping) -> Record:
         detail.append(f"{slot}. {name} · {size:,} bytes{suffix}")
         total += size
     detail.append(f"attachments total · {total:,} bytes")
-    status = row["status"]
-    label = {
-        "queued": "approved · waiting to send",
-        "awaiting_approval": "awaiting approval",
-        "executing": "sending",
-        "succeeded": "sent",
-        "failed": "send stopped",
-        "uncertain": "unknown whether sent",
-        "cancelled": "denied" if row["decision"] == "deny" else "cancelled",
-    }[status]
     if status == "uncertain":
         detail.append(
             "gmail didn't confirm whether it sent. check sent mail before trying again."
@@ -565,23 +554,17 @@ def _mail_proposal(row: RowMapping) -> Record:
         detail.append(f"reason · {row['reason']}")
     if row["sent_id"]:
         detail.append(f"gmail message id · {row['sent_id']}")
-    preview: Record = {
+    return {
         "title": title,
         "detail": "\n".join(detail),
-        "status_label": label,
-        "read_email": True,
+        **presentation,
     }
-    if body is not None:
-        preview["mail_body"] = snapshot.body_text
-    return preview
 
 
 async def _proposals(
     connection: AsyncConnection,
     scope: str,
     message_ids: list[UUID],
-    *,
-    include_mail_body: bool = False,
 ) -> dict[UUID, list[Record]]:
     by_id: dict[UUID, list[Record]] = {identifier: [] for identifier in message_ids}
     if message_ids:
@@ -591,12 +574,41 @@ async def _proposals(
                 "scope": scope,
                 "ids": message_ids,
                 "contracts": _proposal_contracts(),
-                "include_mail_body": include_mail_body,
             },
         )
         for row in result.mappings():
             by_id[row["message_id"]].append(_proposal(row))
     return by_id
+
+
+async def mail_revision(
+    connection: AsyncConnection, scope: str, message_id: UUID, action_id: UUID
+) -> Record | None:
+    # Check the same proposal membership as the chat card, including prior consent.
+    # Saved evidence belongs only to the exact request cited on its visible reply.
+    result = await connection.execute(
+        text(_REVISION_RELATION),
+        {
+            "scope": scope,
+            "ids": [message_id],
+            "action_id": action_id,
+            "contracts": _proposal_contracts(),
+        },
+    )
+    row = result.mappings().one_or_none()
+    if row is None:
+        return None
+    try:
+        stored = await recorded_action(
+            connection, action_id, source_conversation_id=scope
+        )
+        if stored is None or (
+            row["saved"] and str(stored.origin_message_id) != row["request_id"]
+        ):
+            raise ActionPersistenceDefect("revision origin differs")
+        return inspect_revision(stored, saved=row["saved"])
+    except (ActionPersistenceDefect, ValueError):
+        return integrity_failure()
 
 
 async def reference_context(

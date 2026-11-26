@@ -329,6 +329,33 @@ article {
   display: block;
   overflow-anchor: none;
 }
+#canvas:has(#draft-revision),
+#object:has(#draft-revision) {
+  display: block;
+}
+#draft-revision {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 4vw, 3rem);
+  overflow-wrap: anywhere;
+}
+#draft-revision h1,
+#draft-revision h2 {
+  line-height: 1.2;
+}
+#draft-revision dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.3rem 0.8rem;
+}
+#draft-revision dd {
+  margin: 0;
+}
+.draft-revision-body {
+  border-top: 1px solid var(--line);
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+}
 #overview {
   max-width: 48rem;
   padding: clamp(1.25rem, 5vw, 4rem);

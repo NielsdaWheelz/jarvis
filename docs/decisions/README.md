@@ -151,7 +151,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0108](0108-codex-quota-standby.md) | ordered codex standby accounts | source and isolated qualification complete. installed acceptance remains open. |
 | [0109](0109-existing-codex-credits.md) | use existing paid codex credits | accepted. amends the billing and selection rules in 0108. |
 | [0113](0113-desktop-worker.md) | desktop worker on the managed skid fleet | source candidate |
-| [0114](0114-automatic-foreground-recovery.md) | automatic foreground recovery | implementation authorized. automatic capacity waits, restricted continuation and a separately authorized historical catch-up. |
+| [0114](0114-automatic-foreground-recovery.md) | automatic foreground recovery | source and isolated candidate qualified. installed recovery and historical disposition are separate. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

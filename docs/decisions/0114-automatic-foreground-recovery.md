@@ -183,3 +183,35 @@ original unsealed answer as evidence without publishing it as a valid final.
   evidence. the design uses the existing serial main, journals and outbox
   without a workflow framework, new table, quota purchase or wider processor
   policy.
+
+## source qualification
+
+the macbook red rehearsals at `0584972` reproduced the missing service wake,
+discarded paid retry deadline and acceptance of an unsettled retired seal.
+postgres probes reproduced quota and transport parks. independent review also
+reproduced grant replacement rearming, generic release widening authority,
+historical web access and a completed read becoming eligible again after an
+unsealed loss. the corresponding restricted controls passed before the cut.
+
+detached candidate `26a6442` passed on postgres 16 with schema `0024`.
+the integrated `a922811` passed again at `0025`, with the upstream desktop
+memory pin. the real journal and product paths kept both synthetic calendar
+write receipts at one entry each and delivered one restricted result. a
+process killed with the catch-up outbox transaction open left zero committed
+reports or retirements. two fresh processes subsequently settled it once.
+the existing capture/retry probe passed. stock codex `0.171.0` opened both
+personal and neon configurations against synthetic inference, delivered one
+allowed callback per run and entered zero shell, child or write effects.
+the release's static, dependency-lock and package checks passed.
+
+the installed read-only inventory verified 91 canonical mail identities,
+deliveries and park notices, including two informational-only mixed-owner
+facts. the event and inventory encoding occupied 47,172 bytes before the
+fixed task text. the check issued no production write or model call.
+
+the detached out-of-tree receipt is
+`~/.local/state/jarvis/qualification/adr0113/composed-a922811/receipt.json`.
+all six evidence files were reopened and their sha-256 digests matched.
+the rehearsal checkout and disposable postgres fixture were removed.
+the temporary probes were deleted after verification. installed acceptance
+and the historical disposition remain separate.

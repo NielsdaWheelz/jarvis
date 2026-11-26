@@ -6,7 +6,8 @@ import asyncio
 import logging
 from collections import Counter
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from contextlib import nullcontext
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import UUID, uuid4
@@ -26,6 +27,7 @@ from llm_agent_kernel import (
     NativeSubmissionConflict,
     NativeUncertain,
     NoNewInput,
+    OwnerPermit,
     Preempt,
     ProviderSessionLease,
     input_batch,
@@ -48,6 +50,7 @@ from llm_tools import (
 from provider_runtime.agent_runtime import (
     AgentMessage,
     AgentNotSubmitted,
+    AgentRuntimeDefect,
     AgentRuntimeError,
     AgentSubmissionRejected,
     AgentTerminal,
@@ -98,6 +101,7 @@ from jarvis.native_journal import (
     never_submitted,
     park_oversized_input,
     recover_sealed_turn,
+    settle_undispatched_antigravity,
     yield_workspace_input,
 )
 from jarvis.native_protocol import JarvisTerminal
@@ -115,6 +119,7 @@ from jarvis.workspace_host import WorkspaceHost, is_workspace_wake
 
 if TYPE_CHECKING:
     from provider_runtime.agent_runtime.neon_control import NeonControl
+    from sqlalchemy.ext.asyncio import AsyncConnection
 
     from jarvis.write_dispatch import WriteToolDispatcher
 
@@ -176,6 +181,7 @@ async def fit_native_inputs(
     prefix: PromptSections,
     exclude_ids: tuple[UUID, ...],
     steer: bool = False,
+    connection: AsyncConnection | None = None,
 ) -> tuple[tuple[HostInput, ...], PromptSections, NativeRequestFit]:
     for index, item in enumerate(values):
         if _workspace_input(item):
@@ -185,9 +191,12 @@ async def fit_native_inputs(
         omitted = await store.waiting_input_count(
             owner.scope_id,
             exclude_ids=(*exclude_ids, *(item.id for item in values)),
+            connection=connection,
         )
         receipts = await native_receipt_context(
-            owner, input_ids=tuple(InputId(str(item.id)) for item in values)
+            owner,
+            input_ids=tuple(InputId(str(item.id)) for item in values),
+            connection=connection,
         )
         framed = _host_inputs(values, receipts, omitted)
         current = input_batch(
@@ -456,10 +465,8 @@ class NativeRunner:
         cancellation: CancellationToken,
     ) -> NativeRunOutcome | None:
         scoped = _workspace_input(pending[0])
-        definition = (
-            self.definitions.workspace_check if scoped else self.definitions.main
-        )
-        definition = with_main_provider(definition, selected.provider)
+        template = self.definitions.workspace_check if scoped else self.definitions.main
+        definition = template
         plan = self.definitions.plans["workspace_check" if scoped else "main"]
         try:
             pending_publication = await self.memory.pending_publication()
@@ -471,63 +478,166 @@ class NativeRunner:
         if cancellation.cancelled:
             return NativeRunOutcome("stopped")
         as_of = datetime.now(UTC)
-        inputs, projected, size = await fit_native_inputs(
-            self.owner,
-            self.store,
-            definition,
-            pending,
-            as_of,
-            prefix=source,
-            exclude_ids=(),
-        )
-        if not size.fits:
-            actual, limit, unit = size.actual_chars, size.max_chars, "characters"
-            if actual <= limit:
-                actual, limit, unit = size.wire_bytes, size.max_bytes, "wire bytes"
-            reason = f"the opening needed {actual} {unit}, limit {limit}"
-            parked = await park_oversized_input(self.owner, pending[0].id, reason)
-            if parked:
-                self.notify_delivery()
-            return NativeRunOutcome("progressed" if parked else "blocked")
         attempt_id = str(uuid4())
         permit = self.owner.permit("jarvis-native:" + attempt_id)
-        request = NativeRequest(
-            attempt_id,
-            permit,
-            "thread",
-            tuple(item.input_id for item in inputs),
-            projected,
-            projected,
-            plan,
-            "restart_reasoning",
-            None,
-            Checkpoint(str(inputs[-1].input_id)),
-        )
+        try:
+            async with self.owner.database.connect() as connection:
+                await connection.execution_options(
+                    isolation_level="REPEATABLE READ",
+                    postgresql_readonly=True,
+                )
+                while True:
+                    definition = with_main_provider(template, selected.provider)
+                    inputs, projected, size = await fit_native_inputs(
+                        self.owner,
+                        self.store,
+                        definition,
+                        pending,
+                        as_of,
+                        prefix=source,
+                        exclude_ids=(),
+                        connection=connection,
+                    )
+                    if size.fits:
+                        await self.owner.require_current(permit)
+                        if cancellation.cancelled or await self.store.paused(
+                            self.owner.scope_id
+                        ):
+                            return NativeRunOutcome("stopped")
+                        if await self._acquire_route(
+                            selected, definition, plan, permit
+                        ):
+                            break
+                    if pinned is not None or selected.route != "agy_neon":
+                        break
+                    next_route = await self.route_selector.choose_route(
+                        "main", after=selected
+                    )
+                    if isinstance(next_route, DeferredRoute):
+                        return None
+                    selected = next_route
+            if not size.fits:
+                actual, limit, unit = size.actual_chars, size.max_chars, "characters"
+                if actual <= limit:
+                    actual, limit, unit = size.wire_bytes, size.max_bytes, "wire bytes"
+                reason = f"the opening needed {actual} {unit}, limit {limit}"
+                parked = await park_oversized_input(self.owner, pending[0].id, reason)
+                if parked:
+                    self.notify_delivery()
+                return NativeRunOutcome("progressed" if parked else "blocked")
+            if self._session is None:
+                return None
+            request = NativeRequest(
+                attempt_id,
+                permit,
+                "thread",
+                tuple(item.input_id for item in inputs),
+                projected,
+                projected,
+                plan,
+                "restart_reasoning",
+                None,
+                Checkpoint(str(inputs[-1].input_id)),
+            )
+            outcome = await self._run_opened(
+                selected,
+                definition,
+                request,
+                cutoff,
+                scoped,
+                pinned,
+                cancellation,
+            )
+            if outcome != "retry_stock":
+                return outcome
+            fallback = await self.route_selector.choose_route("main", after=selected)
+            if isinstance(fallback, DeferredRoute):
+                return None
+            definition = with_main_provider(template, fallback.provider)
+            if not native_request_fit(definition, projected).fits:
+                return None
+            attempt_id = str(uuid4())
+            permit = self.owner.permit("jarvis-native:" + attempt_id)
+            request = replace(request, attempt_id=attempt_id, permit=permit)
+            await self.owner.require_current(permit)
+            if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
+                return NativeRunOutcome("stopped")
+            if not await self._acquire_route(fallback, definition, plan, permit):
+                return None
+            outcome = await self._run_opened(
+                fallback,
+                definition,
+                request,
+                cutoff,
+                scoped,
+                pinned,
+                cancellation,
+            )
+            if outcome == "retry_stock":
+                raise NativeDefect("stock returned an Antigravity non-entry")
+            return outcome
+        finally:
+            session, self._session = self._session, None
+            if session is not None:
+                await self.kernel.provider.discard(session)
+
+    async def _acquire_route(
+        self,
+        selected: SelectedRoute,
+        definition: NativeDefinition,
+        plan: FrozenToolPlan,
+        permit: OwnerPermit,
+    ) -> bool:
+        try:
+            self._session = await self.kernel.provider.acquire_native(
+                definition, plan, permit, None
+            )
+        except (AgentRuntimeDefect, AgentRuntimeError, OSError) as error:
+            if isinstance(error, AgentRuntimeDefect) and selected.route != "agy_neon":
+                raise
+            self.route_selector.opening_failed(selected.route)
+            LOGGER.warning(
+                "native opening blocked: route=%s type=%s",
+                selected.route,
+                type(error).__name__,
+            )
+            return False
+        return True
+
+    async def _run_opened(
+        self,
+        selected: SelectedRoute,
+        definition: NativeDefinition,
+        request: NativeRequest,
+        cutoff: int,
+        scoped: bool,
+        pinned: NativeRoute | None,
+        cancellation: CancellationToken,
+    ) -> NativeRunOutcome | Literal["retry_stock"] | None:
+        session = self._session
+        if session is None:
+            raise NativeDefect("supervision requires an acquired native session")
+        attempt_id = request.attempt_id
+        plan = request.plan
         protocol_fault = False
         terminal = None
         native_inputs = None
         observations = None
+        antigravity = None
         try:
             try:
-                await self.owner.require_current(permit)
-                if cancellation.cancelled or await self.store.paused(
-                    self.owner.scope_id
+                ref = session.session.ref
+                if (ref.profile_key, ref.backend, ref.transport) != (
+                    selected.route,
+                    definition.provider.backend,
+                    definition.provider.transport,
                 ):
-                    return NativeRunOutcome("stopped")
-                try:
-                    self._session = await self.kernel.provider.acquire_native(
-                        definition, plan, permit, None
-                    )
-                except (AgentRuntimeError, OSError) as error:
-                    self.route_selector.opening_failed(selected.route)
-                    LOGGER.warning(
-                        "codex opening blocked: account=%s type=%s",
-                        selected.route,
-                        type(error).__name__,
-                    )
-                    return None
-                if self._session.session.ref.profile_key != selected.route:
-                    raise NativeDefect("acquired session changed the selected account")
+                    raise NativeDefect("acquired session changed the selected route")
+                antigravity = (
+                    self.kernel.runtime.antigravity_lease(session.session)
+                    if selected.route == "agy_neon"
+                    else None
+                )
                 journal = PostgresNativeJournal(
                     self.owner.database,
                     definition=definition,
@@ -535,6 +645,7 @@ class NativeRunner:
                     owner=self.owner,
                     memory=self.memory,
                     neon_control=self.neon_control,
+                    antigravity=antigravity,
                 )
                 self._journal = journal
                 native_inputs = NativeInputs(
@@ -545,7 +656,7 @@ class NativeRunner:
                     memory_cutoff=cutoff,
                     cancellation=cancellation,
                     maximum_batch_size=self.settings.maximum_batch_size,
-                    accept_steers=pinned is None,
+                    accept_steers=pinned is None and selected.route != "agy_neon",
                     workspace=self.workspace,
                     opened_workspace_check=scoped,
                 )
@@ -560,7 +671,7 @@ class NativeRunner:
                     definition=definition,
                     request=request,
                     provider=self.kernel.provider,
-                    session=self._session,
+                    session=session,
                     owner=self.owner,
                     journal=journal,
                     inputs=native_inputs,
@@ -606,6 +717,16 @@ class NativeRunner:
                 if deferred is not None:
                     # Recheck admission on the next pass. Personal may have reset.
                     return NativeRunOutcome("progressed")
+            if (
+                pinned is None
+                and isinstance(terminal, AgentNotSubmitted)
+                and antigravity is not None
+                and antigravity.joined
+                and journal is not None
+                and journal.sdk_upstream_entries == 0
+                and await settle_undispatched_antigravity(self.owner, request)
+            ):
+                return "retry_stock"
             if (
                 terminal is None
                 or isinstance(terminal, AgentNotSubmitted | AgentSubmissionRejected)
@@ -1160,10 +1281,15 @@ async def native_receipt_context(
     owner: JarvisOwner,
     *,
     input_ids: tuple[InputId, ...],
+    connection: AsyncConnection | None = None,
 ) -> PromptSections:
     """Frame operative facts and the inventory of recorded observations."""
     selected_ids = tuple(map(UUID, input_ids))
-    async with owner.database.connect() as connection:
+    async with (
+        owner.database.connect()
+        if connection is None
+        else nullcontext(connection) as connection
+    ):
         component_ids = await causal_component_ids(connection, selected_ids)
         requests = (
             (

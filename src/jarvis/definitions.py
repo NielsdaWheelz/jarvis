@@ -17,6 +17,7 @@ from llm_agent_kernel import (
     NATIVE_BASE_INSTRUCTION,
     AgentDefinition,
     AgentRole,
+    AntigravityProviderConfiguration,
     DefinitionId,
     KernelLimits,
     NativeDefinition,
@@ -47,7 +48,11 @@ from llm_tools import (
     canonical_json_bytes,
     render_prompt,
 )
-from provider_runtime.agent_runtime import JsonSchemaAgentOutput
+from provider_runtime.agent_runtime import (
+    AGY_WORKSPACE_POLICY,
+    JsonSchemaAgentOutput,
+    PermissionPolicy,
+)
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model
 from pydantic_core import PydanticCustomError
 from universal_memory import DreamResult, MemoryError
@@ -752,13 +757,32 @@ class _NeonContract(BaseModel):
     catalog_revision: _Identifier
 
 
+class _AntigravityContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    backend: Literal["antigravity"]
+    transport: Literal["antigravity_sdk"]
+    model: Literal["gemini-4-neon"]
+    model_version: Literal["gemini-4-neon"]
+    effort: Literal["high"]
+    sdk_version: Literal["0.1.24"]
+    wheel_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    executable_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    capability_revision: _Identifier
+    child_context: Literal["fresh"]
+    child_effort: Literal["inherit"]
+    child_depth: Literal[2]
+    shell_network: Literal["disabled"]
+    context_window: Literal["512k"]
+
+
 class _SessionManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["jarvis-session-compatibility.v5"]
+    schema_version: Literal["jarvis-session-compatibility.v6"]
     application_session_contract_revision: _Identifier
     dependencies: dict[str, str]
     roles: dict[str, _RoleContract]
     google_neon: _NeonContract
+    agy_neon: _AntigravityContract
 
 
 @cache
@@ -772,13 +796,17 @@ def load_session_manifest() -> _SessionManifest:
     return manifest
 
 
-def _role_revision(role_id: str, provider: ProviderConfiguration) -> str:
+def _role_revision(
+    role_id: str, provider: ProviderConfiguration | AntigravityProviderConfiguration
+) -> str:
     manifest = load_session_manifest()
-    role = (
-        manifest.google_neon
-        if role_id == "main" and provider.model_key == manifest.google_neon.model
-        else manifest.roles[role_id]
-    )
+    profile = provider.auth.profile_key
+    if role_id == "main" and profile == "agy_neon":
+        role = manifest.agy_neon
+    elif role_id == "main" and profile == "google_neon":
+        role = manifest.google_neon
+    else:
+        role = manifest.roles[role_id]
     if (provider.model_key, provider.reasoning) != (role.model, role.effort):
         raise ValueError(f"{role_id} requires its release model and effort")
     value = {
@@ -793,17 +821,34 @@ def _role_revision(role_id: str, provider: ProviderConfiguration) -> str:
 
 
 def with_main_provider(
-    definition: NativeDefinition, binding: ProviderConfiguration
+    definition: NativeDefinition,
+    binding: ProviderConfiguration | AntigravityProviderConfiguration,
 ) -> NativeDefinition:
     """Bind a selected host to main without changing its effective tool authority."""
-    provider = replace(
-        definition.provider,
-        auth=binding.auth,
-        model_key=binding.model_key,
-        reasoning=binding.reasoning,
-        agent_definition_revision=binding.agent_definition_revision,
-        row_fingerprint=binding.row_fingerprint,
-    )
+    template = definition.provider
+    if isinstance(binding, AntigravityProviderConfiguration):
+        workspace = template.policy.filesystem == "workspace_write"
+        provider = replace(
+            binding,
+            cwd=template.cwd,
+            additional_dirs=template.additional_dirs,
+            system=template.system,
+            developer=template.developer,
+            policy=AGY_WORKSPACE_POLICY if workspace else PermissionPolicy(),
+            workspace_tools=workspace,
+        )
+    else:
+        if not isinstance(template, ProviderConfiguration):
+            raise ValueError("main template requires its stock containment options")
+        provider = replace(
+            binding,
+            cwd=template.cwd,
+            additional_dirs=template.additional_dirs,
+            system=template.system,
+            developer=template.developer,
+            policy=template.policy,
+            native=template.native,
+        )
     return replace(
         definition,
         provider=provider,

@@ -66,13 +66,42 @@ in place. obtain owner disposition for attached browser bytes or any
 unconfirmed mail editor save before closing its tab. keep mismatched clients
 off the viewer until the matched client and service are available.
 
-the release freezes `artifact-catalog.json` in the active root-owned hold.
-it contains the preimage and target digest and the member export hashes.
-the native notes uid writes the converted catalog after `applying`. the
-application uid reopens the target and verifies bytes before serving. a missing
-established catalog holds the cut. restore exact publication evidence or
-obtain an explicit owner disposition. the virgin bootstrap path requires
-an empty publisher directory. postgres recovery excludes the notes and catalog.
+the release closes all publisher hosts and freezes `artifact-catalog.json`
+in the active root-owned hold. it contains the preimage and target digest and
+the member export hashes. the application uid checks the frozen inputs. the
+native notes uid writes after `applying`. the application uid reopens the
+target and verifies bytes before serving. a missing established catalog holds
+the cut. restore the exact catalog from publication evidence. when the owner
+explicitly attests the installation should start with zero editions, stage an
+empty plan under the original held change before applying. this requires an
+empty export directory. use the operator ssh alias and hold the existing
+exclusive release flock for the whole command. set `id` and `release` to the
+held change and its staged target.
+
+```bash
+set -euo pipefail
+held=/var/lib/jarvis-cutover/held
+pages=/var/lib/jarvis-notes/.git/jarvis-pages
+custody="$release/deploy/cutover-hold"
+test "$("$custody" status "$id")" = held
+test -f "$held/jarvis-codex-contained.service"
+test ! -e "$held/artifact-catalog.json"
+"$custody" check "$id"
+plan="$(mktemp "$held/.artifact-catalog.XXXXXX")"
+trap 'rm -f -- "$plan"' EXIT
+runuser -u "$(stat -c %U "$pages")" -g codex-clients -- \
+  "$release/.venv/bin/python" -I -m jarvis.convert_artifact_catalog plan --new-empty >"$plan"
+runuser -u jarvis -g codex-clients -- \
+  "$release/.venv/bin/python" -I -m jarvis.convert_artifact_catalog check-plan <"$plan"
+sync -f "$plan"
+mv -T -- "$plan" "$held/artifact-catalog.json"
+sync -f "$held"
+```
+
+retry the original named activation to apply this plan. the virgin bootstrap
+also requires an empty publisher directory. postgres recovery excludes the
+notes and catalog. an older viewer on todos can still offer a retired link, so
+update the paired clients before using the viewer.
 
 on interruption inspect the original hold. retry with the same named inputs.
 the conversion accepts the frozen source or the already-written target while

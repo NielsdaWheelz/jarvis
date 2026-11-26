@@ -796,7 +796,10 @@ function navigate(path, { origin, canvasSelection = path, filesSelector, replace
     startRoute();
     return;
   }
-  if (path !== "/" && path === location.pathname + location.search && !history.state.panel) return;
+  if (
+    !filesSelector && !history.state.filesSelector && path !== "/" &&
+    path === location.pathname + location.search && !history.state.panel
+  ) return;
   rememberOverview(origin);
   artifacts.remember(origin);
   files.remember(origin || document.activeElement);

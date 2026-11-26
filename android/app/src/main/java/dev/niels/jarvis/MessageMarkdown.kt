@@ -41,12 +41,17 @@ import org.json.JSONObject
 
 private val bare = Regex("""https?://[^\s<>]+|/(?:[mft]/|mail/|files\b|artifacts\b|todos\b)[^\s<>]*|attachment:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}""", RegexOption.IGNORE_CASE)
 
-private data class Reader(val message: JSONObject?, val navigate: (Route) -> Unit, val external: (Uri) -> Unit) {
+private class Reader(val message: JSONObject?, val navigate: (Route) -> Unit, val external: (Uri) -> Unit) {
     fun destination(href: String): (() -> Unit)? {
         if (href.startsWith("//") || href.any { it <= ' ' || it == '\\' }) return null
-        val uri = Uri.parse(href)
-        if (href.startsWith("/") || uri.host.equals(Uri.parse(Routes.origin).host, ignoreCase = true)) {
-            val route = hrefRoute(href) ?: return null
+        val uri = Uri.parse(href).normalizeScheme()
+        val origin = Uri.parse(Routes.origin)
+        val authority = uri.encodedAuthority
+        val internal = uri.scheme == origin.scheme && (authority.equals(origin.encodedAuthority, true) ||
+            authority.equals("${origin.encodedAuthority}:443", true))
+        if (href.startsWith("/") || internal) {
+            val route = if (internal) Routes.parse(uri.buildUpon().encodedAuthority(origin.encodedAuthority).build()) else hrefRoute(href)
+            if (route == null) return null
             if (route is Route.Source || route is Route.Table) return null
             return { navigate(route) }
         }
@@ -97,7 +102,7 @@ internal fun TablePane(route: Route.Table, api: HomeApi, reload: Pair<Int, Int>,
                 Heading("table ${route.ordinal}")
                 MarkdownTable(table, null, reader(message, navigate))
             }
-            TextButton(onClick = back ?: { navigate(Route.Message(route.message)) }) { Text("back to message") }
+            if (back == null) TextButton(onClick = { navigate(Route.Message(route.message)) }) { Text("back to message") }
         }
     }
 }

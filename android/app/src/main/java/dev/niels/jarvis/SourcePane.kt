@@ -29,7 +29,7 @@ internal fun SourcePane(route: Route.Source, api: HomeApi, refresh: Int, auth: I
     var visible by remember { mutableStateOf(false) }
     var visit by remember { mutableIntStateOf(0) }
     var source by remember(route, auth) { mutableStateOf<JSONObject?>(null) }
-    var failure by remember(route, auth) { mutableStateOf(false) }
+    var failure by remember(route, auth) { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     LifecycleResumeEffect(route, auth) {
         visible = true
@@ -37,7 +37,7 @@ internal fun SourcePane(route: Route.Source, api: HomeApi, refresh: Int, auth: I
             visit++
             visible = false
             source = null
-            failure = false
+            failure = null
         }
     }
     LaunchedEffect(route, refresh, auth, visit, visible, retry) {
@@ -48,22 +48,25 @@ internal fun SourcePane(route: Route.Source, api: HomeApi, refresh: Int, auth: I
                 ?: JSONObject().put("state", "unavailable")
             if (!visible || visit != requestVisit) return@LaunchedEffect
             source = result
-            failure = false
+            failure = null
         } catch (_: TimeoutCancellationException) {
             source = null
-            failure = true
+            failure = "could not check source"
         } catch (error: CancellationException) {
             throw error
+        } catch (_: ViewerUpdateRequired) {
+            source = null
+            failure = UpdateViewerMessage
         } catch (_: IOException) {
             source = null
-            failure = true
+            failure = "could not check source"
         }
     }
     Pane {
         val data = source
-        if (failure || data?.string("state") == "unavailable") {
-            BodyStatus(if (failure) "could not check source" else "source unavailable")
-            TextButton(onClick = { retry++ }) { Text("retry") }
+        if (failure != null || data?.string("state") == "unavailable") {
+            BodyStatus(failure ?: "source unavailable")
+            if (failure != UpdateViewerMessage) TextButton(onClick = { retry++ }) { Text("retry") }
         } else if (visible && data?.string("state") == "available") {
             val coverage = data.getJSONObject("coverage")
             val kind = data.getString("kind")
@@ -97,7 +100,7 @@ internal fun SourcePane(route: Route.Source, api: HomeApi, refresh: Int, auth: I
                 }) { Text(if (kind == "mail") "open current in gmail" else "open current in calendar") }
             }
         } else if (visible) CircularProgressIndicator()
-        TextButton(onClick = back ?: { navigate(Route.Message(route.reply)) }) { Text("back to message") }
+        if (back == null) TextButton(onClick = { navigate(Route.Message(route.reply)) }) { Text("back to message") }
     }
 }
 

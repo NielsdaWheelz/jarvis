@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -221,10 +222,17 @@ async def check(dsn: str) -> None:
                         assert listing.json()["items"][0]["id"] == "owner_only_preview"
                         other = await browser.get("/api/drive/other/owner_only_preview")
                         assert other.status_code == 404 and provider_reads == 1
+                        wrong = replace(agent.enrollment(), subject="wrong")
+                        with patch.object(agent, "enrollment", return_value=wrong):
+                            fenced = await browser.get("/api/drive/files?folder=root")
+                        assert fenced.status_code == 424 and provider_reads == 1
+                        assert agent.enrollment().grant_id == baseline.grant_id
+                        await agent.disconnect(baseline.grant_id)
+                        independent = await browser.get("/api/drive/files?folder=root")
+                        assert independent.status_code == 200 and provider_reads == 2
                         await reader.disconnect(human.grant_id)
                         absent = await browser.get("/api/drive/files?folder=root")
-                        assert absent.status_code == 424 and provider_reads == 1
-                        assert agent.enrollment().grant_id == baseline.grant_id
+                        assert absent.status_code == 424 and provider_reads == 2
             finally:
                 await engine.dispose()
     print(

@@ -748,7 +748,7 @@ async def cut(operation, destination, binding, stop, qualification):
                 )
                 verified_drive_map = load_stopped_drive_map(
                     drive_map,
-                    spool=destination / "private-state" / "runtime" / "uploads",
+                    spool=STATE / "runtime" / "uploads",
                     google_state=destination
                     / "private-state"
                     / "connectors"

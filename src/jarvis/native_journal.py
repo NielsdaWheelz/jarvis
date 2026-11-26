@@ -1798,7 +1798,15 @@ class PostgresNativeJournal:
             )
             if existing is None:
                 home = await _presentation_home(
-                    connection, self.owner.scope_id, row["id"], value.response.present
+                    connection,
+                    self.owner.scope_id,
+                    row["id"],
+                    value.response.present,
+                    drive_subject=(
+                        None
+                        if self.workspace_grant is None
+                        else self.workspace_grant.subject
+                    ),
                 )
                 await connection.execute(insert(message).values(**values, home=home))
             elif (

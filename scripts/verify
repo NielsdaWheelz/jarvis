@@ -4,8 +4,9 @@ set -euo pipefail
 uv lock --check
 uv sync --frozen --all-groups
 git diff --check
-uv run ruff format --check .
-uv run ruff check .
+cutover_tools=(deploy/prepare-cutover deploy/drive-export deploy/drive-import)
+uv run ruff format --check . "${cutover_tools[@]}"
+uv run ruff check . "${cutover_tools[@]}"
 uv run pyright
 uv run python scripts/check_docs.py
 

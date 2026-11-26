@@ -41,13 +41,19 @@ def stopped_rows():
             raise Failure(
                 "source must be the restored predecessor at schema 0025 or 0026"
             )
-        return connection.execute("""
+        attachments = connection.execute("""
             SELECT id, state, source->>'kind' AS kind, r2_account, bucket,
                    filename, media_type, size_bytes, sha256, put_entered_at,
                    capture_action_id, error
               FROM attachment
              ORDER BY id
         """).fetchall()
+        uncertain = connection.execute("""
+            SELECT id FROM action WHERE status='uncertain'
+               AND tool_name IN ('attachment.retain','attachment.delete')
+             ORDER BY id
+        """).fetchall()
+        return attachments, [str(row["id"]) for row in uncertain]
 
 
 def list_objects(client, bucket):
@@ -184,7 +190,7 @@ def run(args: argparse.Namespace) -> None:
         raise Failure("stopped google state has no connected subject")
     subject = _IDENTIFIER.validate_python(grant.get("subject"))
     parent = _IDENTIFIER.validate_python(args.parent)
-    rows = stopped_rows()
+    rows, uncertain_actions = stopped_rows()
     if any(
         (row["r2_account"], row["bucket"]) != (args.account, args.bucket)
         for row in rows
@@ -274,6 +280,7 @@ def run(args: argparse.Namespace) -> None:
                 if known_spool[key]["state"] != "pending"
             ),
             "blocked": blocked,
+            "uncertain_actions": uncertain_actions,
         },
     )
     print(f"report sha256 {hashlib.sha256(report.read_bytes()).hexdigest()}")

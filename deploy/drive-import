@@ -142,8 +142,10 @@ def read_inventory(path: Path, approved: str, blobs: Path) -> dict:
     if hashlib.sha256(raw).hexdigest() != approved:
         raise Failure("inventory digest differs from the approved digest")
     inventory = json.loads(raw)
-    if set(inventory) != {"subject", "parent", "rows", "entries"}:
-        raise Failure("inventory must hold exactly subject, parent, rows and entries")
+    fields = set(inventory)
+    required = {"subject", "parent", "rows", "entries"}
+    if not required <= fields <= required | {"retired_actions"}:
+        raise Failure("inventory has missing or unknown fields")
     if inventory["rows"] != len(inventory["entries"]):
         raise Failure("inventory does not cover every attachment row")
     for row in inventory["entries"]:
@@ -174,8 +176,13 @@ def preflight(inventory: dict, ids: dict[str, str], at: datetime) -> DriveCutMan
         except ValidationError as error:
             raise Failure(f"inventory row {number} is invalid: {error}") from error
     try:
-        return DriveCutManifest(
-            subject=inventory["subject"], parent=inventory["parent"], entries=entries
+        return DriveCutManifest.model_validate(
+            {
+                "subject": inventory["subject"],
+                "parent": inventory["parent"],
+                "entries": entries,
+                "retired_actions": inventory.get("retired_actions", ()),
+            }
         )
     except ValidationError as error:
         raise Failure(f"inventory is invalid: {error}") from error

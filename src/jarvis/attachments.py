@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import shutil
@@ -34,7 +35,7 @@ from jarvis.db import (
     native_invocation,
     read_position,
 )
-from jarvis.ownership import Database
+from jarvis.ownership import Database, lock_conversation
 from jarvis.read_tools import ATTACHMENT_MAX_BYTES, ReadResponse, display_descriptor
 from jarvis.workspace_checks import workspace_read_receipts
 from jarvis.workspace_mcp import WorkspaceError
@@ -446,17 +447,53 @@ class AttachmentStore:
                 .values(state="created", drive_subject=subject, drive_file_id=file_id)
             )
 
-    async def verify(self, identifier: UUID, action_id: UUID) -> None:
+    async def verify(
+        self, identifier: UUID, action_id: UUID, *, recovered: bool = False
+    ) -> None:
         async with self._database.begin() as connection:
+            if recovered:
+                await lock_conversation(connection, self._scope)
             row = await self._filing(connection, identifier, action_id)
             if row["state"] not in {"created", "filed"}:
                 raise CustodyConflict("FilingChanged")
             if row["state"] == "created":
+                verified_at = datetime.now(UTC)
                 await connection.execute(
                     update(attachment)
                     .where(attachment.c.id == identifier)
-                    .values(state="filed", verified_at=datetime.now(UTC))
+                    .values(state="filed", verified_at=verified_at)
                 )
+                if recovered:
+                    from jarvis.messages import append_waking_input
+
+                    origin = await connection.scalar(
+                        select(action.c.origin_message_id).where(
+                            action.c.id == action_id
+                        )
+                    )
+                    await append_waking_input(
+                        connection,
+                        role="host",
+                        text=json.dumps(
+                            {
+                                "type": "drive_filing_verified",
+                                "submission_id": str(identifier),
+                                "file": {
+                                    "kind": "drive_file",
+                                    "subject": row["drive_subject"],
+                                    "id": row["drive_file_id"],
+                                },
+                                "verified_at": verified_at.isoformat(),
+                            },
+                            separators=(",", ":"),
+                        ),
+                        source="action",
+                        source_conversation_id=self._scope,
+                        source_message_id=f"{action_id}:drive_filing_verified",
+                        parent_request_id=origin,
+                        action_id=action_id,
+                        created_at=verified_at,
+                    )
         self._drop_original(identifier, row["sha256"])
 
     async def mark_uncertain(

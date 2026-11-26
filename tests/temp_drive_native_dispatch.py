@@ -64,7 +64,13 @@ from jarvis.admission import JarvisOwner
 from jarvis.approval_tools import approval_family
 from jarvis.attachment_sources import AttachmentSources
 from jarvis.attachments import AttachmentStore, WebUpload
-from jarvis.db import action, create_engine, native_attempt, native_input_delivery
+from jarvis.db import (
+    action,
+    create_engine,
+    message,
+    native_attempt,
+    native_input_delivery,
+)
 from jarvis.mail_files import MailFiles
 from jarvis.messages import MessageStore, append_waking_input
 from jarvis.native_journal import PostgresNativeJournal
@@ -412,6 +418,18 @@ async def journey(database, directory: Path) -> None:
         assert filed.state == "filed" and filed.drive_file_id == "new1"
         assert provider.write_total == 1
         assert (await actions.get(id)).result["value"]["verification"] == "unverified"
+
+        await restarted.recover_staged_files()
+        async with database.connect() as conn:
+            evidence = (
+                await conn.execute(
+                    select(message.c.text, message.c.trace).where(
+                        message.c.source_message_id == f"{id}:drive_filing_verified"
+                    )
+                )
+            ).one()
+        assert json.loads(evidence.text)["file"]["id"] == "new1"
+        assert evidence.trace["action_id"] == str(id)
 
         provider.permissions.clear()
 

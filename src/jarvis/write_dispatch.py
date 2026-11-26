@@ -1018,7 +1018,7 @@ class ActionRecovery:
                 before_send=before_send,
             )
         if receipt.verification == "verified":
-            await self._attachments.verify(source, stored.id)
+            await self._attachments.verify(source, stored.id, recovered=True)
 
     async def _require(self, action_id: UUID) -> StoredAction:
         stored = await self._actions.get(

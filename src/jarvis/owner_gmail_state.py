@@ -78,13 +78,18 @@ def owner_drive_reader(
     human = owner_workspace_tokens(settings, directory, oauth, product="drive")
 
     async def grant() -> DriveGrant | None:
-        selected, current = agent.enrollment(), human.enrollment()
-        if (
-            selected is None
-            or current is None
-            or (selected.subject, selected.account)
-            != (current.subject, current.account)
-        ):
+        current = human.enrollment()
+        if current is None:
+            return None
+
+        def same_subject() -> bool:
+            selected = agent.enrollment()
+            return selected is None or (
+                (selected.subject, selected.account)
+                == (current.subject, current.account)
+            )
+
+        if not same_subject():
             return None
         try:
             token = await human.credential(current.grant_id, None)
@@ -96,11 +101,7 @@ def owner_drive_reader(
                 429 if quota else 503,
                 "drive_rate_limited" if quota else "drive_unavailable",
             ) from exc
-        # Account replacement must also fence a credential in flight.
-        latest = agent.enrollment()
-        if latest is None or (
-            (latest.subject, latest.account) != (selected.subject, selected.account)
-        ):
+        if not same_subject():
             return None
         return DriveGrant(current.subject, str(current.grant_id), token.access_token)
 

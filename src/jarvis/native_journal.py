@@ -104,6 +104,8 @@ from jarvis.db import (
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT
 from jarvis.home_reads import draft_for_request, proposal_presented, reference_context
+from jarvis.home_refs import DraftPresentationRef
+from jarvis.mail_revisions import VerifiedWorkspaceDraft
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
     CATCHUP_SOURCE,
@@ -144,7 +146,7 @@ from jarvis.work_tools import WORK_CREATE_SPEC
 from jarvis.workspace_checks import WorkspaceOccurrence, WorkspaceResult
 from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_host import WorkspaceHost, check_observations, is_workspace_wake
-from jarvis.write_tools import WRITE_TOOL_IDS
+from jarvis.write_tools import WORKSPACE_MAIL_IMPLEMENTATION, WRITE_TOOL_IDS
 
 if TYPE_CHECKING:
     from provider_runtime.agent_runtime.neon_control import (
@@ -2030,6 +2032,89 @@ async def _todo_result_home(
     }
 
 
+async def _draft_result_home(
+    connection: AsyncConnection,
+    scope: str,
+    attempt_id: UUID,
+    named: tuple[UUID, ...],
+    stopping: tuple[UUID, ...],
+    explicit: Presentation | None,
+) -> dict[str, object] | None:
+    if not named:
+        return None
+    ancestors = _request_ancestors(scope, attempt_id, stopping)
+    rows = (
+        await connection.execute(
+            select(
+                action.c.id,
+                native_invocation.c.request_message_id,
+                message.c.role,
+                message.c.source,
+            )
+            .join(native_invocation, native_invocation.c.action_id == action.c.id)
+            .join(message, message.c.id == native_invocation.c.request_message_id)
+            .where(
+                native_invocation.c.attempt_id == attempt_id,
+                native_invocation.c.validation == "accepted",
+                native_invocation.c.tool_id == "gmail.create_draft",
+                action.c.origin_message_id == message.c.id,
+                action.c.execution_contract["claim_id"].as_string() == str(attempt_id),
+                action.c.tool_name == "gmail.create_draft",
+                action.c.status == "succeeded",
+                action.c.execution_contract["implementation_revision"].as_string()
+                == WORKSPACE_MAIL_IMPLEMENTATION,
+                native_invocation.c.ordinal
+                == action.c.execution_contract["model_step_ordinal"].as_integer(),
+                select(ancestors.c.id)
+                .where(ancestors.c.id == message.c.id, ancestors.c.input_id.in_(named))
+                .exists(),
+            )
+            .order_by(action.c.created_at, action.c.id)
+        )
+    ).all()
+    drafts: list[dict[str, str]] = []
+    web_request = False
+    seen: set[UUID] = set()
+    for row in rows:
+        if row.id in seen:
+            continue
+        seen.add(row.id)
+        try:
+            evidence = await draft_for_request(
+                connection, row.request_message_id, row.id
+            )
+        except ActionPersistenceDefect:
+            LOGGER.error("draft presentation lacks exact evidence: action=%s", row.id)
+            continue
+        if not isinstance(evidence, VerifiedWorkspaceDraft):
+            continue
+        drafts.append(
+            {
+                "request_id": str(row.request_message_id),
+                "create_action_id": str(row.id),
+                "subject": evidence.compose.content.subject,
+            }
+        )
+        web_request = (
+            row.role == "owner"
+            and row.source == "web"
+            and evidence.compose.editor is not None
+        )
+    if not drafts:
+        return None
+    result: dict[str, object] = {"drafts": drafts}
+    if explicit is None and len(drafts) == 1 and web_request:
+        draft = drafts[0]
+        ref = DraftPresentationRef(
+            request_id=draft["request_id"], create_action_id=draft["create_action_id"]
+        )
+        result["present"] = {
+            "request_id": ref.request_id,
+            "ref": ref.model_dump(mode="json"),
+        }
+    return result
+
+
 async def yield_workspace_input(
     owner: JarvisOwner, request: NativeRequest, owner_input: UUID
 ) -> bool:
@@ -2416,6 +2501,17 @@ async def commit_product(
             )
             if link is not None:
                 home = {**(home or {}), "todo_result": link}
+        if rendered.content is not None and not restricted:
+            drafts = await _draft_result_home(
+                connection,
+                owner.scope_id,
+                attempt["id"],
+                tuple(statuses),
+                stopping,
+                None if isinstance(final.response, Silent) else final.response.present,
+            )
+            if drafts is not None:
+                home = {**(home or {}), **drafts}
         if stopping:
             await cancel_unentered_actions(connection, stopping, timestamp)
         owned: set[UUID] = set()

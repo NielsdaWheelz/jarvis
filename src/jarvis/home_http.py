@@ -21,8 +21,16 @@ from starlette.middleware.base import RequestResponseEndpoint
 from jarvis.attachments import AttachmentStore, WebUpload
 from jarvis.db import attachment, message
 from jarvis.home_pages import HOME_ORIGIN, PAGE_CSP, HomePages
-from jarvis.home_reads import conversation, mail_revision, todo_results, visible_message
+from jarvis.home_reads import (
+    conversation,
+    eligible_draft,
+    mail_revision,
+    todo_results,
+    visible_message,
+)
 from jarvis.home_uploads import attachment_response, read_submission
+from jarvis.mail_editor import EditorTarget, MailEditor
+from jarvis.mail_editor_http import build_mail_editor_router
 from jarvis.messages import (
     IngressUnavailable,
     InvalidReference,
@@ -79,14 +87,21 @@ def create_home_app(
     pages: Path,
     phone: PhoneSlot,
     workspace_approvals: WorkspaceApprovals | None = None,
+    mail_editor: MailEditor | None = None,
 ) -> FastAPI:
     app = FastAPI(
         docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False
     )
     catalog = HomePages(pages)
+    editor_epoch = mail_editor.epoch if mail_editor is not None else None
 
     async def private(request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if (
+        if request.url.path.startswith("/api/mail/") and (
+            "authorization" in request.headers
+            or request.headers.get("sec-fetch-site") != "same-origin"
+        ):
+            response = JSONResponse({"detail": "browser session required"}, 403)
+        elif (
             request.method not in {"GET", "HEAD"}
             and request.headers.get("origin") != HOME_ORIGIN
         ):
@@ -184,23 +199,51 @@ def create_home_app(
     async def history(before: str | None = None) -> dict[str, Any]:
         async with database.connect() as conn:
             try:
-                return await conversation(conn, scope, before)
+                return await conversation(
+                    conn, scope, before, editor_epoch=editor_epoch
+                )
             except ValueError as exc:
                 raise HTTPException(422, "invalid cursor") from exc
 
     async def one_message(identifier: UUID) -> dict[str, Any]:
         async with database.connect() as conn:
-            row = await visible_message(conn, scope, identifier)
+            row = await visible_message(
+                conn, scope, identifier, editor_epoch=editor_epoch
+            )
         if row is None:
             raise HTTPException(404)
         return row
 
     async def revision(message_id: UUID, action_id: UUID) -> dict[str, Any]:
         async with database.connect() as conn:
-            row = await mail_revision(conn, scope, message_id, action_id)
+            row = await mail_revision(
+                conn, scope, message_id, action_id, editor_epoch=editor_epoch
+            )
         if row is None:
             raise HTTPException(404)
         return row
+
+    if mail_editor is not None:
+
+        async def resolve_draft(
+            message_id: UUID, create_action_id: UUID
+        ) -> EditorTarget | None:
+            async with database.connect() as conn:
+                draft = await eligible_draft(conn, scope, message_id, create_action_id)
+            if draft is None:
+                return None
+            return EditorTarget(
+                account=draft.account,
+                google_sub=draft.google_sub,
+                draft_id=draft.draft_id,
+                draft_message_id=draft.draft_message_id,
+                draft_raw_digest=draft.draft_raw_digest,
+                thread_id=draft.thread_id,
+                epoch=draft.epoch,
+                quote=draft.quote,
+            )
+
+        app.include_router(build_mail_editor_router(mail_editor, resolve_draft))
 
     async def todo_list(request: Request) -> dict[str, Any]:
         if request.query_params.multi_items() != [("all", "true")]:
@@ -325,6 +368,9 @@ def create_home_app(
     app.add_api_route("/api/views/{slug}/{rev}", view, methods=["GET"])
     app.add_api_route("/content/{slug}/{rev}", content, methods=["GET"])
     app.add_api_route("/mail/{message_id}/revision/{action_id}", shell, methods=["GET"])
+    app.add_api_route(
+        "/mail/{message_id}/draft/{create_action_id}", shell, methods=["GET"]
+    )
     app.add_api_route("/", shell, methods=["GET"])
     app.add_api_route("/t/{identifier}", shell, methods=["GET"])
     app.add_api_route("/m/{identifier}", shell, methods=["GET"])

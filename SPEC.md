@@ -20,6 +20,11 @@ audience: product, engineering, design, operations, and future coding agents
 
 ## private web home
 
+[adr 0119](docs/decisions/0119-owner-gmail-draft-editor.md) adds the owner
+gmail editor on web and through android's browser. the human oauth client and
+editor receipt are separate from the agent connector and action ledger.
+activation requires the matched clients and qualified mail journey.
+
 [adr 0087](docs/decisions/0087-private-web-home.md) specifies the successor to
 the single discord chat. the private website owns conversation, uploads and
 decisions. jarvis publishes the main canvas from its notes workspace. discord
@@ -1426,9 +1431,17 @@ asynchronous action results retain visible delivery.
 
 ### 5.5 Gmail drafts and sending
 
-the 0107 candidate saves unsent drafts through google mcp. it exposes no send
-tool. gmail is where the owner sends. an edit creates and verifies a new draft
-before a separate proposal to discard the exact old revision.
+the installed 0107 connector creates drafts and the owner sends in gmail.
+at the [0119 cut](docs/decisions/0119-owner-gmail-draft-editor.md), the private
+viewer edits and sends eligible new jarvis drafts through its separate human
+grant. the owner's explicit editor operations use the editor receipt under
+the existing deployment ownership. conversational approval, agent action
+admission and historical send recovery apply only to their original agent
+paths. the agent has no send tool. earlier draft and send evidence stays
+readable.
+
+0107's agent replacement design verifies a new draft before a separate discard
+proposal for the exact old revision. 0119 keeps both agent operations disabled.
 
 the [outgoing mail contract](docs/decisions/0101-outgoing-mail-attachments.md)
 governs the installed predecessor and the original identities of its archived

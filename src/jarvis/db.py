@@ -44,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0025"
+APPLICATION_SCHEMA_REVISION = "0026"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -666,6 +666,53 @@ gmail_usage = Table(
     Column("units", Integer, nullable=False),
     CheckConstraint("length(project_id) > 0", name="project_id"),
     CheckConstraint("units BETWEEN 0 AND 5000", name="units"),
+)
+
+
+mail_editor_operation = Table(
+    "mail_editor_operation",
+    metadata,
+    Column("google_sub", Text, primary_key=True),
+    Column("draft_id", Text, primary_key=True),
+    Column("generation", BigInteger, nullable=False, server_default=text("0")),
+    Column("operation_id", UUID(as_uuid=True), unique=True),
+    Column("kind", Text),
+    Column("request_digest", Text),
+    Column("base_revision", Text),
+    Column("desired_digest", Text),
+    Column("state", Text),
+    Column("provider_result", JSONB(none_as_null=True)),
+    Column(
+        "updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()
+    ),
+    CheckConstraint("length(google_sub) > 0 AND length(draft_id) > 0", name="identity"),
+    CheckConstraint(
+        "(generation = 0 AND operation_id IS NULL AND kind IS NULL "
+        "AND request_digest IS NULL AND base_revision IS NULL AND desired_digest IS "
+        "NULL "
+        "AND state IS NULL AND provider_result IS NULL) OR "
+        "(generation > 0 AND operation_id IS NOT NULL AND kind IS NOT NULL "
+        "AND request_digest IS NOT NULL AND base_revision IS NOT NULL "
+        "AND desired_digest IS NOT NULL AND state IS NOT NULL "
+        "AND request_digest ~ '^[0-9a-f]{64}$' AND base_revision ~ '^[0-9a-f]{64}$' "
+        "AND desired_digest ~ '^[0-9a-f]{64}$' AND "
+        "((kind='save' AND state IN ('entered','saved','failed','save_unknown')) OR "
+        "(kind='send' AND state IN ('entered','sent','failed','send_unknown'))))",
+        name="operation",
+    ),
+    CheckConstraint(
+        "(CASE WHEN state='saved' THEN jsonb_typeof(provider_result)='object' "
+        "AND provider_result ?& ARRAY['message_id','version','files','confirmation'] "
+        "AND provider_result - "
+        "ARRAY['message_id','version','files','confirmation']='{}'::jsonb "
+        "WHEN state='sent' THEN jsonb_typeof(provider_result)='object' "
+        "AND provider_result ? 'message_id' AND provider_result - "
+        "'message_id'='{}'::jsonb "
+        "ELSE provider_result IS NULL OR (jsonb_typeof(provider_result)='object' "
+        "AND provider_result - ARRAY['ack_id','reason','retry_after']='{}'::jsonb) "
+        "END) IS TRUE",
+        name="result",
+    ),
 )
 
 

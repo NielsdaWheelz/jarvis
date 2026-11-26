@@ -31,7 +31,12 @@ from jarvis.db import (
     create_engine,
     normalize_database_url,
 )
+from jarvis.owner_gmail_state import (
+    owner_gmail_directory,
+    read_editor_stamp,
+)
 from jarvis.ownership import maintenance_ownership
+from jarvis.settings import OWNER_GMAIL_DIRECTORY
 
 ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
@@ -434,10 +439,12 @@ def check_private_inputs(snapshot, manifest):
                 not (STATE / google).exists()
                 and not (snapshot / "private-state" / google).exists()
             )
-            or ((STATE / google).is_file()
-            and (snapshot / "private-state" / google).is_file()
-            and copy_digest(STATE / google)
-            == copy_digest(snapshot / "private-state" / google))
+            or (
+                (STATE / google).is_file()
+                and (snapshot / "private-state" / google).is_file()
+                and copy_digest(STATE / google)
+                == copy_digest(snapshot / "private-state" / google)
+            )
         ),
         "authority differs from the stopped declarations or google state",
     )
@@ -493,6 +500,11 @@ def restored_compatibility(proof):
 
 
 async def inspect_restored(operation, snapshot, proof):
+    editor = owner_gmail_directory(OWNER_GMAIL_DIRECTORY)
+    require(
+        read_editor_stamp(editor) is None,
+        "invalidate the owner gmail editor before opening restored state",
+    )
     manifest = json.loads((snapshot / "SNAPSHOT.json").read_bytes())
     require(
         file_digest(snapshot / "database.dump") == manifest["dump_sha256"],

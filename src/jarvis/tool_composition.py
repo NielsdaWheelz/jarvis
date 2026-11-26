@@ -64,6 +64,7 @@ from jarvis.workspace_reads import (
     WorkspaceReads,
     workspace_read_families,
 )
+from jarvis.workspace_write_models import DraftEditorStamp
 from jarvis.workspace_writes import WorkspaceWrites
 from jarvis.write_tools import calendar_write_family, gmail_write_family
 
@@ -95,6 +96,7 @@ def build_tool_composition(
     work: WorkStore,
     events: EventStore,
     event_admitted: Callable[[], Awaitable[bool]],
+    editor_stamp: DraftEditorStamp | None = None,
 ) -> ToolComposition:
     enrollment = tokens.enrollment()
     approvals = WorkspaceApprovals(
@@ -132,7 +134,19 @@ def build_tool_composition(
         settings.host_secrets,
         stage_root=settings.runtime_state_directory.parent / "mail-stage",
     )
-    workspace_writes = WorkspaceWrites(workspace, mail_files, discard_qualified=False)
+
+    def draft_stamp(grant_id: UUID) -> DraftEditorStamp | None:
+        current = tokens.enrollment()
+        if (
+            current is not None
+            and editor_stamp is not None
+            and current.grant_id == grant_id
+            and current.subject == editor_stamp.google_sub
+        ):
+            return editor_stamp
+        return None
+
+    workspace_writes = WorkspaceWrites(workspace, mail_files, editor_stamp=draft_stamp)
     gmail_reads, calendar_reads = workspace_read_families(google_read)
     gmail_writes = gmail_write_family(workspace_writes)
     calendar_writes = calendar_write_family(workspace_writes)

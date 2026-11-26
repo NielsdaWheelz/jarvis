@@ -3,6 +3,7 @@ package dev.niels.jarvis
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -63,6 +64,12 @@ class MainActivity : ComponentActivity() {
             }
 
             fun navigate(route: Route) {
+                if (route is Route.Mail) {
+                    if (!Routes.openInBrowser(this, route)) {
+                        Toast.makeText(this, "could not open this draft in a browser", Toast.LENGTH_LONG).show()
+                    }
+                    return
+                }
                 trail = ArrayList(trail + Routes.url(route).toString())
                 alerts = false
             }

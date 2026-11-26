@@ -692,7 +692,11 @@ AUTOMATIC_WRITE_TOOL_IDS = frozenset(
 )
 WRITE_TOOL_IDS = frozenset(spec.id for spec in (*_GMAIL_SPECS, *_CALENDAR_SPECS))
 WORKSPACE_IMPLEMENTATION = "jarvis-workspace-write-v1"
-WORKSPACE_MAIL_IMPLEMENTATION = "jarvis-workspace-mail-preview-v2"
+WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION = "jarvis-workspace-mail-preview-v2"
+WORKSPACE_MAIL_IMPLEMENTATION = "jarvis-workspace-mail-owner-v3"
+WORKSPACE_MAIL_SNAPSHOT_REVISIONS = frozenset(
+    (WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION, WORKSPACE_MAIL_IMPLEMENTATION)
+)
 
 
 def workspace_implementation(tool: ToolId) -> str:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
 from pathlib import Path
@@ -16,40 +17,69 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.concurrency import run_in_threadpool
 
 from jarvis.action_requests import action_request_spec
-from jarvis.actions import ActionPersistenceDefect, recorded_action
+from jarvis.actions import ActionPersistenceDefect, StoredAction, recorded_action
 from jarvis.attachment_tools import ATTACHMENT_DELETE_SPEC
 from jarvis.db import action, attachment, message, work
 from jarvis.home_pages import HomePages
 from jarvis.mail_revisions import (
     VerifiedCompose,
+    VerifiedWorkspaceDraft,
     inspect_revision,
     integrity_failure,
+    unavailable_revision,
     verified_compose,
 )
+from jarvis.workspace_write_models import FrozenDiscard, FrozenWorkspaceWrite
 from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_DELETE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
     GMAIL_DISCARD_DRAFT_SPEC,
+    WORKSPACE_IMPLEMENTATION,
     WORKSPACE_MAIL_IMPLEMENTATION,
+    WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION,
     GmailSnapshot,
 )
 
 type Record = dict[str, Any]
 
+_DRAFT_REFS = """
+    SELECT ref.item, ref.slot,
+           a.execution_contract #>> '{workspace,effect,editor,epoch}' AS epoch
+    FROM jsonb_array_elements(m.home->'drafts')
+        WITH ORDINALITY AS ref(item,slot)
+    JOIN action a ON a.id=CASE
+                   WHEN pg_input_is_valid(ref.item->>'create_action_id','uuid')
+                   THEN (ref.item->>'create_action_id')::uuid END
+    JOIN message origin ON origin.id=a.origin_message_id
+      AND origin.source_conversation_id=:scope
+    WHERE m.role='assistant' AND m.source='native_final'
+      AND a.origin_message_id::text=ref.item->>'request_id'
+      AND a.tool_name='gmail.create_draft' AND a.status='succeeded'
+      AND a.execution_contract->>'implementation_revision'=:mail_implementation
+      AND a.result #>> '{value,verification}'='verified'
+    ORDER BY ref.slot
+"""
+
 # Extract only owner-facing columns. In particular, never load a native request.
 # Older control replies have the transaction's start time. Their receipt records
 # when the command was applied.
-_MESSAGES = """
+_MESSAGES = f"""
 SELECT m.id, m.role, m.source,
        CASE WHEN m.source = 'native_control' THEN COALESCE(m.processed_at, m.created_at)
             ELSE m.created_at END AS at, m.text,
        m.home->'ref' AS ref, m.home->'present' AS present,
+       COALESCE(
+          (SELECT jsonb_agg(d.item || jsonb_build_object(
+              'editable', coalesce(d.epoch=CAST(:editor_epoch AS text), false)
+            ) ORDER BY d.slot) FROM ({_DRAFT_REFS}) d),
+          '[]'
+       ) AS drafts,
        saved.id AS draft_revision_id,
        CASE WHEN m.role='assistant' AND m.source IN ('native_final','native_failure')
-         THEN CASE WHEN m.home #>> '{todo_result,draft_ref}' IS NOT NULL
+         THEN CASE WHEN m.home #>> '{{todo_result,draft_ref}}' IS NOT NULL
                         AND saved.id IS NULL THEN 'integrity'
-                   ELSE m.home #>> '{todo_result,draft_error}' END
+                   ELSE m.home #>> '{{todo_result,draft_error}}' END
        END AS draft_revision_error,
        COALESCE((
            SELECT jsonb_agg(jsonb_build_object(
@@ -64,19 +94,24 @@ SELECT m.id, m.role, m.source,
 FROM message m
 LEFT JOIN action saved
   ON m.role='assistant' AND m.source IN ('native_final','native_failure')
- AND saved.id=CASE WHEN pg_input_is_valid(m.home #>> '{todo_result,draft_ref}', 'uuid')
-                   THEN (m.home #>> '{todo_result,draft_ref}')::uuid END
- AND saved.id::text=m.home #>> '{todo_result,draft_ref}'
+ AND saved.id=CASE
+                   WHEN pg_input_is_valid(m.home #>> '{{todo_result,draft_ref}}','uuid')
+                   THEN (m.home #>> '{{todo_result,draft_ref}}')::uuid END
+ AND saved.id::text=m.home #>> '{{todo_result,draft_ref}}'
  AND saved.status='succeeded'
  AND (
    (saved.tool_name='gmail.create_draft'
     AND saved.execution_contract->>'implementation_revision' IN
-        ('jarvis-gmail-create_draft-v2', :mail_implementation))
+        ('jarvis-gmail-create_draft-v2', '{WORKSPACE_IMPLEMENTATION}',
+         '{WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION}', :mail_implementation))
+   OR (saved.tool_name='gmail.prepare_replacement'
+       AND saved.execution_contract->>'implementation_revision'
+             ='{WORKSPACE_IMPLEMENTATION}')
    OR (saved.tool_name='gmail.update_draft'
        AND saved.execution_contract->>'implementation_revision'
              ='jarvis-gmail-update_draft-v2')
  )
- AND saved.origin_message_id::text=m.home #>> '{todo_result,request_id}'
+ AND saved.origin_message_id::text=m.home #>> '{{todo_result,request_id}}'
  AND EXISTS (SELECT FROM message origin WHERE origin.id=saved.origin_message_id
              AND origin.source_conversation_id=m.source_conversation_id)
 WHERE m.source_conversation_id = :scope AND m.role IN ('assistant','owner')
@@ -93,7 +128,11 @@ def _cursor(before: str) -> tuple[datetime, UUID]:
 
 
 async def conversation(
-    connection: AsyncConnection, scope: str, before: str | None
+    connection: AsyncConnection,
+    scope: str,
+    before: str | None,
+    *,
+    editor_epoch: UUID | None = None,
 ) -> Record:
     at, identifier = _cursor(before) if before is not None else (None, None)
     result = await connection.execute(
@@ -107,6 +146,7 @@ async def conversation(
             "at": at,
             "id": identifier,
             "mail_implementation": WORKSPACE_MAIL_IMPLEMENTATION,
+            "editor_epoch": str(editor_epoch) if editor_epoch else None,
         },
     )
     rows = [dict(row) for row in result.mappings()]
@@ -169,6 +209,7 @@ async def draft_for_request(
                 (
                     "gmail.create_draft",
                     "gmail.update_draft",
+                    "gmail.prepare_replacement",
                 )
             ),
         )
@@ -182,7 +223,11 @@ async def draft_for_request(
 
 
 async def visible_message(
-    connection: AsyncConnection, scope: str, identifier: UUID
+    connection: AsyncConnection,
+    scope: str,
+    identifier: UUID,
+    *,
+    editor_epoch: UUID | None = None,
 ) -> Record | None:
     result = await connection.execute(
         text(_MESSAGES + " AND m.id=:id"),
@@ -190,6 +235,7 @@ async def visible_message(
             "scope": scope,
             "id": identifier,
             "mail_implementation": WORKSPACE_MAIL_IMPLEMENTATION,
+            "editor_epoch": str(editor_epoch) if editor_epoch else None,
         },
     )
     row = result.mappings().one_or_none()
@@ -278,23 +324,32 @@ ORDER BY a.created_at,a.id
 
 _REVISION_RELATION = (
     _PROPOSAL_PAIRS
-    + """
-SELECT false AS saved, NULL::text AS request_id
+    + f"""
+SELECT CASE a.tool_name WHEN 'gmail.send_draft' THEN 'send' ELSE 'discard' END AS kind,
+       NULL::text AS request_id, 0 AS priority, NULL::text AS epoch
 FROM pairs p JOIN action a ON a.id=p.action_id
 JOIN message origin ON origin.id=a.origin_message_id
   AND origin.source_conversation_id=:scope
 WHERE p.action_id=:action_id
-  AND a.tool_name='gmail.send_draft' AND (CAST(:contracts AS jsonb)->a.tool_name)
-    ->>(a.execution_contract->>'tool_contract_revision')='historical'
+  AND CASE a.tool_name
+    WHEN 'gmail.send_draft' THEN (CAST(:contracts AS jsonb)->a.tool_name)
+        ->>(a.execution_contract->>'tool_contract_revision')='historical'
+    WHEN 'gmail.discard_draft' THEN a.execution_contract->>'implementation_revision'
+        ='{WORKSPACE_IMPLEMENTATION}'
+    ELSE false END
 UNION ALL
-SELECT true AS saved, p.home #>> '{todo_result,request_id}'
+SELECT 'saved', p.home #>> '{{todo_result,request_id}}', 2, NULL::text
 FROM page p LEFT JOIN action a ON a.id=:action_id
 LEFT JOIN message origin ON origin.id=a.origin_message_id
 WHERE p.role='assistant' AND p.source IN ('native_final','native_failure')
-  AND p.home #>> '{todo_result,draft_ref}'=CAST(:action_id AS uuid)::text
+  AND p.home #>> '{{todo_result,draft_ref}}'=CAST(:action_id AS uuid)::text
   AND (a.id IS NULL OR origin.source_conversation_id=:scope)
+UNION ALL
+SELECT 'saved', d.item->>'request_id', 1, d.epoch
+FROM page m CROSS JOIN LATERAL ({_DRAFT_REFS}) d
+WHERE d.item->>'create_action_id'=CAST(:action_id AS uuid)::text
 -- A real proposal remains inspectable even if a saved link reused its id.
-ORDER BY saved LIMIT 1
+ORDER BY priority LIMIT 1
 """
 )
 
@@ -379,6 +434,8 @@ def _proposal(row: RowMapping) -> Record:
         title, lines = _workspace_proposal(tool, cast(Record, row["workspace_effect"]))
         if row["reason"]:
             lines.append(f"reason · {row['reason']}")
+        if tool == "gmail.discard_draft":
+            result["draft_revision_id"] = row["action_id"]
         return {**result, "title": title, "detail": "\n".join(lines)}
     args = cast(Record, row["args"])
     detail: list[str] = []
@@ -566,7 +623,12 @@ async def _proposals(
 
 
 async def mail_revision(
-    connection: AsyncConnection, scope: str, message_id: UUID, action_id: UUID
+    connection: AsyncConnection,
+    scope: str,
+    message_id: UUID,
+    action_id: UUID,
+    *,
+    editor_epoch: UUID | None = None,
 ) -> Record | None:
     # Check the same proposal membership as the chat card, including prior consent.
     # Saved evidence belongs only to the exact request cited on its visible reply.
@@ -577,6 +639,7 @@ async def mail_revision(
             "ids": [message_id],
             "action_id": action_id,
             "contracts": _proposal_contracts(),
+            "mail_implementation": WORKSPACE_MAIL_IMPLEMENTATION,
         },
     )
     row = result.mappings().one_or_none()
@@ -587,12 +650,159 @@ async def mail_revision(
             connection, action_id, source_conversation_id=scope
         )
         if stored is None or (
-            row["saved"] and str(stored.origin_message_id) != row["request_id"]
+            row["kind"] == "saved"
+            and str(stored.origin_message_id) != row["request_id"]
         ):
             raise ActionPersistenceDefect("revision origin differs")
-        return inspect_revision(stored, saved=row["saved"])
+        if row["kind"] == "discard":
+            match = await _discard_revision(connection, scope, stored)
+            if match is None:
+                return unavailable_revision()
+            return await _attach_original_links(connection, scope, *match)
+        reading = inspect_revision(stored, saved=row["kind"] == "saved")
+        reading["editable"] = editor_epoch is not None and row["epoch"] == str(
+            editor_epoch
+        )
+        return await _attach_original_links(connection, scope, stored, reading)
     except (ActionPersistenceDefect, ValueError):
         return integrity_failure()
+
+
+async def _discard_revision(
+    connection: AsyncConnection, scope: str, stored: StoredAction
+) -> tuple[StoredAction, Record] | None:
+    frozen = FrozenWorkspaceWrite.model_validate(
+        stored.execution_contract.as_json().get("workspace")
+    )
+    if not isinstance(frozen.effect, FrozenDiscard):
+        raise ValueError("discard lacks its exact frozen target")
+    old = frozen.effect.old
+    candidates = (
+        await connection.scalars(
+            select(action.c.id)
+            .join(message, message.c.id == action.c.origin_message_id)
+            .where(
+                message.c.source_conversation_id == scope,
+                action.c.tool_name.in_(
+                    ("gmail.create_draft", "gmail.prepare_replacement")
+                ),
+                action.c.status == "succeeded",
+                action.c.result["value"].contains(
+                    {
+                        "verification": "verified",
+                        "account": frozen.account,
+                        "new_draft_id": old.draft_id,
+                        "new_message_id": old.message_id,
+                        "new_digest": old.digest,
+                        "new_thread_id": old.thread_id,
+                    }
+                ),
+            )
+            .limit(2)
+        )
+    ).all()
+    if len(candidates) != 1:
+        return None
+    source = await recorded_action(
+        connection, candidates[0], source_conversation_id=scope
+    )
+    if source is None:
+        return None
+    reading = inspect_revision(source, saved=True)
+    return (source, reading) if reading["status"] == "complete" else None
+
+
+async def _attach_original_links(
+    connection: AsyncConnection, scope: str, stored: StoredAction, reading: Record
+) -> Record:
+    files = reading["files"]
+    if not files:
+        return reading
+    arguments = stored.arguments.get("arguments")
+    if not isinstance(arguments, dict):
+        return reading
+    selectors = cast(Record, arguments).get("files")
+    if not isinstance(selectors, list):
+        return reading
+    selectors = cast(list[object], selectors)
+    if len(selectors) != len(files):
+        return reading
+    for selector, file in zip(selectors, files, strict=True):
+        if not isinstance(selector, dict):
+            continue
+        ref = cast(Record, selector)
+        if ref.get("kind") != "original" or not isinstance(ref.get("id"), str):
+            continue
+        original_id = await connection.scalar(
+            select(attachment.c.id)
+            .join(message, message.c.id == attachment.c.origin_message_id)
+            .where(
+                message.c.source_conversation_id == scope,
+                attachment.c.id == UUID(ref["id"]),
+                attachment.c.state == "ready",
+                attachment.c.error.is_(None),
+                attachment.c.filename == file["filename"],
+                attachment.c.size_bytes == file["size_bytes"],
+                attachment.c.sha256 == file["sha256"],
+            )
+        )
+        if original_id is not None:
+            file["original_id"] = str(original_id)
+    return reading
+
+
+@dataclass(frozen=True, slots=True)
+class EligibleDraft:
+    account: str
+    google_sub: str
+    draft_id: str
+    draft_message_id: str
+    draft_raw_digest: str
+    thread_id: str
+    epoch: UUID
+    quote: str | None
+
+
+async def eligible_draft(
+    connection: AsyncConnection, scope: str, message_id: UUID, create_action_id: UUID
+) -> EligibleDraft | None:
+    origin = await connection.scalar(
+        text(f"""
+            SELECT d.item->>'request_id'
+            FROM message m CROSS JOIN LATERAL ({_DRAFT_REFS}) d
+            WHERE m.id=:message_id AND m.source_conversation_id=:scope
+              AND d.item->>'create_action_id'=CAST(:action_id AS uuid)::text
+        """),
+        {
+            "scope": scope,
+            "message_id": message_id,
+            "action_id": create_action_id,
+            "mail_implementation": WORKSPACE_MAIL_IMPLEMENTATION,
+        },
+    )
+    if origin is None:
+        return None
+    evidence = await draft_for_request(connection, UUID(origin), create_action_id)
+    if not isinstance(evidence, VerifiedWorkspaceDraft):
+        return None
+    receipt, stamp = evidence.receipt, evidence.compose.editor
+    if (
+        stamp is None
+        or receipt.new_message_id is None
+        or receipt.new_thread_id is None
+        or receipt.new_digest is None
+    ):
+        return None
+    return EligibleDraft(
+        receipt.account,
+        stamp.google_sub,
+        receipt.new_draft_id,
+        receipt.new_message_id,
+        receipt.new_digest,
+        receipt.new_thread_id,
+        stamp.epoch,
+        evidence.quote,
+    )
 
 
 async def reference_context(

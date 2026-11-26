@@ -158,6 +158,12 @@ export function bindFiles({ $, navigate, changeState, request, time, attach }) {
     return a;
   }
 
+  function attachButton(getRef, title) {
+    const node = button("attach to chat", (event) => attach(getRef(), title, event.currentTarget));
+    node.id = "attach-drive";
+    return node;
+  }
+
   function pageLink(label, ref) {
     const node = link(label, drivePath(ref));
     node.setAttribute("data-file-page", "");
@@ -220,9 +226,9 @@ export function bindFiles({ $, navigate, changeState, request, time, attach }) {
     const snapshot = { depth: 0, rows: new Map(), next: null, partial: false };
     view.list = snapshot;
     controls(selector, folder, ref.subject);
-    if (folder) page.append(button("attach to chat", () => attach(
-      { kind: "drive_file", subject: ref.subject, id: folder.id }, folder.name,
-    )));
+    if (folder) page.append(attachButton(
+      () => ({ kind: "drive_file", subject: ref.subject, id: folder.id }), folder.name,
+    ));
     const title = folder?.name || (selector.q ? "search results" : selector.recent ? "recent" : "my drive");
     const pending = el("section", undefined, "drive-pending");
     page.append(el("h1", title), pending);
@@ -366,7 +372,7 @@ export function bindFiles({ $, navigate, changeState, request, time, attach }) {
     copied.setAttribute("role", "status");
     let attachRef = { kind: "drive_file", subject: ref.subject, id: ref.id };
     tools.append(official("open in drive", item.url),
-      button("attach to chat", () => attach(attachRef, item.name)),
+      attachButton(() => attachRef, item.name),
       button(ref.page ? "copy page link" : "copy file link", async () => {
         const path = drivePath(ref);
         try {
@@ -422,13 +428,17 @@ export function bindFiles({ $, navigate, changeState, request, time, attach }) {
     }
   }
 
-  async function show(path, version) {
-    if (active?.path === path && active.version === version) {
+  function showing(path, entry) {
+    return active?.path === path && active.entry === entry;
+  }
+
+  async function show(path, entry) {
+    if (showing(path, entry)) {
       await active.refreshPending?.();
       return;
     }
     close();
-    const view = { path, version, controller: new AbortController() };
+    const view = { path, entry, controller: new AbortController() };
     active = view;
     const { signal } = view.controller;
     const ref = driveRoute(path);
@@ -446,7 +456,7 @@ export function bindFiles({ $, navigate, changeState, request, time, attach }) {
           const destination = drivePath(canonical);
           if (location.pathname.startsWith("/f/"))
             changeState({ canvasSelection: destination }, destination);
-          else changeState({ canvasSelection: destination, canvasAddress: destination });
+          else changeState({ canvasSelection: destination });
           view.path = destination;
           await showItem(canonical, view);
         } else {
@@ -462,10 +472,10 @@ export function bindFiles({ $, navigate, changeState, request, time, attach }) {
 
   function reload() {
     if (!active) return;
-    const { path, version } = active;
+    const { path, entry } = active;
     close();
-    show(path, version);
+    show(path, entry);
   }
 
-  return { show, close, remember, reload };
+  return { showing, show, close, remember, reload };
 }

@@ -10,32 +10,21 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.installations.FirebaseInstallations
@@ -69,7 +58,6 @@ private const val PHONE = "/api/push/phone"
 private const val REPLY = "reply"
 private const val QUESTION = "question"
 private const val WORKSPACE = "workspace_check"
-private const val LINKED = "alerts linked to this phone"
 
 private fun NotificationManager.prepareChannels() {
     createNotificationChannels(
@@ -80,11 +68,6 @@ private fun NotificationManager.prepareChannels() {
         )
     )
 }
-
-private fun NotificationManager.alertsAllowed(): Boolean =
-    areNotificationsEnabled() && listOf(REPLY, QUESTION).all {
-        getNotificationChannel(it)?.importance != NotificationManager.IMPORTANCE_NONE
-    }
 
 class Push : FirebaseMessagingService() {
     override fun onRegistered(installationId: String) {
@@ -134,6 +117,10 @@ class Push : FirebaseMessagingService() {
 
 private data class Slot(val generation: String, val id: String?, val addressHash: String?)
 
+internal enum class SetupRepair { RETRY, SETTINGS, SIGN_IN }
+
+internal data class PhoneSetup(val generation: String?, val movesAlerts: Boolean, val repair: SetupRepair?)
+
 internal class PhoneAlerts private constructor(context: Context) {
     private val api = HomeApi(context)
     private val preferences = context.getSharedPreferences("phone-alerts", Context.MODE_PRIVATE)
@@ -147,13 +134,41 @@ internal class PhoneAlerts private constructor(context: Context) {
     private val appContext = context.applicationContext
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val callbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Firebase registration waits for this callback. Publish its address before any slot I/O.
+    private val addresses = Mutex()
     private val changes = Mutex()
     private val registered = MutableStateFlow(preferences.getString("registered", null))
-    private val attention = MutableStateFlow<String?>(null)
-    val warning = attention.asStateFlow()
+    private val offer = MutableStateFlow<PhoneSetup?>(null)
+    val setup = offer.asStateFlow()
 
-    fun report(status: String) {
-        attention.value = status.takeIf { registered.value != null && it != LINKED }
+    // Only a repair hint survives interruption. A new claim always needs a new tap.
+    private var pendingRepair: String?
+        get() = preferences.getString("setup", null)
+        set(value) {
+            if (!preferences.edit().putString("setup", value).commit()) throw IOException("could not save alert setup")
+        }
+
+    fun hasPermission(): Boolean = manager.areNotificationsEnabled()
+
+    suspend fun begin(generation: String): Boolean = changes.withLock {
+        if (offer.value?.generation != generation) return@withLock false
+        try {
+            pendingRepair = "retry"
+            true
+        } catch (_: IOException) {
+            offer.value = offer.value?.copy(repair = SetupRepair.RETRY)
+            false
+        }
+    }
+
+    suspend fun denied() = changes.withLock {
+        if (pendingRepair == null) return@withLock
+        try {
+            pendingRepair = "settings"
+        } catch (_: IOException) {
+            // The current visit can still open Android settings.
+        }
+        offer.value = PhoneSetup(offer.value?.generation, offer.value?.movesAlerts == true, SetupRepair.SETTINGS)
     }
 
     private suspend fun read(): Slot = withContext(Dispatchers.IO) {
@@ -163,16 +178,22 @@ internal class PhoneAlerts private constructor(context: Context) {
     private fun okhttp3.Response.slot(): Slot {
         if (!isSuccessful) throw IOException("phone status unavailable")
         val json = json()
-        return Slot(
-            header("ETag") ?: throw IOException("missing phone generation"),
-            json.string("installation_id"),
-            json.string("address_hash")
-        )
+        val tag = header("ETag").orEmpty()
+        if (tag.length != 38 || tag.first() != '"' || tag.last() != '"' ||
+            !canonicalUuid(tag.substring(1, 37))) throw IOException("invalid phone generation")
+        val owner = json.opt("installation_id")
+        val address = json.opt("address_hash")
+        if (owner === JSONObject.NULL && address === JSONObject.NULL) return Slot(tag, null, null)
+        if (owner !is String || !canonicalUuid(owner) || address !is String ||
+            !address.matches(Regex("[0-9a-f]{64}"))) throw IOException("invalid phone registration")
+        return Slot(tag, owner, address)
     }
 
+    private fun hash(fid: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(fid.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
     private suspend fun update(current: Slot, fid: String, replace: Boolean): Slot {
-        val addressHash = MessageDigest.getInstance("SHA-256")
-            .digest(fid.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        val addressHash = hash(fid)
         if (current.id == id && current.addressHash == addressHash) return current
         val body = JSONObject().put("installation_id", id).put("fid", fid).put("replace", replace)
             .toString().toRequestBody("application/json".toMediaType())
@@ -187,22 +208,21 @@ internal class PhoneAlerts private constructor(context: Context) {
         } catch (_: IOException) {
             // The server may have committed the slot before contact was lost.
         }
-        val observed = read()
-        if (observed.id != id || observed.addressHash != addressHash) {
-            throw IOException("phone change unconfirmed")
-        }
-        return observed
+        return read()
     }
 
     fun registered(fid: String) {
         callbackScope.launch {
             try {
-                changes.withLock {
-                    if (FirebaseInstallations.getInstance().id.await() != fid) return@withLock
-                    if (!preferences.edit().putString("registered", fid).commit()) return@withLock
+                addresses.withLock {
+                    if (FirebaseInstallations.getInstance().id.await() != fid) return@launch
+                    if (!preferences.edit().putString("registered", fid).commit()) return@launch
                     registered.value = fid
+                }
+                changes.withLock {
+                    if (registered.value != fid) return@withLock
                     val slot = read()
-                    if (slot.id == id) update(slot, fid, replace = false)
+                    if (slot.id == id && registered.value == fid) present(update(slot, fid, replace = false), fid)
                 }
             } catch (_: IOException) {
                 // A foreground read will reconcile the confirmed SDK address after login.
@@ -212,71 +232,78 @@ internal class PhoneAlerts private constructor(context: Context) {
         }
     }
 
-    suspend fun reconcile() {
-        if (registered.value == null) return
-        report(try {
-            status()
-        } catch (_: SignInRequired) {
-            "sign in to check alerts"
-        } catch (_: IOException) {
-            "phone status unconfirmed"
-        } catch (_: IllegalStateException) {
-            "push setup required"
-        })
+    private fun present(slot: Slot, fid: String?) {
+        if (slot.id == id && fid != null && slot.addressHash == hash(fid)) {
+            if (pendingRepair != null) pendingRepair = null
+            offer.value = null
+        } else {
+            val repair = when {
+                pendingRepair == "settings" && !hasPermission() -> SetupRepair.SETTINGS
+                pendingRepair != null || slot.id == id -> SetupRepair.RETRY
+                else -> null
+            }
+            offer.value = PhoneSetup(slot.generation, slot.id != null && slot.id != id, repair)
+        }
     }
 
-    suspend fun status(): String = changes.withLock {
-        val slot = read()
-        if (slot.id == null) return@withLock "phone disconnected"
-        if (slot.id != id) return@withLock "alerts linked to another phone"
-        if (!manager.alertsAllowed()) {
-            return@withLock "notifications are blocked on this phone"
+    private fun failed(repair: SetupRepair) {
+        offer.value = when {
+            pendingRepair == null -> null
+            pendingRepair == "settings" && !hasPermission() -> PhoneSetup(null, false, SetupRepair.SETTINGS)
+            else -> PhoneSetup(null, false, repair)
         }
-        val fid = registered.value ?: return@withLock "phone address unconfirmed"
-        if (FirebaseInstallations.getInstance().id.await() != fid) {
-            return@withLock "phone address unconfirmed"
-        }
-        update(slot, fid, replace = false)
-        LINKED
     }
 
-    suspend fun connect(): String {
-        if (FirebaseApp.getApps(appContext).isEmpty()) return "push setup required"
-        manager.prepareChannels()
-        if (!manager.alertsAllowed()) return "notifications are blocked on this phone"
+    suspend fun refresh(home: Boolean) {
+        if (!home && registered.value == null) return
+        changes.withLock {
+            try {
+                val slot = read()
+                val fid = registered.value
+                if (slot.id == id && fid != null && FirebaseInstallations.getInstance().id.await() == fid) {
+                    present(update(slot, fid, replace = false), fid)
+                } else {
+                    present(slot, null)
+                }
+            } catch (_: SignInRequired) {
+                failed(SetupRepair.SIGN_IN)
+            } catch (_: IOException) {
+                failed(SetupRepair.RETRY)
+            } catch (_: IllegalStateException) {
+                failed(SetupRepair.RETRY)
+            }
+        }
+    }
+
+    private suspend fun registerAddress(): String {
+        if (FirebaseApp.getApps(appContext).isEmpty()) throw IOException("push setup required")
         val messaging = FirebaseMessaging.getInstance()
-        val fid = withTimeoutOrNull(15_000) {
-            // Firebase can synchronously wait for its installation ID here.
+        return withTimeoutOrNull(15_000) {
             runInterruptible(Dispatchers.IO) { messaging.isAutoInitEnabled = true }
             messaging.register().await()
             val latest = FirebaseInstallations.getInstance().id.await()
             registered.filterNotNull().first { it == latest }
-        } ?: return "phone address unconfirmed"
-        return changes.withLock {
-            if (FirebaseInstallations.getInstance().id.await() != fid) {
-                return@withLock "phone address changed · try again"
-            }
-            update(read(), fid, replace = true)
-            LINKED
-        }
+        } ?: throw IOException("phone address unconfirmed")
     }
 
-    suspend fun disconnect(): String = changes.withLock {
-        val slot = read()
-        if (slot.id != id) return@withLock "this phone is disconnected"
+    suspend fun connect(generation: String) {
         try {
-            val disconnected = withContext(Dispatchers.IO) {
-                api.request(PHONE, "DELETE", headers = mapOf("If-Match" to slot.generation)).use {
-                    it.isSuccessful && it.slot().id == null
-                }
+            manager.prepareChannels()
+            val fid = registerAddress()
+            changes.withLock {
+                if (FirebaseInstallations.getInstance().id.await() != fid) throw IOException("phone address changed")
+                val slot = read()
+                if (registered.value != fid) throw IOException("phone address changed")
+                val observed = if (slot.generation == generation) update(slot, fid, replace = true) else slot
+                present(observed, fid)
             }
-            if (disconnected) return@withLock "phone disconnected"
-        } catch (error: SignInRequired) {
-            throw error
+        } catch (_: SignInRequired) {
+            changes.withLock { failed(SetupRepair.SIGN_IN) }
         } catch (_: IOException) {
-            // Read current state before reporting an unconfirmed change.
+            changes.withLock { failed(SetupRepair.RETRY) }
+        } catch (_: IllegalStateException) {
+            changes.withLock { failed(SetupRepair.RETRY) }
         }
-        if (read().id != id) "this phone is disconnected" else "phone change unconfirmed"
     }
 
     companion object {
@@ -296,76 +323,58 @@ private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { conti
 }
 
 @Composable
-internal fun Alerts(onBack: () -> Unit) {
+internal fun PhoneSetupAction(phone: PhoneAlerts, signIn: () -> Unit) {
     val context = LocalContext.current
-    val activity = context as MainActivity
-    val phone = remember { PhoneAlerts.get(context) }
-    val revision by Access.get(context).revision.collectAsState()
     val scope = rememberCoroutineScope()
-    var state by remember { mutableStateOf("checking phone") }
+    val setup by phone.setup.collectAsState()
     var changing by remember { mutableStateOf(false) }
-    var signIn by remember { mutableStateOf(false) }
-    var askingPermission by rememberSaveable { mutableStateOf(false) }
+    var permissionGeneration by remember { mutableStateOf<String?>(null) }
 
-    fun perform(operation: suspend () -> String) {
-        if (changing || askingPermission) return
+    fun perform(operation: suspend () -> Unit) {
         changing = true
         scope.launch {
             try {
-                state = operation()
-                signIn = false
-            } catch (_: SignInRequired) {
-                state = "sign in to set up alerts"
-                signIn = true
-            } catch (_: IOException) {
-                state = "phone status unconfirmed"
-            } catch (_: IllegalStateException) {
-                state = "push setup required"
+                operation()
             } finally {
-                phone.report(state)
                 changing = false
             }
         }
     }
 
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        askingPermission = false
-        if (it) perform(phone::connect) else state = "notifications are blocked on this phone"
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val generation = permissionGeneration
+        permissionGeneration = null
+        if (generation != null) {
+            perform { if (granted) phone.connect(generation) else phone.denied() }
+        }
     }
-    LaunchedEffect(revision) { perform(phone::status) }
-    LifecycleResumeEffect(Unit) {
-        perform(phone::status)
-        onPauseOrDispose {}
-    }
-    JarvisPaper {
-        Column(
-            Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            OutlinedButton(onClick = onBack) { Text("back") }
-            Text("phone alerts", style = MaterialTheme.typography.headlineLarge)
-            Text(state)
-            if (signIn) {
-                Button(onClick = { Access.get(context).signIn(activity) }) { Text("sign in") }
-            } else if (state == LINKED) {
-                OutlinedButton(enabled = !changing, onClick = { perform(phone::disconnect) }) {
-                    Text("disconnect this phone")
-                }
-            } else if (state == "notifications are blocked on this phone") {
-                Button(onClick = {
+    val action = setup ?: return
+    Column(Modifier.padding(horizontal = 12.dp)) {
+        if (action.movesAlerts) Text("enabling here moves future alerts to this phone.")
+        val label = when (action.repair) {
+            SetupRepair.SETTINGS -> "open notification settings"
+            SetupRepair.SIGN_IN -> "sign in to finish alert setup"
+            SetupRepair.RETRY -> "retry alert setup"
+            null -> "enable alerts on this phone"
+        }
+        if (action.repair == SetupRepair.SETTINGS) Text("notifications are blocked on this phone.")
+        if (action.repair == SetupRepair.RETRY) Text("alert setup is unconfirmed.")
+        TextButton(enabled = !changing && permissionGeneration == null, onClick = {
+            when {
+                action.repair == SetupRepair.SIGN_IN -> signIn()
+                action.repair == SetupRepair.SETTINGS && !phone.hasPermission() ->
                     context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                         .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-                }) { Text("open notification settings") }
-            } else {
-                Button(enabled = !changing, onClick = {
-                    if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-                        perform(phone::connect)
-                    } else {
-                        askingPermission = true
+                action.generation == null -> perform { phone.refresh(true) }
+                else -> perform {
+                    if (!phone.begin(action.generation)) return@perform
+                    if (phone.hasPermission()) phone.connect(action.generation)
+                    else {
+                        permissionGeneration = action.generation
                         permission.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
-                }) { Text("enable alerts on this phone") }
+                }
             }
-        }
+        }) { Text(label) }
     }
 }

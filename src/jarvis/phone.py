@@ -114,20 +114,17 @@ class PhoneSlot:
         async with self._lock:
             return self._read()
 
-    async def change(self, expected: UUID, enrollment: Enrollment | None) -> Phone:
+    async def enroll(self, expected: UUID, enrollment: Enrollment) -> Phone:
         async with self._lock:
             current = self._read()
             if current.generation != expected:
                 raise StalePhone()
-            if enrollment is None:
-                state = self._publish(None, None)
-            else:
-                if (
-                    not enrollment.replace
-                    and current.installation_id != enrollment.installation_id
-                ):
-                    raise InactivePhone()
-                state = self._publish(enrollment.installation_id, enrollment.fid)
+            if (
+                not enrollment.replace
+                and current.installation_id != enrollment.installation_id
+            ):
+                raise InactivePhone()
+            state = self._publish(enrollment.installation_id, enrollment.fid)
             self._on_changed()
             return state
 

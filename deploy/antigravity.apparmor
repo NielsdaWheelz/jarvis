@@ -1,9 +1,15 @@
 abi <abi/4.0>,
 include <tunables/global>
 
-profile jarvis-antigravity-localharness "@BINARY@" flags=(mediate_deleted) {
+# The sandbox re-executes the bundled binary across a private mount.
+# Use a separate name prefix so disconnected objects cannot alias normal paths.
+profile jarvis-antigravity-localharness "@BINARY@" flags=(mediate_deleted,attach_disconnected,attach_disconnected.path=/jarvis-sdk-disconnected) {
   /** rwklm,
   "@BINARY@" ix,
+  /proc/self/exe ix,
+  "/jarvis-sdk-disconnected@BINARY@" ix,
+  /jarvis-sdk-disconnected/proc/self/exe ix,
+  deny /jarvis-sdk-disconnected/** wl,
   /usr/bin/bwrap ix,
   /{,usr/}bin/{sh,bash,dash} px -> jarvis-antigravity-tool,
   capability,
@@ -15,6 +21,7 @@ profile jarvis-antigravity-localharness "@BINARY@" flags=(mediate_deleted) {
   umount,
   pivot_root,
   userns,
+  deny /var/lib/jarvis-notes/.git/ wl,
   deny /var/lib/jarvis-notes/.git/{commondir,config.worktree} wl,
 }
 
@@ -25,5 +32,6 @@ profile jarvis-antigravity-tool flags=(mediate_deleted) {
   signal,
   deny capability,
   deny userns,
+  deny /var/lib/jarvis-notes/.git/ wl,
   deny /var/lib/jarvis-notes/.git/{commondir,config.worktree} wl,
 }

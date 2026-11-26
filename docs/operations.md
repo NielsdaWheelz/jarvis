@@ -1198,11 +1198,11 @@ a failure after publishing v8 leaves stopped custody and requires forward
 repair, even if the selection still names the original release. each new
 release needs its own staged mapping with that release's executable path.
 
-the installer checks the sdk version, pinned linux wheel digest and installed
-executable digest. only the service joins the executable's launch group.
-the selected executable gets the scoped apparmor user namespace grant. the
+preflight checks the sdk version, pinned linux wheel digest, installed
+executable digest and apparmor settings before stopping the services. the
 global restrictions on user namespaces and unconfined profile transitions must
-already be enabled at installation and startup. the tool profile denies
+already be enabled. only the service joins the executable's launch group.
+the selected executable gets the scoped apparmor user namespace grant. the tool profile denies
 capabilities and the creation of further user namespaces. the service allows
 loopback for the trusted sdk transport, and the native shell runs in the sdk
 sandbox without network. agy receives an ephemeral attempt credential from

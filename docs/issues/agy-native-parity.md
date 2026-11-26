@@ -114,3 +114,12 @@ on november 26, 2026 utc, synthetic checks on jarvis `aab04a3`, provider `05b952
 | `release-frozen-aab04a3/qualification.txt` | `177b2faddac860b1451ca149bc4210488756ad5ccb1e6c1d33b4b918c37aea0a` |
 
 read-only production preflight found `kernel.apparmor_restrict_unprivileged_userns=1` and `kernel.apparmor_restrict_unprivileged_unconfined=0`. the installer requires both to be `1`. close this blocker with a passing installed containment check on the target host. the paid trial and permission for real workspace-derived data remain open.
+
+opus found that both the predecessor and first integrated candidate used request v5, which skipped the stopped inventory. request v6 restores the cut. the exact deployed v5 and v6 contracts triggered the inventory, rejected executable v5 attempts and due retries, and preserved their evidence. at schema `0025` all 19 synthetic cases and the retained capture/retry check passed again. opus also found that the host policy check ran after custody. `verify-agy` now checks apparmor before custody and names the failed setting. the positive fixture still reaches custody. the final frozen build passed, and its detached checkout and the fixture resources were removed.
+
+| reopened review evidence | sha-256 |
+| --- | --- |
+| `release-opus.o2Q9fl/verdict.txt` | `7acd6f3d798265b249546b6e04033013549580ab96e31d9ed6827c5487c9cfad` |
+| `jarvis-request-v6-SqyGJGdp/SHA256SUMS` | `24229d74cd27c302663b21c3f0a57cbf93d7b761f1bce477964ab3079d1aee1a` |
+| `agy-host-preflight-sQQmLxEA/SHA256SUMS` | `f1f3d4196c7c6dfda61cd672883819dab7cbe6f533f43a4ddc5f90fb31437404` |
+| `release-frozen-6326168/qualification.txt` | `4893c3394fca5ae1fa9dd0ca9dcefbe360bb23efcdd48c1b14dd2c081fffbfe6` |

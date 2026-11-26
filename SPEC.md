@@ -29,7 +29,9 @@ that have not been shown to the owner, opens chat at the first of them, and
 labels a message "needs a reply" while jarvis is recorded as waiting on him.
 shown is a fact about display and never evidence of consent. the first cut
 keeps the record on each device; the second adds insert-only receipts to the
-service so web and android agree. implementation is pending.
+service so web and android agree. the first cut is implemented in source.
+[installed acceptance and shared receipts](docs/issues/new-shown-owed-installed.md)
+remain open.
 
 [adr 0123](docs/decisions/0123-artifact-library.md) gives todos and the private
 artifact library their own addresses, pins editions, and links an edition to

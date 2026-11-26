@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import re
-from urllib.parse import parse_qs, quote, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 
 def workspace_link(
@@ -66,6 +66,30 @@ def workspace_link(
             if cal and target == f"{resource} {cal}":
                 eid = quote(encoded, safe="")
                 return f"https://calendar.google.com/calendar/event?eid={eid}"
+        if product == "drive" and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", resource):
+            parameters = parse_qs(url.query, max_num_fields=12)
+            keys = parameters.get("resourcekey", [])
+            if len(keys) > 1 or (
+                keys and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", keys[0]) is None
+            ):
+                return None
+            query = "?" + urlencode({"resourcekey": keys[0]}) if keys else ""
+            if url.netloc == "drive.google.com":
+                if url.path in {
+                    f"/file/d/{resource}/view",
+                    f"/drive/folders/{resource}",
+                }:
+                    return f"https://drive.google.com{url.path}{query}"
+                if url.path == "/open" and parameters.get("id") == [resource]:
+                    query = urlencode(
+                        {"id": resource} | ({"resourcekey": keys[0]} if keys else {})
+                    )
+                    return f"https://drive.google.com/open?{query}"
+            if url.netloc == "docs.google.com" and re.fullmatch(
+                rf"/(?:document|spreadsheets|presentation)/d/{resource}/(?:edit|view)",
+                url.path,
+            ):
+                return f"https://docs.google.com{url.path}{query}"
     except (ValueError, UnicodeError):
         pass
     return None

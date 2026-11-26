@@ -40,7 +40,7 @@ from llm_tools.schema import JsonObject
 from sqlalchemy import RowMapping, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from jarvis.attachment_tools import ATTACHMENT_READ_IDS
+from jarvis.attachment_tools import SUBMISSION_READ_IDS
 from jarvis.db import (
     message,
     model_decision,
@@ -69,7 +69,7 @@ if TYPE_CHECKING:
 FRESH_READ_IDS = (
     WORK_READ_IDS
     | EVENT_READ_IDS
-    | ATTACHMENT_READ_IDS
+    | SUBMISSION_READ_IDS
     | WORKSPACE_READ_IDS
     | {RECEIPT_READ_ID, ToolId("web.read")}
 )

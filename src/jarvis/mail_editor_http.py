@@ -12,11 +12,8 @@ from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException
 from starlette.responses import JSONResponse, Response
 
-from jarvis.home_uploads import (
-    CompleteMultipartParser,
-    download_headers,
-    safe_media_type,
-)
+from jarvis.home_file_content import download_headers, media_type
+from jarvis.home_uploads import CompleteMultipartParser
 from jarvis.mail_editor import (
     EditCommand,
     EditorFailure,
@@ -147,7 +144,7 @@ def build_mail_editor_router(
             item, body = await editor.file(
                 await target(message_id, create_action_id), version, slot
             )
-            media = safe_media_type(body[:16])
+            media = media_type(body[:16])
             return Response(
                 body,
                 media_type=media,

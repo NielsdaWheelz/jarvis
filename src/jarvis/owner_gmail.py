@@ -282,7 +282,7 @@ class OwnerGmail:
         human: GoogleTokenManager,
         workspace_identity: Callable[[], WorkspaceEnrollment | None],
     ):
-        if not human.owner_drafts:
+        if human.human_product != "gmail":
             raise ValueError("owner draft adapter requires a standard mail client")
         self._http = http
         self._human = human

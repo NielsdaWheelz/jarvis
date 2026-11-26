@@ -90,7 +90,7 @@ release="$(sudo -n readlink -f /opt/jarvis/current)"
 source "$release/deploy/release-functions"
 app_host_dependency="$(systemctl show --property=BindsTo --value jarvis.service)"
 [[ " $app_host_dependency " == *" jarvis-codex-contained.service "* ]]
-cache=/var/cache/jarvis/attachments
+cache=/var/cache/jarvis/files
 [[ "$(stat -c '%U:%G:%a' "$cache")" == jarvis:codex-clients:750 ]]
 app_write_paths="$(systemctl show --property=ReadWritePaths --value jarvis.service)"
 [[ " $app_write_paths " == *" $cache "* ]]

@@ -459,6 +459,67 @@ body[data-panel="open"] #sidebar-close {
   display: block;
 }
 
+#files-tab[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+#drive {
+  align-self: start;
+  justify-self: center;
+  width: min(100%, 66rem);
+  padding: clamp(1rem, 4vw, 2.2rem);
+}
+#drive h1 {
+  overflow-wrap: anywhere;
+  margin: 1rem 0 0.65rem;
+}
+#drive h2 {
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+.drive-breadcrumbs,
+.drive-object-actions,
+.drive-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: baseline;
+}
+.drive-search {
+  display: inline-flex;
+  margin: 0.65rem 0.55rem 0.2rem 0;
+}
+.drive-search input {
+  width: min(45vw, 16rem);
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.35rem;
+  background: var(--rail);
+}
+.drive-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.drive-list li {
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.drive-list small {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.drive-list + button,
+.drive-status,
+.drive-preview {
+  margin-block: 0.65rem;
+}
+.drive-preview canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
 .mail-fields {
   display: grid;
   min-width: 0;

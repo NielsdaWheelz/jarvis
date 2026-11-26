@@ -2,33 +2,39 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import Annotated, Literal, Self
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
+    AfterValidator,
     AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
     SerializerFunctionWrapHandler,
     StrictBool,
+    StrictInt,
     ValidationInfo,
     field_validator,
     model_serializer,
     model_validator,
 )
 
+from jarvis.home_refs import DriveId as DriveId
 from jarvis.mail_files import (
     MAIL_MAX_FILES,
+    DriveMailFileRef,
     MailFile,
     NativeFileRef,
     NewMailFile,
-    OriginalFileRef,
     Sha256,
 )
+from jarvis.read_tools import GoogleId
 
 
 class _StrictModel(BaseModel):
@@ -222,7 +228,7 @@ class ExistingMailPart(_StrictModel):
 
 
 type ReplacementFile = Annotated[
-    OriginalFileRef | NativeFileRef | ExistingMailPart, Field(discriminator="kind")
+    DriveMailFileRef | NativeFileRef | ExistingMailPart, Field(discriminator="kind")
 ]
 
 
@@ -516,12 +522,382 @@ class FrozenCalendar(_StrictModel):
     preserved_digest: Sha256 | None
 
 
+type DriveToken = Annotated[str, Field(min_length=1, max_length=1024)]
+
+
+def _drive_name(value: str) -> str:
+    if not value.isprintable() or value.strip() != value:
+        raise ValueError("drive title must be printable")
+    return _bounded_utf8(value, 255, "drive title")
+
+
+type DriveName = Annotated[
+    str, Field(min_length=1, max_length=255), AfterValidator(_drive_name)
+]
+type DriveMime = Annotated[str, Field(pattern=r"^[a-z0-9.+-]+/[a-z0-9.+-]+$")]
+
+
+class MailObservation(_StrictModel):
+    model_config = ConfigDict(strict=True)
+    account: str
+    message_id: GoogleId
+    draft_id: GoogleId | None
+    file_selectors: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class DriveSourceFile:
+    path: Path
+    name: str
+    media_type: str
+    size: int
+    sha256: str
+
+
+class SubmissionSource(_StrictModel):
+    submission_id: UUID
+
+
+class GmailPartSource(_StrictModel):
+    gmail_observation: MailObservation
+    part_selector: GoogleId
+
+    @model_validator(mode="after")
+    def observed(self) -> Self:
+        if self.part_selector not in self.gmail_observation.file_selectors:
+            raise ValueError("gmail part needs its observed selector")
+        return self
+
+
+class NativePublicationSource(_StrictModel):
+    native_file_id: UUID
+    manifest_sha256: Sha256
+
+
+class DriveTextSource(_StrictModel):
+    text: str
+    format: Literal["doc", "markdown", "plain"] = "doc"
+
+
+class DriveNewSource(_StrictModel):
+    new_type: Literal["folder", "doc", "sheet", "slides"]
+
+
+type DriveBinarySource = SubmissionSource | GmailPartSource | NativePublicationSource
+
+
+class DriveCreateSource(_StrictModel):
+    """Closed source objects are portable through the tool-schema compiler."""
+
+    submission_id: UUID | None = None
+    gmail_observation: MailObservation | None = None
+    part_selector: GoogleId | None = None
+    native_file_id: UUID | None = None
+    manifest_sha256: Sha256 | None = None
+    text: str | None = None
+    format: Literal["doc", "markdown", "plain"] | None = None
+    new_type: Literal["folder", "doc", "sheet", "slides"] | None = None
+
+    @property
+    def value(self) -> DriveBinarySource | DriveTextSource | DriveNewSource:
+        fields = {
+            name for name in type(self).model_fields if getattr(self, name) is not None
+        }
+        if fields == {"submission_id"} and self.submission_id is not None:
+            return SubmissionSource(submission_id=self.submission_id)
+        if fields == {"gmail_observation", "part_selector"} and (
+            self.gmail_observation is not None and self.part_selector is not None
+        ):
+            return GmailPartSource(
+                gmail_observation=self.gmail_observation,
+                part_selector=self.part_selector,
+            )
+        if fields == {"native_file_id", "manifest_sha256"} and (
+            self.native_file_id is not None and self.manifest_sha256 is not None
+        ):
+            return NativePublicationSource(
+                native_file_id=self.native_file_id,
+                manifest_sha256=self.manifest_sha256,
+            )
+        if self.text is not None and (
+            fields == {"text"}
+            or (fields == {"text", "format"} and self.format is not None)
+        ):
+            return DriveTextSource(text=self.text, format=self.format or "doc")
+        if fields == {"new_type"} and self.new_type is not None:
+            return DriveNewSource(new_type=self.new_type)
+        raise ValueError("exactly one drive source is required")
+
+    @model_validator(mode="after")
+    def selected(self) -> Self:
+        _ = self.value
+        return self
+
+
+class DriveCreate(_StrictModel):
+    parent: DriveId
+    name: DriveName
+    source: DriveCreateSource
+
+
+class DriveCopy(_StrictModel):
+    id: DriveId
+    parent: DriveId
+    name: DriveName
+
+
+class DriveRevise(_StrictModel):
+    id: DriveId
+    etag: DriveToken
+    source: DriveCreateSource
+
+    @model_validator(mode="after")
+    def blob_source(self) -> Self:
+        selected = self.source.value
+        if isinstance(selected, DriveNewSource) or (
+            isinstance(selected, DriveTextSource) and selected.format == "doc"
+        ):
+            raise ValueError(
+                "provide a file or plain/markdown source for a blob revision"
+            )
+        return self
+
+
+type DocsPosition = Annotated[StrictInt, Field(ge=0, le=2**31 - 1)]
+type DocsText = Annotated[str, Field(max_length=32_768)]
+
+
+class DocsLocation(_StrictModel):
+    index: DocsPosition
+    segmentId: str | None = None
+    tabId: DriveId | None = None
+
+
+class DocsEndLocation(_StrictModel):
+    segmentId: str | None = None
+    tabId: DriveId | None = None
+
+
+class DocsRange(_StrictModel):
+    startIndex: DocsPosition
+    endIndex: DocsPosition
+    segmentId: str | None = None
+    tabId: DriveId | None = None
+
+    @model_validator(mode="after")
+    def ordered(self) -> Self:
+        if self.endIndex <= self.startIndex:
+            raise ValueError("docs range must have a positive length")
+        return self
+
+
+class DocsInsert(_StrictModel):
+    location: DocsLocation | None = None
+    endOfSegmentLocation: DocsEndLocation | None = None
+
+    @model_validator(mode="after")
+    def destination(self) -> Self:
+        if (self.location is None) == (self.endOfSegmentLocation is None):
+            raise ValueError("provide one document insertion location")
+        return self
+
+
+class DocsInsertText(DocsInsert):
+    text: DocsText
+
+
+class DocsDelete(_StrictModel):
+    range: DocsRange
+
+
+class DocsContains(_StrictModel):
+    text: Annotated[str, Field(min_length=1, max_length=8192)]
+    matchCase: StrictBool | None = None
+    searchByRegex: StrictBool | None = None
+
+
+class DocsTabs(_StrictModel):
+    tabIds: Annotated[tuple[DriveId, ...], Field(min_length=1, max_length=64)]
+
+
+class DocsReplaceAll(_StrictModel):
+    replaceText: DocsText
+    containsText: DocsContains
+    tabsCriteria: DocsTabs | None = None
+
+
+class DocsTextStyle(_StrictModel):
+    bold: StrictBool | None = None
+    italic: StrictBool | None = None
+    underline: StrictBool | None = None
+    strikethrough: StrictBool | None = None
+    smallCaps: StrictBool | None = None
+    baselineOffset: Literal["NONE", "SUPERSCRIPT", "SUBSCRIPT"] | None = None
+
+
+class DocsUpdateTextStyle(_StrictModel):
+    range: DocsRange
+    textStyle: DocsTextStyle
+    fields: Annotated[str, Field(pattern=r"^[A-Za-z]+(,[A-Za-z]+)*$")]
+
+    @field_validator("fields")
+    @classmethod
+    def mask(cls, value: str) -> str:
+        if not set(value.split(",")) <= DocsTextStyle.model_fields.keys():
+            raise ValueError("unsupported style field")
+        return value
+
+
+class DocsParagraphStyle(_StrictModel):
+    namedStyleType: (
+        Literal[
+            "NORMAL_TEXT",
+            "TITLE",
+            "SUBTITLE",
+            "HEADING_1",
+            "HEADING_2",
+            "HEADING_3",
+            "HEADING_4",
+            "HEADING_5",
+            "HEADING_6",
+        ]
+        | None
+    ) = None
+    alignment: Literal["START", "CENTER", "END", "JUSTIFIED"] | None = None
+    keepWithNext: StrictBool | None = None
+    keepLinesTogether: StrictBool | None = None
+
+
+class DocsUpdateParagraphStyle(_StrictModel):
+    range: DocsRange
+    paragraphStyle: DocsParagraphStyle
+    fields: Annotated[str, Field(pattern=r"^[A-Za-z]+(,[A-Za-z]+)*$")]
+
+    @field_validator("fields")
+    @classmethod
+    def mask(cls, value: str) -> str:
+        if not set(value.split(",")) <= DocsParagraphStyle.model_fields.keys():
+            raise ValueError("unsupported style field")
+        return value
+
+
+class DocsBullets(_StrictModel):
+    range: DocsRange
+    bulletPreset: Literal[
+        "BULLET_DISC_CIRCLE_SQUARE",
+        "BULLET_DIAMONDX_ARROW3D_SQUARE",
+        "BULLET_CHECKBOX",
+        "NUMBERED_DIGIT_ALPHA_ROMAN",
+    ]
+
+
+class DocsInsertTable(DocsInsert):
+    rows: Annotated[StrictInt, Field(ge=1, le=50)]
+    columns: Annotated[StrictInt, Field(ge=1, le=50)]
+
+
+class DocsRequest(_StrictModel):
+    """One non-notifying, documented Google Docs operation."""
+
+    replaceAllText: DocsReplaceAll | None = None
+    insertText: DocsInsertText | None = None
+    deleteContentRange: DocsDelete | None = None
+    updateTextStyle: DocsUpdateTextStyle | None = None
+    updateParagraphStyle: DocsUpdateParagraphStyle | None = None
+    createParagraphBullets: DocsBullets | None = None
+    deleteParagraphBullets: DocsDelete | None = None
+    insertPageBreak: DocsInsert | None = None
+    insertTable: DocsInsertTable | None = None
+
+    @model_validator(mode="after")
+    def operation(self) -> Self:
+        if (
+            sum(getattr(self, name) is not None for name in type(self).model_fields)
+            != 1
+        ):
+            raise ValueError("each docs request needs one supported operation")
+        return self
+
+
+class DocsUpdate(_StrictModel):
+    id: DriveId
+    revision: DriveToken
+    mode: Literal["edit", "suggest"]
+    requests: Annotated[tuple[DocsRequest, ...], Field(min_length=1, max_length=50)]
+
+
+class DrivePermission(_StrictModel):
+    source: DriveId
+    id: DriveToken | None
+    role: DriveToken | None
+    type: DriveToken | None
+    address: DriveToken | None
+    domain: DriveToken | None
+    view: DriveToken | None
+    space: DriveToken | None
+    expires_at: str | None
+    pending_owner: bool | None
+
+
+class DriveAudience(_StrictModel):
+    target: DriveId
+    state: Literal["private", "shared", "unknown"]
+    identities: tuple[DrivePermission, ...]
+    fingerprint: Sha256
+
+    @property
+    def private(self) -> bool:
+        return self.state == "private"
+
+
+class DriveExpected(_StrictModel):
+    name: DriveName
+    parent: DriveId | None
+    media_type: DriveMime
+    size: Annotated[int, Field(strict=True, ge=0)] | None
+    sha256: Sha256 | None
+
+
+class FrozenDriveCreate(DriveCreate):
+    tool: Literal["drive.create"] = "drive.create"
+    subject: DriveId
+    audience: DriveAudience
+    expected: DriveExpected
+
+
+class FrozenDriveCopy(DriveCopy):
+    tool: Literal["drive.copy"] = "drive.copy"
+    subject: DriveId
+    audience: DriveAudience
+    expected: DriveExpected
+    source_etag: DriveToken
+
+
+class FrozenDriveRevise(DriveRevise):
+    tool: Literal["drive.revise"] = "drive.revise"
+    subject: DriveId
+    audience: DriveAudience
+    expected: DriveExpected
+
+
+class FrozenDocsUpdate(DocsUpdate):
+    tool: Literal["docs.update"] = "docs.update"
+    subject: DriveId
+    audience: DriveAudience
+
+
+type FrozenDriveEffect = (
+    FrozenDriveCreate | FrozenDriveCopy | FrozenDriveRevise | FrozenDocsUpdate
+)
+
+
 class FrozenWorkspaceWrite(_StrictModel):
     action_id: UUID
     grant_id: UUID
     account: str
     effect: Annotated[
-        FrozenCompose | FrozenDiscard | FrozenCalendar, Field(discriminator="tool")
+        FrozenCompose | FrozenDiscard | FrozenCalendar | FrozenDriveEffect,
+        Field(discriminator="tool"),
     ]
 
     @property
@@ -602,3 +978,15 @@ class CalendarWriteReceipt(_Receipt):
     scope: Scope
     notify: StrictBool
     link: str | None
+
+
+class DriveWriteReceipt(_Receipt):
+    kind: Literal["drive_file"] = "drive_file"
+    outcome: Literal["created", "copied", "revised", "updated"]
+    subject: DriveId
+    file_id: DriveId
+    title: str | None = None
+    link: str | None = None
+    revision: DriveToken | None = None
+    etag: DriveToken | None = None
+    warnings: tuple[str, ...] = ()

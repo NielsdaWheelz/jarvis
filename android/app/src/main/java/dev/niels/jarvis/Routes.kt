@@ -9,10 +9,12 @@ import net.openid.appauth.browser.BrowserSelector
 internal sealed interface Route {
     data object Home : Route
     data object Overview : Route
+    data object Files : Route
     data class Message(val id: String) : Route
     data class Mail(val messageId: String, val actionId: String, val historical: Boolean) : Route
     data class Todo(val id: String) : Route
     data class File(val id: String, val page: Long?) : Route
+    data class DriveFile(val subject: String, val id: String, val page: Long? = null) : Route
     data class Canvas(val slug: String, val revision: String?) : Route
 }
 
@@ -20,6 +22,7 @@ internal object Routes {
     const val origin = BuildConfig.JARVIS_ORIGIN
     private val originUri = Uri.parse(origin)
     private val uuid = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+    private val driveId = Regex("[A-Za-z0-9_-]{1,255}")
     private val slug = Regex("[a-z0-9]+(?:-[a-z0-9]+)*")
     private val revision = Regex("[0-9a-f]{40}|[0-9a-f]{64}")
     private val pageQuery = Regex("page=([1-9][0-9]{0,15})")
@@ -36,6 +39,7 @@ internal object Routes {
             when (path) {
                 "", "/" -> return Route.Home
                 "/overview" -> return Route.Overview
+                "/files" -> return Route.Files
             }
         }
         val segments = path.removePrefix("/").split('/')
@@ -52,15 +56,21 @@ internal object Routes {
             val rev = segments.getOrNull(2)
             return if (rev == null || revision.matches(rev)) Route.Canvas(name, rev) else null
         }
+        val page = query?.let {
+            pageQuery.matchEntire(it)?.groupValues?.get(1)?.toLongOrNull()?.takeIf { it <= maxPage }
+        }
+        if (segments[0] == "files") {
+            val id = segments.getOrNull(2) ?: return null
+            if (segments.size != 3 || !driveId.matches(name) || !driveId.matches(id) ||
+                (query != null && page == null)
+            ) return null
+            return Route.DriveFile(name, id, page)
+        }
         if (segments.size != 2 || !uuid.matches(name)) return null
         return when (segments[0]) {
             "m" -> if (query == null) Route.Message(name) else null
             "t" -> if (query == null) Route.Todo(name) else null
-            "f" -> {
-                if (query == null) return Route.File(name, null)
-                val page = pageQuery.matchEntire(query)?.groupValues?.get(1)?.toLongOrNull()
-                if (page != null && page <= maxPage) Route.File(name, page) else null
-            }
+            "f" -> if (query == null || page != null) Route.File(name, page) else null
             else -> null
         }
     }
@@ -69,12 +79,17 @@ internal object Routes {
         when (route) {
             Route.Home -> path("/")
             Route.Overview -> appendPath("overview")
+            Route.Files -> appendPath("files")
             is Route.Message -> appendPath("m").appendPath(route.id)
             is Route.Mail -> appendPath("mail").appendPath(route.messageId)
                 .appendPath(if (route.historical) "revision" else "draft").appendPath(route.actionId)
             is Route.Todo -> appendPath("t").appendPath(route.id)
             is Route.File -> {
                 appendPath("f").appendPath(route.id)
+                route.page?.let { appendQueryParameter("page", it.toString()) }
+            }
+            is Route.DriveFile -> {
+                appendPath("files").appendPath(route.subject).appendPath(route.id)
                 route.page?.let { appendQueryParameter("page", it.toString()) }
             }
             is Route.Canvas -> {

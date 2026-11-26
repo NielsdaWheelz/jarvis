@@ -223,6 +223,11 @@ internal fun TodoViewer(
                             Text(formattedTime(result.string("at"), zone), style = MaterialTheme.typography.labelMedium)
                         }
                     }
+                    val file = DiscussionRef.parse(result.optJSONObject("file_ref")) as? DiscussionRef.DriveFile
+                    if (file != null) TextButton(onClick = {
+                        rememberFocus(id)
+                        navigate(file.route())
+                    }, modifier = Modifier.padding(start = 16.dp)) { Text("open file") }
                 }
                 else -> Column {
                     val detail = reads.records[id]

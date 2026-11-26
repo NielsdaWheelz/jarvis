@@ -1,90 +1,68 @@
-"""Durable browser ingress and verified original downloads."""
+"""Verify upload request framing and serve locally held submissions."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
-import tempfile
+import mimetypes
 from collections.abc import AsyncGenerator
-from pathlib import Path
-from typing import BinaryIO, cast
-from urllib.parse import quote
+from contextlib import asynccontextmanager
+from typing import cast
 from uuid import UUID
 
 from fastapi import HTTPException, Request
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
-from starlette.responses import Response, StreamingResponse
-from starlette.types import Receive, Scope, Send
+from starlette.responses import Response
 
 from jarvis._thread_io import joined_thread
-from jarvis.attachments import AttachmentStore, WebUpload, upload_spool_name
+from jarvis.attachments import AttachmentStore, CustodyConflict, WebUpload
+from jarvis.home_file_content import file_response, media_type
+from jarvis.mail_files import canonical_media_type
+from jarvis.read_tools import ATTACHMENT_MAX_BYTES
 
 BODY_LIMIT = 90 * 1024 * 1024
 TEXT_LIMIT = 16 * 1024
 # A fully escaped 16 kib text and its typed reference fit in this envelope.
 MESSAGE_PART_LIMIT = 128 * 1024
 FILE_LIMIT = 10
+_UPLOAD_LIMIT = "upload exceeds 90 mib"
 
 
-def safe_media_type(header: bytes) -> str:
-    if header.startswith(b"%PDF-"):
-        return "application/pdf"
-    if header.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if header.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if header.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
-        return "image/webp"
-    return "application/octet-stream"
-
-
-def _stage(
-    files: list[UploadFile], submission_id: UUID, spool: Path
-) -> tuple[WebUpload, ...]:
-    spool.mkdir(mode=0o700, exist_ok=True)
-    parent = os.open(spool.parent, os.O_RDONLY)
-    try:
-        os.fsync(parent)
-    finally:
-        os.close(parent)
-    directory = os.open(spool, os.O_RDONLY)
-    try:
-        uploads: list[WebUpload] = []
-        for slot, file in enumerate(files):
-            digest = hashlib.sha256()
-            size = 0
-            header = file.file.read(16)
-            file.file.seek(0)
-            with tempfile.NamedTemporaryFile(dir=spool, prefix=".incoming-") as output:
-                while chunk := file.file.read(1024 * 1024):
-                    output.write(chunk)
-                    digest.update(chunk)
-                    size += len(chunk)
-                output.flush()
-                os.fsync(output.fileno())
-                upload = WebUpload(
-                    submission_id,
-                    slot,
-                    file.filename or "original",
-                    size,
-                    digest.hexdigest(),
-                    safe_media_type(header),
-                )
-                try:
-                    os.link(
-                        output.name, spool / upload_spool_name(upload.id, upload.sha256)
-                    )
-                except FileExistsError:
-                    pass
-                uploads.append(upload)
-        os.fsync(directory)
-        return tuple(uploads)
-    finally:
-        os.close(directory)
+def _fingerprint(files: list[UploadFile], submission_id: UUID) -> tuple[WebUpload, ...]:
+    uploads: list[WebUpload] = []
+    for slot, file in enumerate(files):
+        digest = hashlib.sha256()
+        size = 0
+        header = file.file.read(16)
+        file.file.seek(0)
+        while chunk := file.file.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+        file.file.seek(0)
+        if size > ATTACHMENT_MAX_BYTES:
+            raise HTTPException(413, "file exceeds 100 mib")
+        name = file.filename or "original"
+        mime = media_type(header)
+        if mime == "application/octet-stream":
+            declared = canonical_media_type(file.content_type)
+            mime = (
+                canonical_media_type(mimetypes.guess_type(name)[0])
+                if declared == mime
+                else declared
+            )
+        uploads.append(
+            WebUpload(
+                submission_id,
+                slot,
+                name,
+                size,
+                digest.hexdigest(),
+                mime,
+                file.file,
+            )
+        )
+    return tuple(uploads)
 
 
 class CompleteMultipartParser(MultiPartParser):
@@ -94,9 +72,10 @@ class CompleteMultipartParser(MultiPartParser):
         self.complete = True
 
 
+@asynccontextmanager
 async def read_submission(
-    request: Request, submission_id: UUID, spool: Path
-) -> tuple[str, object, tuple[WebUpload, ...]]:
+    request: Request, submission_id: UUID
+) -> AsyncGenerator[tuple[str, object, tuple[WebUpload, ...]]]:
     async def limited() -> AsyncGenerator[bytes]:
         size = 0
         async for chunk in request.stream():
@@ -104,74 +83,79 @@ async def read_submission(
             if media == "application/json" and size > MESSAGE_PART_LIMIT:
                 raise HTTPException(413, "message part is too large")
             if size > BODY_LIMIT:
-                raise HTTPException(413, "upload exceeds 90 mib")
+                if parser is not None:
+                    raise MultiPartException(_UPLOAD_LIMIT)
+                raise HTTPException(413, _UPLOAD_LIMIT)
             yield chunk
         if parser is not None and not parser.complete:
-            raise HTTPException(422, "incomplete multipart upload")
+            raise MultiPartException("incomplete multipart upload")
 
     media = request.headers.get("content-type", "").partition(";")[0].strip().lower()
     parser: CompleteMultipartParser | None = None
     files: list[UploadFile] = []
     form = None
     try:
-        if media == "multipart/form-data":
-            parser = CompleteMultipartParser(
-                request.headers,
-                limited(),
-                max_files=FILE_LIMIT + 1,
-                max_fields=1,
-                max_part_size=MESSAGE_PART_LIMIT,
+        try:
+            if media == "multipart/form-data":
+                parser = CompleteMultipartParser(
+                    request.headers,
+                    limited(),
+                    max_files=FILE_LIMIT + 1,
+                    max_fields=1,
+                    max_part_size=MESSAGE_PART_LIMIT,
+                )
+                form = await parser.parse()
+                messages = form.getlist("message")
+                if len(messages) != 1 or set(form) - {"message", "file"}:
+                    raise HTTPException(422, "expected one message and ordered files")
+                message = messages[0]
+                if isinstance(message, UploadFile):
+                    if (message.size or 0) > parser.max_part_size:
+                        raise HTTPException(413, "message part is too large")
+                    message = (await message.read()).decode("utf-8")
+                value: object = json.loads(message)
+                for part in form.getlist("file"):
+                    if (
+                        not isinstance(part, UploadFile)
+                        or not part.filename
+                        or "\0" in part.filename
+                    ):
+                        raise HTTPException(422, "expected a named upload")
+                    files.append(part)
+                if len(files) > FILE_LIMIT:
+                    raise HTTPException(422, "at most ten files per message")
+            elif media == "application/json":
+                body = bytearray()
+                async for chunk in limited():
+                    body.extend(chunk)
+                value = json.loads(body.decode("utf-8"))
+            else:
+                raise HTTPException(422, "expected json or multipart")
+            if not isinstance(value, dict):
+                raise HTTPException(422, "invalid message")
+            fields = cast(dict[str, object], value)
+            text, ref = fields.get("text"), fields.get("ref")
+            if (
+                set(fields) - {"text", "ref"}
+                or not isinstance(text, str)
+                or "\0" in text
+                or (not text.strip() and not files)
+            ):
+                raise HTTPException(422, "invalid message")
+            if len(text.encode()) > TEXT_LIMIT:
+                raise HTTPException(413, "text exceeds 16 kib")
+            uploads = (
+                await joined_thread(_fingerprint, files, submission_id) if files else ()
             )
-            form = await parser.parse()
-            messages = form.getlist("message")
-            if len(messages) != 1 or set(form) - {"message", "file"}:
-                raise HTTPException(422, "expected one message and ordered files")
-            message = messages[0]
-            if isinstance(message, UploadFile):
-                if (message.size or 0) > parser.max_part_size:
-                    raise HTTPException(413, "message part is too large")
-                message = (await message.read()).decode("utf-8")
-            value: object = json.loads(message)
-            for part in form.getlist("file"):
-                if (
-                    not isinstance(part, UploadFile)
-                    or not part.filename
-                    or "\0" in part.filename
-                ):
-                    raise HTTPException(422, "expected a named upload")
-                files.append(part)
-            if len(files) > FILE_LIMIT:
-                raise HTTPException(422, "at most ten files per message")
-        elif media == "application/json":
-            body = bytearray()
-            async for chunk in limited():
-                body.extend(chunk)
-            value = json.loads(body.decode("utf-8"))
-        else:
-            raise HTTPException(422, "expected json or multipart")
-        if not isinstance(value, dict):
-            raise HTTPException(422, "invalid message")
-        fields = cast(dict[str, object], value)
-        text, ref = fields.get("text"), fields.get("ref")
-        if (
-            set(fields) - {"text", "ref"}
-            or not isinstance(text, str)
-            or "\0" in text
-            or (not text.strip() and not files)
-        ):
-            raise HTTPException(422, "invalid message")
-        if len(text.encode()) > TEXT_LIMIT:
-            raise HTTPException(413, "text exceeds 16 kib")
-        uploads = (
-            await joined_thread(_stage, files, submission_id, spool) if files else ()
-        )
-        return text, ref, uploads
-    except MultiPartException as exc:
-        if exc.message.startswith("Part exceeded maximum size"):
-            raise HTTPException(413, "message part is too large") from exc
-        raise HTTPException(422, "invalid multipart message") from exc
-    except ValueError as exc:
-        raise HTTPException(422, "invalid message body") from exc
+        except MultiPartException as exc:
+            if exc.message == _UPLOAD_LIMIT:
+                raise HTTPException(413, _UPLOAD_LIMIT) from exc
+            if exc.message.startswith("Part exceeded maximum size"):
+                raise HTTPException(413, "message part is too large") from exc
+            raise HTTPException(422, "invalid multipart message") from exc
+        except ValueError as exc:
+            raise HTTPException(422, "invalid message body") from exc
+        yield text, ref, uploads
     finally:
         if form is not None:
             await form.close()
@@ -180,69 +164,25 @@ async def read_submission(
 async def attachment_response(
     attachments: AttachmentStore, identifier: UUID, *, head: bool = False
 ) -> Response:
-    result = (await attachments.open(identifier)).value
-    if result["type"] == "Success":
-        value = cast(dict[str, object], result["value"])
-        descriptor = cast(dict[str, object], value["attachment"])
-        try:
-            return _original_response(
-                Path(str(value["local_path"])),
-                str(descriptor.get("name") or identifier),
-                head,
-            )
-        except FileNotFoundError:
-            # A concurrent removal may still be deleting or already deleted.
-            result = (await attachments.open(identifier)).value
-    code = (
-        str(result["error"]["type"]) if result["type"] == "Failure" else "Unavailable"
-    )
-    raise HTTPException(
-        {"NotFound": 404, "Deleted": 410}.get(code, 409),
-        code,
-        headers={"X-Jarvis-File-State": code},
-    )
-
-
-def download_headers(name: str, media_type: str, length: int) -> dict[str, str]:
-    filename = name.replace("\\", "/").split("/")[-1]
-    filename = "".join(ch for ch in filename if ch.isprintable()).strip() or "original"
-    disposition = "attachment" if media_type == "application/octet-stream" else "inline"
-    encoded = quote(filename, safe="")
-    return {
-        "Content-Disposition": f"{disposition}; filename*=utf-8''{encoded}",
-        "Content-Length": str(length),
-        "X-Content-Type-Options": "nosniff",
-    }
-
-
-def _original_response(path: Path, name: str, head: bool) -> Response:
-    stream = path.open("rb")
     try:
-        media_type = safe_media_type(stream.read(16))
+        row, stream = await attachments.open_pending(identifier)
+    except CustodyConflict as exc:
+        code = str(exc)
+        raise HTTPException(
+            {"NotFound": 404, "Unavailable": 410}.get(code, 409),
+            code,
+            headers={"X-Jarvis-File-State": code},
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(
+            503,
+            "upload bytes are unavailable",
+            headers={"X-Jarvis-File-State": "Unavailable"},
+        ) from exc
+    try:
+        mime = media_type(stream.read(16))
         stream.seek(0)
-        headers = download_headers(name, media_type, os.fstat(stream.fileno()).st_size)
-        if head:
-            stream.close()
-            return Response(media_type=media_type, headers=headers)
-        return _FileResponse(stream, media_type, headers)
     except BaseException:
         stream.close()
         raise
-
-
-class _FileResponse(StreamingResponse):
-    """Own the verified fd until ASGI completes or a reader disconnects."""
-
-    def __init__(self, stream: BinaryIO, media: str, headers: dict[str, str]) -> None:
-        self.stream = stream
-        super().__init__(
-            iter(lambda: stream.read(256 * 1024), b""),
-            media_type=media,
-            headers=headers,
-        )
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        try:
-            await super().__call__(scope, receive, send)
-        finally:
-            self.stream.close()
+    return file_response(stream, row.filename or str(identifier), mime, head=head)

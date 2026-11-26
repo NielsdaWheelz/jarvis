@@ -18,8 +18,9 @@ from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 
-from jarvis.attachments import AttachmentStore, WebUpload
-from jarvis.db import attachment, message
+from jarvis.attachments import AttachmentStore, SpoolFull, WebUpload
+from jarvis.db import message
+from jarvis.home_drive import DriveReader, mount_drive
 from jarvis.home_pages import HOME_ORIGIN, PAGE_CSP, HomePages
 from jarvis.home_reads import (
     conversation,
@@ -53,7 +54,7 @@ _PHONE_ROUTE = "/api/push/phone"
 _WORKSPACE_APPROVALS = "/api/workspace/approvals"
 _SHELL_CSP = (
     "default-src 'self'; object-src 'none'; base-uri 'none'; "
-    "frame-ancestors 'none'; form-action 'self'"
+    "frame-ancestors 'none'; form-action 'self'; img-src 'self' blob:"
 )
 
 
@@ -83,10 +84,10 @@ def create_home_app(
     work: WorkStore,
     attachments: AttachmentStore,
     submit: Submit,
-    spool: Path,
     pages: Path,
     phone: PhoneSlot,
     workspace_approvals: WorkspaceApprovals | None = None,
+    drive_reader: DriveReader | None = None,
     mail_editor: MailEditor | None = None,
 ) -> FastAPI:
     app = FastAPI(
@@ -106,6 +107,14 @@ def create_home_app(
             and request.headers.get("origin") != HOME_ORIGIN
         ):
             response = JSONResponse({"detail": "invalid origin"}, status_code=400)
+        elif (
+            request.url.path == "/api/messages"
+            or request.url.path.startswith(("/api/messages/", "/api/submissions/"))
+        ) and request.headers.getlist("x-jarvis-viewer-contract") != ["drive-files"]:
+            response = JSONResponse(
+                {"detail": "reload the jarvis viewer or update the android app"},
+                status_code=426,
+            )
         else:
             try:
                 response = await call_next(request)
@@ -120,8 +129,10 @@ def create_home_app(
                 )
                 response = JSONResponse({"detail": "unavailable"}, status_code=503)
         cache_control = "private, no-store"
-        if request.url.path == _PHONE_ROUTE:
-            # Compression can weaken the tag required by the next mutation.
+        if request.url.path == _PHONE_ROUTE or "no-transform" in response.headers.get(
+            "Cache-Control", ""
+        ):
+            # Preserve the phone tag and the exact byte count on private streams.
             cache_control += ", no-transform"
         response.headers["Cache-Control"] = cache_control
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -144,24 +155,30 @@ def create_home_app(
                 occurrence = canonical_uuid(headers[0])
             except ValueError as exc:
                 raise HTTPException(422, "invalid workspace occurrence") from exc
-        body, raw_ref, uploads = await read_submission(request, submission_id, spool)
         try:
-            if occurrence is None:
-                identifier, created = await submit(
-                    submission_id, body, raw_ref, uploads
-                )
-            else:
-                identifier, created = await submit(
-                    submission_id,
-                    body,
-                    raw_ref,
-                    uploads,
-                    workspace_occurrence=occurrence,
-                )
+            async with read_submission(request, submission_id) as (
+                body,
+                raw_ref,
+                uploads,
+            ):
+                if occurrence is None:
+                    identifier, created = await submit(
+                        submission_id, body, raw_ref, uploads
+                    )
+                else:
+                    identifier, created = await submit(
+                        submission_id,
+                        body,
+                        raw_ref,
+                        uploads,
+                        workspace_occurrence=occurrence,
+                    )
         except StaleWorkspaceOccurrence as exc:
             raise HTTPException(410, "this check is no longer available") from exc
         except IngressUnavailable as exc:
             raise HTTPException(503, "jarvis is offline") from exc
+        except SpoolFull as exc:
+            raise HTTPException(413, "unfiled upload space is full") from exc
         except SubmissionConflict as exc:
             raise HTTPException(409, "submission id was already used") from exc
         except InvalidReference as exc:
@@ -308,17 +325,6 @@ def create_home_app(
         return JSONResponse(state.public(), headers={"ETag": state.etag})
 
     async def file(identifier: UUID, request: Request) -> Response:
-        async with database.connect() as conn:
-            in_scope = await conn.scalar(
-                select(attachment.c.id)
-                .join(message, message.c.id == attachment.c.origin_message_id)
-                .where(
-                    attachment.c.id == identifier,
-                    message.c.source_conversation_id == scope,
-                )
-            )
-        if in_scope is None:
-            raise HTTPException(404)
         return await attachment_response(
             attachments, identifier, head=request.method == "HEAD"
         )
@@ -358,7 +364,10 @@ def create_home_app(
     app.add_api_route("/api/todos", todo_list, methods=["GET"])
     app.add_api_route("/api/todos/{identifier}", todo, methods=["GET"])
     app.add_api_route("/api/todos/{identifier}/results", results, methods=["GET"])
-    app.add_api_route("/api/files/{identifier}", file, methods=["GET", "HEAD"])
+    app.add_api_route(
+        "/api/drive/origin/{identifier}/content", file, methods=["GET", "HEAD"]
+    )
+    mount_drive(app, drive_reader, attachments.pending, attachments.inspect)
     app.add_api_route("/api/home", home, methods=["GET"])
     app.add_api_route(_PHONE_ROUTE, get_phone, methods=["GET"])
     app.add_api_route(_PHONE_ROUTE, change_phone, methods=["PUT", "DELETE"])
@@ -375,6 +384,8 @@ def create_home_app(
     app.add_api_route("/t/{identifier}", shell, methods=["GET"])
     app.add_api_route("/m/{identifier}", shell, methods=["GET"])
     app.add_api_route("/f/{identifier}", shell, methods=["GET"])
+    app.add_api_route("/files", shell, methods=["GET"])
+    app.add_api_route("/files/{subject}/{identifier}", shell, methods=["GET"])
     app.add_api_route("/overview", shell, methods=["GET"])
     app.add_api_route("/v/{slug}", shell, methods=["GET"])
     app.add_api_route("/v/{slug}/{rev}", shell, methods=["GET"])

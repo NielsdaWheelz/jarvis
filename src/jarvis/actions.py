@@ -68,10 +68,8 @@ from jarvis.agent_tools import (
     validate_agent_success,
     validate_stored_agent_evidence,
 )
-from jarvis.attachment_tools import AttachmentDeleteResult
 from jarvis.db import (
     action,
-    attachment,
     message,
     native_attempt,
     native_input_delivery,
@@ -89,8 +87,6 @@ from jarvis.messages import (
 from jarvis.ownership import Database, lock_conversation
 from jarvis.work_tools import WORK_MUTATION_IDS, validate_work_result
 from jarvis.workspace_host import (
-    NativeWorkspaceRead,
-    current_workspace_read,
     is_workspace_wake,
 )
 from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, MAX_CONSENT_ROUNDS, WorkspaceError
@@ -99,14 +95,20 @@ from jarvis.workspace_write_models import (
     DiscardReceipt,
     DraftSnapshot,
     DraftWriteReceipt,
+    DriveWriteReceipt,
     FrozenCompose,
     FrozenDiscard,
+    FrozenDocsUpdate,
+    FrozenDriveCopy,
+    FrozenDriveCreate,
+    FrozenDriveRevise,
     FrozenWorkspaceWrite,
 )
 from jarvis.write_connectors import (
     WorkspaceReceipt,
     WorkspaceWriteEntry,
     WorkspaceWriteFailure,
+    submission_source_id,
 )
 from jarvis.write_tools import (
     GMAIL_CREATE_DRAFT_SPEC,
@@ -159,6 +161,7 @@ _RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2"
 
 
 GMAIL_WRITE_NAMES = ("gmail.create_draft", "gmail.update_draft", "gmail.send_draft")
+_RETIRED_ATTACHMENT_WRITES = {"attachment.retain", "attachment.delete"}
 _RETIRED_WORKSPACE_REVISIONS = {
     tool: {f"jarvis-{tool.replace('.', '-')}-v{i}" for i in range(1, last + 1)}
     for tool, last in (
@@ -1129,9 +1132,6 @@ class ActionPositionRecorder:
             replay_policy=replay_policy,
         )
         replay = action_replay_result(stored)
-        if replay is None and stored.status == "uncertain":
-            async with self._store.engine.connect() as connection:
-                replay = await attachment_uncertainty_receipt(connection, stored)
         if replay is not None:
             return PositionState(
                 replay,
@@ -1183,8 +1183,6 @@ class ActionPositionRecorder:
             if replay_policy is not stored.execution_contract.replay_policy:
                 raise ValueError("action replay policy changed")
             replay = action_replay_result(stored)
-            if replay is None:
-                replay = await attachment_uncertainty_receipt(connection, stored)
             if replay is not None:
                 return PositionState(
                     replay,
@@ -1237,35 +1235,19 @@ class ActionPositionRecorder:
                     )
                 try:
                     await entry.authorize(connection)
+                    if source := submission_source_id(entry.frozen):
+                        from jarvis.attachments import CustodyConflict
+
+                        try:
+                            await entry.submissions.bind(connection, source, stored.id)
+                        except CustodyConflict as exc:
+                            raise WorkspaceError("source_changed") from exc
                 except WorkspaceError as exc:
                     failure: ToolResult = {
                         "type": "Failure",
                         "error": WorkspaceWriteFailure(
                             code=exc.kind, retry_at=exc.retry_at
                         ).model_dump(mode="json"),
-                    }
-                    await _update_action(
-                        connection,
-                        stored.id,
-                        status="failed",
-                        completed_at=datetime.now(UTC),
-                        result=failure,
-                    )
-                    return PositionState(failure, False, 0)
-            if stored.tool_name == "attachment.retain":
-                try:
-                    access = current_workspace_read()
-                    if (
-                        not isinstance(access, NativeWorkspaceRead)
-                        or access.grant_id
-                        != stored.current_execution_contract.workspace_grant_id
-                    ):
-                        raise WorkspaceError("grant_unavailable")
-                    await access.require_current(connection)
-                except WorkspaceError:
-                    failure = {
-                        "type": "Failure",
-                        "error": {"type": "Unavailable", "id": None},
                     }
                     await _update_action(
                         connection,
@@ -1398,13 +1380,7 @@ class ActionPositionRecorder:
                 self._settlement = settlement
                 return replay
             if stored.status == "uncertain":
-                receipt = await attachment_uncertainty_receipt(connection, stored)
-                if receipt is None or receipt != canonical_result:
-                    raise ValueError("uncertain action requires reconciliation")
-                if self._reservation_accepted:
-                    await budgets.settle(position, settlement)
-                self._settlement = settlement
-                return receipt
+                raise ValueError("uncertain action requires reconciliation")
             if stored.status not in {"queued", "executing"}:
                 raise ValueError("action cannot accept a terminal tool result")
             if self._reservation_accepted:
@@ -1467,6 +1443,16 @@ class ActionPositionRecorder:
                     and stored.result.get("type") == "agent_control_v5"
                     else durable_result,
                 )
+            entry = self.workspace_entry
+            if entry is not None and (source := submission_source_id(entry.frozen)):
+                if error.get("known_no_effect") is True:
+                    await entry.submissions.release_unentered(
+                        connection, source, stored.id
+                    )
+                elif ambiguous_boundary_failure or error.get("code") == "uncertain":
+                    await entry.submissions.mark_uncertain(
+                        source, stored.id, connection=connection
+                    )
             self._settlement = settlement
         if ambiguous_boundary_failure:
             raise RecoveryRequired("entered effect requires durable reporting")
@@ -1850,6 +1836,26 @@ def _verify_workspace_receipt(stored: StoredAction, value: object) -> WorkspaceR
             effect.verified_replacement_action_id,
         ):
             raise ValueError("discard receipt names different revisions")
+    elif isinstance(
+        effect,
+        FrozenDriveCreate | FrozenDriveCopy | FrozenDriveRevise | FrozenDocsUpdate,
+    ):
+        receipt = DriveWriteReceipt.model_validate(value)
+        outcome = {
+            "drive.create": "created",
+            "drive.copy": "copied",
+            "drive.revise": "revised",
+            "docs.update": "updated",
+        }[frozen.tool]
+        if (
+            receipt.subject != effect.subject
+            or receipt.outcome != outcome
+            or (
+                isinstance(effect, FrozenDriveRevise | FrozenDocsUpdate)
+                and receipt.file_id != effect.id
+            )
+        ):
+            raise ValueError("drive receipt differs from the frozen operation")
     else:
         receipt = CalendarWriteReceipt.model_validate(value)
         if (
@@ -1891,6 +1897,8 @@ def _same_workspace_ack(ack: object, latest: object) -> bool:
         "old_message_id",
         "event_id",
         "calendar_id",
+        "subject",
+        "file_id",
         "verified_replacement_action_id",
     )
     return all(original.get(key) == observed.get(key) for key in stable) and all(
@@ -2169,80 +2177,6 @@ async def require_locked_action(
     return stored
 
 
-async def attachment_manual_cleanup_reported(
-    connection: AsyncConnection, attachment_id: UUID, action_id: UUID | None
-) -> bool:
-    """Bind an operator's factual cleanup to the affected original/action."""
-    affected = message.c.trace["affected_action_id"].as_string()
-    reported = await connection.scalar(
-        select(message.c.id)
-        .where(
-            message.c.source == "attachment",
-            message.c.trace["attachment_id"].as_string() == str(attachment_id),
-            affected.is_(None) if action_id is None else affected == str(action_id),
-            message.c.trace["after_manual_cleanup"].as_boolean().is_(True),
-        )
-        .limit(1)
-    )
-    return reported is not None
-
-
-async def attachment_uncertainty_receipt(
-    connection: AsyncConnection, stored: StoredAction
-) -> ToolResult | None:
-    """Recover a typed callback failure without changing its action uncertainty."""
-    if stored.status != "uncertain" or stored.tool_name not in {
-        ToolId("attachment.retain"),
-        ToolId("attachment.delete"),
-    }:
-        return None
-    retaining = stored.tool_name == ToolId("attachment.retain")
-    row = (
-        (
-            await connection.execute(
-                select(attachment).where(
-                    (
-                        attachment.c.capture_action_id
-                        if retaining
-                        else attachment.c.delete_action_id
-                    )
-                    == stored.id
-                )
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
-    if row is not None and row["state"] == ("ready" if retaining else "deleted"):
-        if await attachment_manual_cleanup_reported(connection, row["id"], stored.id):
-            # Factual cleanup is no receipt for the original action. The
-            # uncertain position remains suspended, with no executor entry.
-            return None
-    if (
-        row is None
-        or row["state"] != ("pending" if retaining else "deleting")
-        or (
-            row["error"]
-            not in (
-                {"CaptureUnresolved", "StorageConflict"}
-                if retaining
-                else {"StorageConflict", "DeleteUnresolved"}
-            )
-        )
-    ):
-        raise ActionPersistenceDefect("attachment uncertainty lost its exact evidence")
-    if retaining:
-        requested = stored.payload["source"]
-        if not isinstance(requested, dict) or any(
-            row["source"].get(key) != value
-            for key, value in cast(dict[str, object], requested).items()
-        ):
-            raise ActionPersistenceDefect("attachment capture receipt changed source")
-    elif stored.payload["id"] != str(row["id"]):
-        raise ActionPersistenceDefect("attachment deletion receipt changed identity")
-    return {"type": "Failure", "error": {"type": row["error"], "id": str(row["id"])}}
-
-
 async def resolve_reconciliation_in_transaction(
     connection: AsyncConnection,
     stored: StoredAction,
@@ -2268,85 +2202,7 @@ async def resolve_reconciliation_in_transaction(
             raise ActionPersistenceDefect("terminal action resolution changed")
         settled = stored
     else:
-        if stored.status == "queued":
-            if stored.tool_name != ToolId("attachment.delete") or stored.attempts < 1:
-                raise ActionPersistenceDefect("queued work has no entered deletion")
-            original = (
-                (
-                    await connection.execute(
-                        select(attachment)
-                        .where(
-                            attachment.c.id == UUID(str(stored.payload["id"])),
-                            attachment.c.delete_action_id == stored.id,
-                        )
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if (
-                original is None
-                or original["state"] not in {"deleting", "deleted"}
-                or original["put_entered_at"] is None
-                or original["stored_at"] is None
-            ):
-                raise ActionPersistenceDefect("queued deletion lost its exact original")
-            if stored.recovered_external_attempts == 0:
-                if original["state"] == "deleting" and original["error"] in {
-                    "StorageConflict",
-                    "Unavailable",
-                }:
-                    expected_error = original["error"]
-                elif original[
-                    "state"
-                ] == "deleted" and await attachment_manual_cleanup_reported(
-                    connection, original["id"], stored.id
-                ):
-                    expected_error = "Deleted"
-                else:
-                    raise ActionPersistenceDefect(
-                        "unentered deletion has no proved failure"
-                    )
-                if status != "failed" or canonical != {
-                    "type": "Failure",
-                    "error": {"type": expected_error, "id": str(original["id"])},
-                }:
-                    raise ActionPersistenceDefect("unentered deletion failure changed")
-            elif status == "succeeded":
-                if original["state"] != "deleted" or canonical != {
-                    "type": "Success",
-                    "value": AttachmentDeleteResult(
-                        id=str(original["id"]),
-                        deleted_at=original["deleted_at"],
-                        scope="original_and_cache",
-                    ).model_dump(mode="json"),
-                }:
-                    raise ActionPersistenceDefect(
-                        "queued deletion has no proved receipt"
-                    )
-            elif status == "failed":
-                if (
-                    original["state"] != "deleting"
-                    or original["error"] != "CacheCleanupFailed"
-                    or canonical
-                    != {
-                        "type": "Failure",
-                        "error": {
-                            "type": "CacheCleanupFailed",
-                            "id": str(original["id"]),
-                        },
-                    }
-                ):
-                    raise ActionPersistenceDefect(
-                        "queued deletion has no proved local cleanup failure"
-                    )
-            elif status != "uncertain" or canonical["evidence_code"] not in {
-                "StorageConflict",
-                "DeleteUnresolved",
-            }:
-                raise ActionPersistenceDefect("queued deletion uncertainty is invalid")
-        elif stored.status not in {"executing", "uncertain"}:
+        if stored.status not in {"executing", "uncertain"}:
             raise ActionPersistenceDefect(
                 "only executing or uncertain work can be reconciled"
             )
@@ -2417,6 +2273,7 @@ def _stored_action(row: RowMapping) -> StoredAction:
         envelope = _common_execution_envelope(row["execution_contract"])
         if (
             row["execution_contract"].get("schema_version") is None
+            or row["tool_name"] in _RETIRED_ATTACHMENT_WRITES
             or retired_worker_revision(
                 str(row["tool_name"]), envelope.implementation_revision
             )
@@ -2500,7 +2357,6 @@ def _validate_new_action(
         if contract.workspace_grant_id is not None and tool_name not in {
             "work.create",
             "work.update",
-            "attachment.retain",
         }:
             raise ValueError("unexpected captured workspace grant")
     if not historical and arguments.get("request_ref") != str(origin_message_id):
@@ -2724,7 +2580,8 @@ async def recorded_action_result(
         if legacy_managed_worker(stored) and stored.status in {"succeeded", "failed"}:
             return _stored_tool_result(stored)
         if (
-            stored.tool_name in _RETIRED_WORKSPACE_REVISIONS
+            stored.tool_name
+            in _RETIRED_WORKSPACE_REVISIONS.keys() | _RETIRED_ATTACHMENT_WRITES
             and stored.status in {"succeeded", "failed"}
             and stored.result
             and stored.result.get("type") in {"Success", "Failure"}
@@ -3342,8 +3199,6 @@ __all__ = [
     "action_resolution_text",
     "agent_uncertainty_result",
     "archived_worker_action",
-    "attachment_manual_cleanup_reported",
-    "attachment_uncertainty_receipt",
     "complete_local_action",
     "recorded_action",
     "recorded_action_result",

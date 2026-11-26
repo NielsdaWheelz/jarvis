@@ -1,89 +1,156 @@
-"""Resolve and revalidate observed Gmail file selectors before storing their bytes."""
+"""Materialize and revalidate the byte sources of an authorized Drive action."""
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+import hashlib
+import os
+import tempfile
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
+from dataclasses import replace
 from pathlib import Path
 
 from jarvis._thread_io import joined_thread
-from jarvis.connectors import OriginalTooLarge
-from jarvis.read_tools import (
-    ATTACHMENT_OPERATION_SECONDS,
-    ConnectorFailure,
-    ReadResponse,
-    display_descriptor,
+from jarvis.attachments import AttachmentStore, copy_verified
+from jarvis.mail_files import (
+    NATIVE_MAIL_ROOT,
+    NativeFileRef,
+    canonical_media_type,
+    native_file,
 )
-from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, WorkspaceError, workspace_attempts
-from jarvis.workspace_mime import MailPart
+from jarvis.read_tools import ATTACHMENT_MAX_BYTES
+from jarvis.workspace_mcp import Fence, WorkspaceError
 from jarvis.workspace_reads import WorkspaceReads
-
-
-@dataclass(frozen=True, slots=True)
-class SourceOriginal:
-    source: dict[str, object]
-    filename: str | None
-    media_type: str | None
-    advertised_size: int | None
-    content: bytes = field(repr=False)
+from jarvis.workspace_write_models import (
+    DriveBinarySource,
+    DriveSourceFile,
+    GmailPartSource,
+    NativePublicationSource,
+    SubmissionSource,
+)
 
 
 class AttachmentSources:
-    def __init__(self, *, google: WorkspaceReads | None) -> None:
+    def __init__(
+        self,
+        submissions: AttachmentStore,
+        google: WorkspaceReads | None,
+        *,
+        native_root: Path = NATIVE_MAIL_ROOT,
+    ) -> None:
+        self._submissions = submissions
         self._google = google
+        self._native = native_root
+        self._stage_lock = asyncio.Lock()
 
-    async def _part(self, source: dict[str, object]) -> ReadResponse[MailPart]:
-        if self._google is None:
-            raise ConnectorFailure("provider_unavailable", attempts=0)
-        if source.get("kind") != "gmail" or not str(
-            source.get("part_id", "")
-        ).startswith("mime1."):
-            raise ConnectorFailure("source_changed", attempts=0)
-        # Leave room in the retain action for object observation and upload.
-        with workspace_attempts(8, seconds=ATTACHMENT_OPERATION_SECONDS) as meter:
-            try:
-                async with asyncio.timeout(
-                    ATTACHMENT_OPERATION_SECONDS + HUMAN_WAIT_SECONDS
-                ):
-                    part = await self._google.original(source)
-                return ReadResponse(part, meter.attempts)
-            except WorkspaceError as exc:
-                code = {
-                    "not_found": "not_found",
-                    "source_changed": "source_changed",
-                    "partial": "provider_response_too_large",
-                }.get(exc.kind, "provider_unavailable")
-                raise ConnectorFailure(code, attempts=meter.attempts) from exc
-            except OriginalTooLarge:
-                raise ConnectorFailure("too_large", attempts=meter.attempts) from None
-            except (TimeoutError, ValueError, RecursionError, OSError):
-                raise ConnectorFailure(
-                    "provider_unavailable", attempts=meter.attempts
-                ) from None
-
-    async def resolve(self, source: dict[str, object]) -> ReadResponse[SourceOriginal]:
-        if self._google is None or self._google.account is None:
-            raise ConnectorFailure("provider_unavailable", attempts=0)
-        qualified = {"account": self._google.account, **source}
-        response = await self._part(qualified)
-        part = response.value
-        assert part.content is not None
-        size = len(part.content)
-        desc = display_descriptor(part.filename, part.media_type, size)
-        return ReadResponse(
-            SourceOriginal(
-                qualified,
-                str(desc["name"]) if desc["name"] is not None else None,
-                part.media_type,
-                size,
-                part.content,
-            ),
-            response.attempts,
-        )
-
-    async def download(self, source: dict[str, object], destination: Path) -> int:
-        response = await self._part(source)
-        part = response.value
-        assert part.content is not None
-        await joined_thread(destination.write_bytes, part.content)
-        return response.attempts
+    @asynccontextmanager
+    async def open(
+        self,
+        source: DriveBinarySource,
+        *,
+        invocation_id: str,
+        before_send: Fence,
+    ) -> AsyncIterator[DriveSourceFile]:
+        async with (
+            nullcontext() if isinstance(source, SubmissionSource) else self._stage_lock
+        ):
+            async with AsyncExitStack() as opened:
+                try:
+                    if isinstance(source, SubmissionSource):
+                        row, stream = await self._submissions.open_pending(
+                            source.submission_id
+                        )
+                        opened.enter_context(stream)
+                        assert row.sha256 is not None and row.size_bytes is not None
+                        # Filing owns custody through effect entry. The source is
+                        # immutable and cannot be abandoned during transmission.
+                        file = DriveSourceFile(
+                            Path(stream.name),
+                            row.filename or "upload",
+                            canonical_media_type(row.media_type),
+                            row.size_bytes,
+                            row.sha256,
+                        )
+                    else:
+                        scratch = await opened.enter_async_context(
+                            self._submissions.transfer_scratch(ATTACHMENT_MAX_BYTES)
+                        )
+                        private = opened.enter_context(
+                            tempfile.TemporaryDirectory(
+                                prefix=".transfer-", dir=scratch
+                            )
+                        )
+                        staged = opened.enter_context(
+                            tempfile.NamedTemporaryFile(dir=private)
+                        )
+                        path = Path(staged.name)
+                        if isinstance(source, NativePublicationSource):
+                            reference = NativeFileRef(
+                                kind="native",
+                                id=source.native_file_id,
+                                manifest_sha256=source.manifest_sha256,
+                            )
+                            with native_file(self._native, reference) as (
+                                descriptor,
+                                stream,
+                            ):
+                                await joined_thread(
+                                    copy_verified,
+                                    stream,
+                                    staged.write,
+                                    descriptor.size_bytes,
+                                    descriptor.sha256,
+                                )
+                            file = DriveSourceFile(
+                                path,
+                                descriptor.filename,
+                                descriptor.media_type,
+                                descriptor.size_bytes,
+                                descriptor.sha256,
+                            )
+                        else:
+                            assert isinstance(source, GmailPartSource)
+                            if self._google is None:
+                                raise WorkspaceError("provider_unavailable")
+                            observed = source.gmail_observation
+                            part = await self._google.original(
+                                {
+                                    "kind": "gmail",
+                                    "account": observed.account,
+                                    "message_id": observed.message_id,
+                                    "part_id": source.part_selector,
+                                },
+                                invocation_id=invocation_id,
+                                before_send=before_send,
+                            )
+                            assert part.content is not None
+                            if len(part.content) > ATTACHMENT_MAX_BYTES:
+                                raise WorkspaceError("too_large")
+                            await joined_thread(staged.write, part.content)
+                            file = DriveSourceFile(
+                                path,
+                                part.filename or "attachment",
+                                part.media_type,
+                                len(part.content),
+                                hashlib.sha256(part.content).hexdigest(),
+                            )
+                            del part
+                        staged.flush()
+                        os.fchmod(staged.fileno(), 0o400)
+                except WorkspaceError as exc:
+                    if exc.kind == "uncertain":
+                        raise WorkspaceError(
+                            "source_unavailable",
+                            retry_at=exc.retry_at,
+                            known_no_effect=True,
+                        ) from exc
+                    exc.known_no_effect = True
+                    raise
+                except (OSError, ValueError) as exc:
+                    raise WorkspaceError(
+                        "source_unavailable", known_no_effect=True
+                    ) from exc
+                if file.media_type.startswith("application/vnd.google-apps."):
+                    file = replace(file, media_type="application/octet-stream")
+                yield file

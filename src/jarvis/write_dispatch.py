@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import nullcontext
-from hashlib import sha256
 from typing import Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
@@ -36,10 +33,10 @@ from llm_tools import (
     ToolExecutor,
     ToolId,
     ToolResult,
-    canonical_json_bytes,
     raw_input_digest,
 )
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 from universal_memory.tools import MEMORY_SAVE_NOTE_SPEC
 
@@ -67,8 +64,9 @@ from jarvis.agent_tools import (
     AgentTargetInput,
 )
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
-from jarvis.attachment_tools import ATTACHMENT_WRITE_IDS, AttachmentRetainInput
+from jarvis.attachment_tools import SUBMISSION_ABANDON_SPEC, SUBMISSION_WRITE_IDS
 from jarvis.attachments import AttachmentStore
+from jarvis.db import message
 from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.events import EventStore
 from jarvis.mail_files import MailFileFailure, MailFiles
@@ -78,17 +76,31 @@ from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejecte
 from jarvis.work import WorkStore
 from jarvis.work_tools import WORK_MUTATION_IDS
 from jarvis.workspace_enrollment import WorkspaceEnrollment
-from jarvis.workspace_host import NativeWorkspaceRead, bind_workspace_read
-from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, WorkspaceError, workspace_attempts
+from jarvis.workspace_mcp import (
+    DRIVE_SCOPE,
+    HUMAN_WAIT_SECONDS,
+    WorkspaceError,
+    workspace_attempts,
+)
 from jarvis.workspace_write_models import (
     DiscardDraft,
+    DriveWriteReceipt,
     FrozenCompose,
+    FrozenDocsUpdate,
+    FrozenDriveCopy,
+    FrozenDriveCreate,
+    FrozenDriveRevise,
     workspace_write_arguments,
 )
 from jarvis.workspace_writes import WorkspaceWrites
-from jarvis.write_connectors import WorkspaceWriteEntry, workspace_failure
+from jarvis.write_connectors import (
+    WorkspaceWriteEntry,
+    submission_source_id,
+    workspace_failure,
+    write_rpc_limit,
+)
 from jarvis.write_policy import classify_write
-from jarvis.write_tools import GMAIL_WRITE_POLICY, WRITE_TOOL_IDS
+from jarvis.write_tools import WRITE_TOOL_IDS
 
 _INVALID_INPUT: ToolResult = {"type": "Failure", "error": {"type": "InvalidInput"}}
 _UNAVAILABLE: ToolResult = {
@@ -273,36 +285,26 @@ class WriteToolDispatcher:
                 return _existing_action_result(linked)
         grant = (
             self._workspace_grant()
-            if tool_id in WRITE_TOOL_IDS
-            or tool_id in {"work.create", "work.update", "attachment.retain"}
+            if tool_id in WRITE_TOOL_IDS or tool_id in {"work.create", "work.update"}
             else None
         )
         authorize = None
-        retention = None
-        if tool_id in WRITE_TOOL_IDS or tool_id == "attachment.retain":
-            if grant is None:
+        if tool_id in WRITE_TOOL_IDS or tool_id == SUBMISSION_ABANDON_SPEC.id:
+            if tool_id in WRITE_TOOL_IDS and grant is None:
                 return host_rejected("workspace_grant_unavailable")
-            authorize = self._workspace_authority(
+            authorize = self._owner_write_authority(
                 lineage,
                 request_id,
                 tool_id,
-                grant.grant_id,
-                grant.account,
+                None if grant is None else grant.grant_id,
+                None if grant is None else grant.account,
                 cancellation,
+                subject=None if grant is None else grant.subject,
             )
             try:
                 await authorize(None)
             except WorkspaceError as exc:
                 return host_rejected(exc.kind)
-            if tool_id == "attachment.retain":
-                if not isinstance(payload, AttachmentRetainInput):
-                    raise ToolDispatchDefect("retain requires its exact file source")
-                source = payload.source.model_dump(mode="json")
-                if not await self._attachments.workspace_source_observed(
-                    source, account=grant.account, grant_id=grant.grant_id
-                ):
-                    return host_rejected("workspace_file_not_observed")
-                retention = self._retention_access(lineage, source, grant, authorize)
         previous, blocked = await self._actions.accepted_actions(request_id)
         if request.existing_action_ref is not None:
             selected = next(
@@ -403,7 +405,7 @@ class WriteToolDispatcher:
             try:
                 limits = plan.grant(tool_id).limits
                 with workspace_attempts(
-                    GMAIL_WRITE_POLICY.max_attempts,
+                    write_rpc_limit(str(tool_id)),
                     seconds=limits.deadline_seconds - HUMAN_WAIT_SECONDS,
                 ) as meter:
                     async with asyncio.timeout(limits.deadline_seconds):
@@ -416,7 +418,38 @@ class WriteToolDispatcher:
                             invocation_id=lineage.invocation_id,
                             before_send=before_prepare,
                             replacement=replacement,
+                            subject=grant.subject,
                         )
+                if isinstance(
+                    frozen.effect,
+                    FrozenDriveCreate
+                    | FrozenDriveCopy
+                    | FrozenDriveRevise
+                    | FrozenDocsUpdate,
+                ):
+                    audience = frozen.effect.audience
+                    named = False
+                    if audience.state == "shared":
+                        async with self._actions.engine.connect() as connection:
+                            direct = await connection.scalar(
+                                select(message.c.home["ref"]).where(
+                                    message.c.id == request_id,
+                                    message.c.role == "owner",
+                                    message.c.source == "web",
+                                )
+                            )
+                        if isinstance(direct, dict):
+                            ref = cast(dict[str, object], direct)
+                            named = (
+                                ref.get("kind"),
+                                ref.get("subject"),
+                                ref.get("id"),
+                            ) == ("drive_file", grant.subject, audience.target)
+                    authority = (
+                        "automatic"
+                        if audience.private or named
+                        else "approval_required"
+                    )
                 prepare_attempts, prepare_seconds = meter.attempts, meter.elapsed
                 prepare_human_elapsed = meter.human_elapsed
                 prepare_consent_rounds = meter.consent_rounds
@@ -474,8 +507,7 @@ class WriteToolDispatcher:
             workspace_prepare_human_elapsed=prepare_human_elapsed,
             workspace_prepare_consent_rounds=prepare_consent_rounds,
             workspace_grant_id=grant.grant_id
-            if grant is not None
-            and tool_id in {"work.create", "work.update", "attachment.retain"}
+            if grant is not None and tool_id in {"work.create", "work.update"}
             else None,
         )
         insert = (
@@ -510,92 +542,36 @@ class WriteToolDispatcher:
                 prepare_seconds,
                 prepare_human_elapsed,
                 prepare_consent_rounds,
+                self._attachments,
             )
             if frozen is not None and authorize is not None
             else None
         )
-        with bind_workspace_read(retention) if retention is not None else nullcontext():
-            result = await execute_recorded_action(
-                self._actions,
-                action_id=stored.id,
-                binding=binding,
-                plan=plan,
-                budgets=budgets,
-                source_conversation_id=self._source_conversation_id,
-                workspace_entry=entry,
-            )
+        result = await execute_recorded_action(
+            self._actions,
+            action_id=stored.id,
+            binding=binding,
+            plan=plan,
+            budgets=budgets,
+            source_conversation_id=self._source_conversation_id,
+            workspace_entry=entry,
+        )
         if staging and not isinstance(result, DispatchSuspended):
             await _discard_mail_stage(self._mail_files, action_id)
         self._agents.delegations.notify_changed()
         return result
 
-    def _retention_access(
-        self,
-        lineage: NativeDispatchLineage,
-        source: dict[str, object],
-        grant: WorkspaceEnrollment,
-        authorize: Callable[[AsyncConnection | None], Awaitable[None]],
-    ) -> NativeWorkspaceRead:
-        async def require_current(connection: AsyncConnection | None) -> None:
-            await authorize(connection)
-            if not await self._attachments.workspace_source_observed(
-                source, account=grant.account, grant_id=grant.grant_id
-            ):
-                raise WorkspaceError("workspace_file_not_observed")
-
-        async def before_send(
-            public: str,
-            selectors: dict[str, object],
-            product: str,
-            operation: str,
-            wire: dict[str, object],
-        ) -> None:
-            if (
-                public != "attachment.retain"
-                or selectors != {"source": source}
-                or product != "gmail"
-            ):
-                raise WorkspaceError("source_changed")
-            if operation == "get_message":
-                exact = not str(source["part_id"]).startswith("mime1.d") and wire == {
-                    "messageId": source["message_id"],
-                    "messageFormat": "RAW",
-                }
-            elif operation == "get_draft" and isinstance(wire.get("draftId"), str):
-                draft = str(wire["draftId"])
-                tag = base64.urlsafe_b64encode(draft.encode()).decode().rstrip("=")
-                exact = wire == {"draftId": draft, "messageFormat": "RAW"} and str(
-                    source["part_id"]
-                ).startswith(f"mime1.d{tag}.")
-            else:
-                exact = False
-            if not exact:
-                raise WorkspaceError("source_changed")
-            await require_current(None)
-
-        return NativeWorkspaceRead(
-            invocation_id=lineage.invocation_id,
-            background=False,
-            before_send=before_send,
-            grant_id=grant.grant_id,
-            source_digest=sha256(
-                canonical_json_bytes(
-                    [str(grant.grant_id), "attachment.retain", source, None]
-                )
-            ).hexdigest(),
-            require_current=require_current,
-        )
-
-    def _workspace_authority(
+    def _owner_write_authority(
         self,
         lineage: NativeDispatchLineage,
         owner_id: UUID,
         tool: ToolId,
-        grant_id: UUID,
-        account: str,
+        grant_id: UUID | None,
+        account: str | None,
         cancellation: CancellationToken,
         *,
         decision_for: UUID | None = None,
+        subject: str | None = None,
     ) -> Callable[[AsyncConnection | None], Awaitable[None]]:
         async def authorize(connection: AsyncConnection | None) -> None:
             if connection is None:
@@ -614,17 +590,21 @@ class WriteToolDispatcher:
                 )
             ):
                 raise WorkspaceError("owner_required")
-            current = self._workspace_grant()
-            if current is None or (current.grant_id, current.account) != (
-                grant_id,
-                account,
-            ):
-                raise WorkspaceError("grant_unavailable")
-            if tool in {"gmail.prepare_replacement", "gmail.discard_draft"} and (
-                "https://www.googleapis.com/auth/gmail.messages.delete"
-                not in current.scopes
-            ):
-                raise WorkspaceError("scope_missing")
+            if tool in WRITE_TOOL_IDS:
+                current = self._workspace_grant()
+                if current is None or (current.grant_id, current.account) != (
+                    grant_id,
+                    account,
+                ):
+                    raise WorkspaceError("grant_unavailable")
+                if tool.startswith(("drive.", "docs.")):
+                    if current.subject != subject or DRIVE_SCOPE not in current.scopes:
+                        raise WorkspaceError("scope_missing")
+                if tool in {"gmail.prepare_replacement", "gmail.discard_draft"} and (
+                    "https://www.googleapis.com/auth/gmail.messages.delete"
+                    not in current.scopes
+                ):
+                    raise WorkspaceError("scope_missing")
             if cancellation.cancelled or self._closing:
                 raise WorkspaceError("cancelled")
 
@@ -652,7 +632,7 @@ class WriteToolDispatcher:
                 entry = WorkspaceWriteEntry(
                     frozen,
                     await self._actions.original_invocation(stored),
-                    self._workspace_authority(
+                    self._owner_write_authority(
                         lineage,
                         UUID(decision.owner_message_id),
                         stored.tool_name,
@@ -660,11 +640,13 @@ class WriteToolDispatcher:
                         frozen.account,
                         cancellation,
                         decision_for=action_id,
+                        subject=getattr(frozen.effect, "subject", None),
                     ),
                     contract.workspace_prepare_attempts,
                     contract.workspace_prepare_seconds,
                     contract.workspace_prepare_human_elapsed,
                     contract.workspace_prepare_consent_rounds,
+                    self._attachments,
                 )
                 await execute_recorded_action(
                     self._actions,
@@ -682,6 +664,8 @@ class WriteToolDispatcher:
                     events=self._events,
                     attachments=self._attachments,
                     mail_files=self._mail_files,
+                    workspace_writes=self._workspace_writes,
+                    workspace_grant=self._workspace_grant,
                     plan=plan,
                     source_conversation_id=self._source_conversation_id,
                     delegation_changed=self._agents.delegations.notify_changed,
@@ -718,6 +702,7 @@ class WriteToolDispatcher:
         self._closing = True
         if self._effects:
             await asyncio.gather(*self._effects)
+        await self._attachments.reset_scratch()
 
     def check_effects(self) -> bool:
         for task in tuple(self._effects):
@@ -788,7 +773,7 @@ async def execute_recorded_action(
 
 # These are the durable actions with an original settlement path below.
 RECOVERABLE_ACTION_IDS = WRITE_TOOL_IDS.union(
-    ATTACHMENT_WRITE_IDS, AGENT_WRITE_IDS, WORK_MUTATION_IDS, EVENT_MUTATION_IDS
+    SUBMISSION_WRITE_IDS, AGENT_WRITE_IDS, WORK_MUTATION_IDS, EVENT_MUTATION_IDS
 )
 
 
@@ -803,6 +788,8 @@ class ActionRecovery:
         events: EventStore,
         attachments: AttachmentStore,
         mail_files: MailFiles,
+        workspace_writes: WorkspaceWrites,
+        workspace_grant: Callable[[], WorkspaceEnrollment | None],
         plan: FrozenToolPlan,
         source_conversation_id: str,
         delegation_changed: Callable[[], None],
@@ -812,6 +799,8 @@ class ActionRecovery:
         self._events = events
         self._attachments = attachments
         self._mail_files = mail_files
+        self._workspace_writes = workspace_writes
+        self._workspace_grant = workspace_grant
         self._plan = plan
         self._source_conversation_id = source_conversation_id
         self._delegation_changed = delegation_changed
@@ -881,7 +870,8 @@ class ActionRecovery:
         if stored.tool_name in WRITE_TOOL_IDS:
             self._binding(stored)
             if stored.status == "executing":
-                await self._actions.mark_workspace_uncertain(stored.id)
+                stored = await self._actions.mark_workspace_uncertain(stored.id)
+                await self._repair_drive_custody(stored)
             elif stored.status == "queued":
                 if not allow_queued_execution:
                     return
@@ -912,55 +902,6 @@ class ActionRecovery:
             current = await self._require(stored.id)
             if current.status in {"succeeded", "failed", "uncertain", "cancelled"}:
                 return
-            if current.tool_name in ATTACHMENT_WRITE_IDS:
-                if (
-                    current.tool_name == "attachment.retain"
-                    and current.status == "queued"
-                ):
-                    if allow_queued_execution:
-                        await self._actions.cancel_nonexecuting(
-                            action_id=current.id,
-                            result={
-                                "type": "workspace_cancelled_v1",
-                                "reason_code": "fresh_owner_required",
-                            },
-                        )
-                    return
-                recovered = await self._attachments.recover_action(current.id)
-                if recovered is not None:
-                    return
-                current = await self._require(current.id)
-                if current.tool_name == "attachment.retain":
-                    # No original put entered. New source bytes need a new owner.
-                    await self._actions.resolve_reconciliation(
-                        action_id=current.id,
-                        status="failed",
-                        result={
-                            "type": "Failure",
-                            "error": {"type": "Unavailable", "id": None},
-                        },
-                    )
-                    return
-                if current.status == "executing":
-                    if current.attempts >= current.execution_contract.max_attempts:
-                        raise RuntimeError(
-                            "attachment recovery left an exhausted entry"
-                        )
-                    if not allow_queued_execution:
-                        return
-                    await self._actions.requeue_after_proved_absence(
-                        current.id,
-                        actual_external_attempts=0,
-                        max_external_attempts=self._plan.grant(
-                            current.tool_name
-                        ).limits.max_attempts,
-                    )
-                    continue
-                if not allow_queued_execution:
-                    return
-                if not await self._execute(current.id, binding):
-                    return
-                continue
             if current.execution_contract.replay_policy is ReplayPolicy.BilledOnce:
                 if current.status == "queued" and current.attempts == 0:
                     if not allow_queued_execution:
@@ -1029,6 +970,56 @@ class ActionRecovery:
 
     def _binding(self, stored: StoredAction) -> ToolBinding[Any, Any, Any]:
         return require_current_action_binding(stored, self._plan)
+
+    async def recover_staged_files(self) -> None:
+        for pending in await self._attachments.pending():
+            if pending.filing_action_id is not None and pending.state in {
+                "filing",
+                "created",
+            }:
+                await self._repair_drive_custody(
+                    await self._require(pending.filing_action_id)
+                )
+
+    async def _repair_drive_custody(self, stored: StoredAction) -> None:
+        frozen = stored.current_execution_contract.workspace
+        if frozen is None or (source := submission_source_id(frozen)) is None:
+            return
+        row = await self._attachments.inspect(source)
+        if row is None or row.state not in {"created", "filing"}:
+            return
+        if stored.status == "uncertain":
+            await self._attachments.mark_uncertain(source, stored.id)
+            return
+        if stored.status != "succeeded":
+            return
+        result = action_replay_result(stored)
+        if result is None or result["type"] != "Success":
+            raise ToolDispatchDefect("acknowledged drive filing lacks its receipt")
+        receipt = DriveWriteReceipt.model_validate(result["value"])
+        await self._attachments.acknowledge(
+            source, stored.id, receipt.subject, receipt.file_id
+        )
+        if receipt.verification != "verified":
+
+            async def before_send() -> None:
+                grant = self._workspace_grant()
+                if (
+                    grant is None
+                    or DRIVE_SCOPE not in grant.scopes
+                    or (grant.grant_id, grant.account, grant.subject)
+                    != (receipt.grant_id, receipt.account, receipt.subject)
+                ):
+                    raise WorkspaceError("grant_unavailable")
+
+            receipt = await self._workspace_writes.recover_drive(
+                frozen,
+                receipt,
+                invocation_id=str(await self._actions.original_invocation(stored)),
+                before_send=before_send,
+            )
+        if receipt.verification == "verified":
+            await self._attachments.verify(source, stored.id, recovered=True)
 
     async def _require(self, action_id: UUID) -> StoredAction:
         stored = await self._actions.get(

@@ -1,0 +1,536 @@
+#!/usr/bin/env python3
+"""One-time operator import of stopped attachment bytes into one private Drive folder.
+
+ADR 0120 stopped cut. Run by hand on the operator workstation with a disposable
+drive.file access token. Nothing here serves, schedules or is reachable by the agent.
+
+Inputs: the stopped installation's private google state (its connected subject must
+equal the inventory's), a frozen inventory (the owner approves its sha-256), the
+exported blobs named by source uuid, a mode-0600 token file and a durable map outside
+scratch. One run at a time holds the map's lock. Output: a
+DriveCutManifest, written only when every row is accounted for. Interrupted or
+deferred runs resume from the map: a frozen Google-generated id is the only id ever
+used for its source.
+
+Exit: 0 complete, 75 deferred by Google quota (rerun), 1 refused or failed.
+"""
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import re
+import stat
+import sys
+import tempfile
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+from urllib.parse import urlparse
+from uuid import UUID
+
+import httpx
+from pydantic import TypeAdapter, ValidationError
+
+from jarvis._atomic_json import read_private_json
+from jarvis.drive_cut import DriveCutEntry, DriveCutManifest, DriveIdentifier
+
+DRIVE_FILE = "https://www.googleapis.com/auth/drive.file"
+FOLDER = "application/vnd.google-apps.folder"
+NATIVE = "application/vnd.google-apps."
+OCTET = "application/octet-stream"
+MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
+SCRATCH = ("/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp", "/var/folders")
+QUOTA = {
+    "storageQuotaExceeded",
+    "rateLimitExceeded",
+    "userRateLimitExceeded",
+    "dailyLimitExceeded",
+    "sharingRateLimitExceeded",
+}
+CHUNK = 1 << 20
+
+
+class Failure(Exception):
+    pass
+
+
+class Deferred(Exception):
+    pass
+
+
+def digest(path: Path) -> tuple[int, str]:
+    """Size and sha-256 of a regular, non-symlink file."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as error:
+        raise Failure(f"cannot open {path.name}: {error.strerror}") from error
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise Failure(f"{path.name} is not a regular file")
+        hasher, size = hashlib.sha256(), 0
+        while chunk := handle.read(CHUNK):
+            hasher.update(chunk)
+            size += len(chunk)
+    return size, hasher.hexdigest()
+
+
+def outside_scratch(path: Path, what: str) -> Path:
+    resolved = path.parent.resolve() / path.name
+    roots = {Path(root).resolve() for root in (*SCRATCH, tempfile.gettempdir())}
+    if any(root in resolved.parents for root in roots):
+        raise Failure(f"{what} must live outside scratch: {resolved}")
+    return resolved
+
+
+def check_endpoint(url: str) -> str:
+    parsed = urlparse(url)
+    loopback = parsed.hostname in ("127.0.0.1", "localhost", "::1")
+    if parsed.scheme != "https" and not (parsed.scheme == "http" and loopback):
+        raise Failure(f"endpoint must be https (or loopback http): {parsed.netloc}")
+    return url.rstrip("/")
+
+
+def read_token(path: Path) -> str:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as error:
+        raise Failure(f"cannot open token file: {error.strerror}") from error
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise Failure("token file is not a regular file")
+        if stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid():
+            raise Failure("token file must be mode 0600 and owned by the operator")
+        token = handle.read(8192).decode(errors="replace").strip()
+    if not token or len(token.split()) != 1:
+        raise Failure("token file must hold exactly one token")
+    return token
+
+
+def target_type(raw: object) -> str:
+    """The stored media type: a plain label, never a Google-native (converting) one."""
+    base = str(raw or "").split(";")[0].strip().lower()
+    if not MEDIA_TYPE.fullmatch(base) or base.startswith(NATIVE):
+        return OCTET
+    return base
+
+
+def drive_title(row: dict) -> str:
+    """The Drive title. The manifest keeps the historical name, absent or not."""
+    return row["name"] or f"attachment-{row['source_uuid']}"
+
+
+def check_stopped_subject(path: Path, subject: str) -> None:
+    try:
+        grant = read_private_json(path)
+    except ValueError as error:
+        raise Failure(f"stopped google state unusable: {error}") from error
+    if (
+        grant is None
+        or grant.get("status") != "connected"
+        or grant.get("subject") != subject
+    ):
+        raise Failure(
+            "stopped google state is not a connected grant for the inventory subject"
+        )
+
+
+def read_inventory(path: Path, approved: str, blobs: Path) -> dict:
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != approved:
+        raise Failure("inventory digest differs from the approved digest")
+    inventory = json.loads(raw)
+    fields = set(inventory)
+    required = {"subject", "parent", "rows", "entries"}
+    if not required <= fields <= required | {"retired_actions"}:
+        raise Failure("inventory has missing or unknown fields")
+    if inventory["rows"] != len(inventory["entries"]):
+        raise Failure("inventory does not cover every attachment row")
+    for row in inventory["entries"]:
+        if str(UUID(row["source_uuid"])) != row["source_uuid"]:
+            raise Failure(
+                f"source uuid is not canonical lowercase: {row['source_uuid']}"
+            )
+        row["media_type"] = target_type(row.get("media_type"))
+    preflight(inventory, {}, datetime.now(UTC))
+    for row in inventory["entries"]:
+        if row["prior_state"] in ("ready", "pending"):
+            size, observed = digest(blobs / row["source_uuid"])
+            if (size, observed) != (row["size"], row["sha256"]):
+                raise Failure(f"blob {row['source_uuid']} differs from the inventory")
+    return inventory
+
+
+def preflight(inventory: dict, ids: dict[str, str], at: datetime) -> DriveCutManifest:
+    """The manifest the inventory becomes; real ids, or placeholders to validate."""
+    entries = []
+    for number, row in enumerate(inventory["entries"]):
+        fields = {k: v for k, v in row.items() if k != "media_type"}
+        if fields.get("prior_state") == "ready":
+            fields["drive_id"] = ids.get(row["source_uuid"], f"preflight_{number}")
+            fields["verified_at"] = at
+        try:
+            entries.append(DriveCutEntry.model_validate(fields))
+        except ValidationError as error:
+            raise Failure(f"inventory row {number} is invalid: {error}") from error
+    try:
+        return DriveCutManifest.model_validate(
+            {
+                "subject": inventory["subject"],
+                "parent": inventory["parent"],
+                "entries": entries,
+                "retired_actions": inventory.get("retired_actions", ()),
+            }
+        )
+    except ValidationError as error:
+        raise Failure(f"inventory is invalid: {error}") from error
+
+
+def fsync_dir(path: Path) -> None:
+    fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def append(path: Path, record: dict) -> None:
+    created = not path.exists()
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, json.dumps(record, sort_keys=True).encode() + b"\n")
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    if created:
+        fsync_dir(path)
+
+
+def read_map(path: Path, inventory: dict) -> tuple[dict, dict]:
+    """Frozen and verified records, each agreeing with the inventory."""
+    frozen: dict[str, dict] = {}
+    verified: dict[str, dict] = {}
+    if not path.exists():
+        return frozen, verified
+    raw = path.read_bytes()
+    if raw and not raw.endswith(b"\n"):
+        # a torn final record was never fully durable, so its effect never began
+        with path.open("r+b") as handle:
+            handle.truncate(raw.rfind(b"\n") + 1)
+            os.fsync(handle.fileno())
+        raw = raw[: raw.rfind(b"\n") + 1]
+    rows = {row["source_uuid"]: row for row in inventory["entries"]}
+    for line in raw.splitlines():
+        record = json.loads(line)
+        row = rows.get(record["source_uuid"])
+        if row is None or row["prior_state"] != "ready":
+            raise Failure(f"map names a source outside the inventory: {record}")
+        if "verified_at" in record:
+            if record["source_uuid"] in verified:
+                raise Failure("map verifies a source twice")
+            verified[record["source_uuid"]] = record
+            continue
+        expected = {
+            "source_uuid": row["source_uuid"],
+            "subject": inventory["subject"],
+            "parent": inventory["parent"],
+            "name": drive_title(row),
+            "size": row["size"],
+            "sha256": row["sha256"],
+            "media_type": row["media_type"],
+        }
+        if (
+            record["source_uuid"] in frozen
+            or {k: v for k, v in record.items() if k != "drive_id"} != expected
+        ):
+            raise Failure(f"map disagrees with the inventory for {row['source_uuid']}")
+        frozen[record["source_uuid"]] = record
+    for source, record in verified.items():
+        if source not in frozen or frozen[source]["drive_id"] != record["drive_id"]:
+            raise Failure(f"map verifies {source} without its frozen id")
+    return frozen, verified
+
+
+class Google:
+    def __init__(self, api: str, tokeninfo: str, token: str) -> None:
+        self.api, self.tokeninfo, self.token = api, tokeninfo, token
+        self.client = httpx.Client(
+            timeout=httpx.Timeout(60, read=600, write=600), follow_redirects=False
+        )
+
+    def check(self, response: httpx.Response, allow: tuple[int, ...]) -> httpx.Response:
+        status = response.status_code
+        if status < 400 or status in allow:
+            return response
+        try:
+            reason = response.json()["error"]["errors"][0]["reason"]
+        except (ValueError, KeyError, IndexError, TypeError):
+            reason = ""
+        if status == 429 or (status == 403 and reason in QUOTA):
+            raise Deferred(f"google refused {status} {reason}")
+        if status == 401:
+            raise Failure("google rejected the token")
+        raise Failure(f"google answered {status} {reason}".strip())
+
+    def request(
+        self, method: str, url: str, allow: tuple[int, ...] = (), **kwargs
+    ) -> httpx.Response:
+        headers = kwargs.pop("headers", {}) | {"Authorization": f"Bearer {self.token}"}
+        try:
+            response = self.client.request(method, url, headers=headers, **kwargs)
+        except httpx.HTTPError as error:
+            raise Failure(f"transport failure: {type(error).__name__}") from error
+        return self.check(response, allow)
+
+    def get(self, path: str, **params: str) -> dict:
+        return self.request("GET", f"{self.api}/drive/v3/{path}", params=params).json()
+
+    def verify_identity(self, subject: str) -> str:
+        try:
+            response = self.client.post(
+                self.tokeninfo, data={"access_token": self.token}
+            )
+        except httpx.HTTPError as error:
+            raise Failure(f"transport failure: {type(error).__name__}") from error
+        if response.status_code != 200:
+            raise Failure(
+                f"google rejected the token at tokeninfo ({response.status_code})"
+            )
+        info = response.json()
+        scopes = set(str(info.get("scope", "")).split())
+        if scopes != {DRIVE_FILE, "openid"}:
+            raise Failure(
+                f"token scopes must be exactly drive.file and openid: {sorted(scopes)}"
+            )
+        if info.get("sub") != subject:
+            raise Failure("token subject differs from the inventory subject")
+        if int(info.get("exp", 0)) - time.time() < 60:
+            raise Failure("token expires in under a minute")
+        return self.get("about", fields="user(permissionId)")["user"]["permissionId"]
+
+    def verify_folder(self, parent: str, owner: str) -> None:
+        folder = self.get(
+            f"files/{parent}",
+            fields="id,mimeType,trashed,ownedByMe,shared,driveId,permissions(id,type,role)",
+        )
+        permissions = folder.get("permissions")
+        private = (
+            folder.get("id") == parent
+            and folder.get("mimeType") == FOLDER
+            and folder.get("trashed") is False
+            and folder.get("ownedByMe") is True
+            and not folder.get("shared")
+            and "driveId" not in folder
+            and isinstance(permissions, list)
+            and len(permissions) == 1
+            and permissions[0].get("type") == "user"
+            and permissions[0].get("role") == "owner"
+            and permissions[0].get("id") == owner
+        )
+        if not private:
+            raise Failure("imports folder is not a verified private owner-only folder")
+
+    def generate_id(self) -> str:
+        ident = self.get("files/generateIds", count="1", space="drive")["ids"][0]
+        return TypeAdapter(DriveIdentifier).validate_python(ident)
+
+    def create(self, record: dict, blob: Path) -> None:
+        """Create under the frozen id. 409 means an earlier attempt landed."""
+        metadata = {
+            "id": record["drive_id"],
+            "name": record["name"],
+            "parents": [record["parent"]],
+            "mimeType": record["media_type"],
+        }
+        init = self.request(
+            "POST",
+            f"{self.api}/upload/drive/v3/files",
+            allow=(409,),
+            params={"uploadType": "resumable", "supportsAllDrives": "false"},
+            json=metadata,
+            headers={
+                "X-Upload-Content-Type": record["media_type"],
+                "X-Upload-Content-Length": str(record["size"]),
+            },
+        )
+        if init.status_code == 409:
+            return
+        session = init.headers["Location"]
+        if urlparse(session)[:2] != urlparse(self.api)[:2]:
+            raise Failure("upload session left the Google endpoint")
+
+        def chunks():
+            with blob.open("rb") as handle:
+                while chunk := handle.read(CHUNK):
+                    yield chunk
+
+        self.request(
+            "PUT",
+            session,
+            allow=(409,),
+            content=chunks(),
+            headers={"Content-Length": str(record["size"])},
+        )
+
+    def read_back(self, record: dict) -> None:
+        """Fresh read of the frozen id: exact name, parent, size and sha-256."""
+        file_id, source = record["drive_id"], record["source_uuid"]
+        meta = self.get(
+            f"files/{file_id}",
+            fields="id,name,size,parents,trashed,ownedByMe,shared,mimeType",
+            supportsAllDrives="false",
+        )
+        expected = {
+            "id": file_id,
+            "name": record["name"],
+            "size": str(record["size"]),
+            "parents": [record["parent"]],
+            "trashed": False,
+            "ownedByMe": True,
+        }
+        for field, value in expected.items():
+            if meta.get(field) != value:
+                raise Failure(f"readback mismatch for {source}: {field}")
+        if meta.get("shared") or str(meta.get("mimeType", "")).startswith(NATIVE):
+            raise Failure(f"readback mismatch for {source}: sharing or conversion")
+        hasher, size = hashlib.sha256(), 0
+        url = f"{self.api}/drive/v3/files/{file_id}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        try:
+            with self.client.stream(
+                "GET", url, params={"alt": "media"}, headers=headers
+            ) as response:
+                if response.status_code >= 400:
+                    response.read()
+                    self.check(response, ())
+                for chunk in response.iter_bytes(CHUNK):
+                    hasher.update(chunk)
+                    size += len(chunk)
+        except httpx.HTTPError as error:
+            raise Failure(f"transport failure: {type(error).__name__}") from error
+        if (size, hasher.hexdigest()) != (record["size"], record["sha256"]):
+            raise Failure(f"readback mismatch for {source}: bytes")
+
+
+def write_manifest(path: Path, manifest: DriveCutManifest) -> None:
+    temp = path.with_name(f".{path.name}.{os.getpid()}")
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(fd, manifest.model_dump_json(indent=2).encode() + b"\n")
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(temp, path)
+    fsync_dir(path)
+
+
+def run(args: argparse.Namespace) -> None:
+    api = check_endpoint(args.api)
+    tokeninfo = check_endpoint(args.tokeninfo)
+    state = outside_scratch(args.state, "map")
+    out = outside_scratch(args.out, "manifest")
+    if out.exists():
+        raise Failure(f"{out} already exists")
+    token = read_token(args.token_file)
+    inventory = read_inventory(args.inventory, args.inventory_sha256, args.blobs)
+    check_stopped_subject(args.google_state, inventory["subject"])
+
+    # one run per map, held until exit; before the map is read or any id exists
+    lock = os.open(state.with_name(state.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        raise Failure("map is locked by another running import") from error
+    frozen, verified = read_map(state, inventory)
+
+    google = Google(api, tokeninfo, token)
+    owner = google.verify_identity(inventory["subject"])
+    google.verify_folder(inventory["parent"], owner)
+
+    for row in inventory["entries"]:
+        source = row["source_uuid"]
+        if row["prior_state"] != "ready" or source in verified:
+            continue
+        if source not in frozen:
+            frozen[source] = {
+                "source_uuid": source,
+                "subject": inventory["subject"],
+                "drive_id": google.generate_id(),
+                "parent": inventory["parent"],
+                "name": drive_title(row),
+                "size": row["size"],
+                "sha256": row["sha256"],
+                "media_type": row["media_type"],
+            }
+            append(state, frozen[source])
+        google.create(frozen[source], args.blobs / source)
+        google.read_back(frozen[source])
+        verified[source] = {
+            "source_uuid": source,
+            "drive_id": frozen[source]["drive_id"],
+            "verified_at": datetime.now(UTC).isoformat(),
+        }
+        append(state, verified[source])
+
+    ids = {source: record["drive_id"] for source, record in verified.items()}
+    at = {s: datetime.fromisoformat(r["verified_at"]) for s, r in verified.items()}
+    manifest = preflight(inventory, ids, datetime.now(UTC))
+    for entry in manifest.entries:
+        if entry.drive_id is not None:
+            entry.verified_at = at[str(entry.source_uuid)]
+    write_manifest(out, manifest)
+
+    # reopen both durable artifacts as the cut will, and hash what was read
+    reread = DriveCutManifest.model_validate_json(out.read_bytes())
+    state_frozen, state_verified = read_map(state, inventory)
+    covered = [str(e.source_uuid) for e in reread.entries] == [
+        row["source_uuid"] for row in inventory["entries"]
+    ]
+    if (
+        reread != manifest
+        or not covered
+        or state_frozen.keys() != state_verified.keys()
+    ):
+        raise Failure("reopened map or manifest does not match the verified import")
+    imported = len(state_verified)
+    print(
+        f"complete: {imported} imported, {len(reread.entries) - imported} carried\n"
+        f"map sha256 {hashlib.sha256(state.read_bytes()).hexdigest()}\n"
+        f"manifest sha256 {hashlib.sha256(out.read_bytes()).hexdigest()}"
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--inventory", type=Path, required=True)
+    parser.add_argument("--inventory-sha256", required=True, type=str)
+    parser.add_argument("--blobs", type=Path, required=True)
+    parser.add_argument("--token-file", type=Path, required=True)
+    parser.add_argument("--state", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--google-state", type=Path, required=True)
+    parser.add_argument("--api", default="https://www.googleapis.com")
+    parser.add_argument(
+        "--tokeninfo", default="https://oauth2.googleapis.com/tokeninfo"
+    )
+    args = parser.parse_args()
+    if not re.fullmatch(r"[0-9a-f]{64}", args.inventory_sha256):
+        parser.error("--inventory-sha256 must be 64 lowercase hex digits")
+    try:
+        run(args)
+    except Deferred as error:
+        print(f"deferred: {error}; rerun to resume from the map", file=sys.stderr)
+        return 75
+    except Failure as error:
+        print(f"refused: {error}", file=sys.stderr)
+        return 1
+    except (KeyError, TypeError, ValueError) as error:
+        print(f"refused: malformed input ({type(error).__name__})", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

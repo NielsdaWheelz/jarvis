@@ -27,6 +27,17 @@ class FilePageRef(FileRef):
     page: Annotated[int, Field(ge=1, le=2**53 - 1)]
 
 
+DRIVE_ID_PATTERN = r"^[A-Za-z0-9_-]{1,255}$"
+type DriveId = Annotated[str, Field(pattern=DRIVE_ID_PATTERN)]
+
+
+class DriveFileRef(_Ref):
+    kind: Literal["drive_file"]
+    subject: DriveId
+    id: DriveId
+    page: Annotated[int, Field(ge=1, le=2**53 - 1)] | None = None
+
+
 class TodoRef(_Ref):
     kind: Literal["todo"]
     id: CanonicalUuid
@@ -46,5 +57,5 @@ class DraftPresentationRef(_Ref):
     create_action_id: CanonicalUuid
 
 
-type HomeRef = ViewRef | FilePageRef | FileRef | TodoRef | ProposalRef
+type HomeRef = ViewRef | FilePageRef | FileRef | DriveFileRef | TodoRef | ProposalRef
 HOME_REF_ADAPTER = TypeAdapter[HomeRef](HomeRef)

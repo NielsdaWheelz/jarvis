@@ -169,3 +169,25 @@ the local signed apk has sha-256
 `8133a824b490d744059be1fe44b9a9c8b0e27724df0c33d3ff80a17c7d4097ea`.
 the detached receipt and the client cleanup records cover the removed probes
 and isolated resources.
+
+### drive integration
+
+the integrated revision `953f6c21d3ad1152442e9ddbc2a9f99530e25642`
+includes [adr 0120](0120-drive-files.md). chat and exact messages preserve the
+drive viewer visit underneath them. back preserves the loaded document and
+list. leaving the viewer ends its outstanding work. separate visits to a
+shared file-list address keep their own selectors.
+
+sixteen chromium and webkit checks covered the packaged reader, including
+rendered pdf pages, draft and scroll retention, back focus, list navigation
+and late responses. the android build and nine isolated checks covered drive
+and the home-only enrollment surface, including actual chrome return and the
+matched drive request header. the packaged service passed 25 loopback checks
+covering the combined shell, phone generation and retired method, and the
+drive viewer fence. `scripts/verify` passed. these checks retain the existing
+installed acceptance boundary.
+
+evidence is under `~/.local/state/jarvis/qualification/adr0122/` in
+`integration/` and `drive-merge.3nizJy/`, and under
+`~/.local/state/jarvis/qualification/adr0122-android-drive-merge-2IS9Iu9o/`.
+the rehearsals removed their temporary probes and fixtures.

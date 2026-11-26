@@ -8,11 +8,10 @@ pending [inline todo cut](../decisions/0117-inline-todo-viewer.md) and the
 activation has its own authorization and maintenance requirements. the owner
 handset was unavailable during the candidate checks.
 
-the candidate was qualified on the pre-drive base. during those checks
-`main` merged adr 0120 at `dec9026`.
-the merge preview found conflicts in `Home.kt` and `home.js`. qualify the
-matched clients on the selected integration revision before the installed
-check.
+the candidate was integrated with [adr 0120](../decisions/0120-drive-files.md)
+and verified on the composed source. the selected production release now needs
+the [drive custody cut](drive-files-deploy.md) and matching clients. the
+pre-drive apk is historical qualification evidence.
 
 close this after the authorized matching web, service and android update.
 check the installed sidebar wide and narrow. verify the same-signer upgrade

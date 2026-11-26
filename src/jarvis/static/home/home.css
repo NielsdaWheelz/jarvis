@@ -288,6 +288,13 @@ article {
 #chat-ledge .owed {
   margin-inline-start: auto;
 }
+#chat-ledge [aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+#chat-ledge [aria-disabled="true"] .chat-lozenge {
+  display: none;
+}
 .chat-count {
   margin-inline-start: 0.55rem;
 }

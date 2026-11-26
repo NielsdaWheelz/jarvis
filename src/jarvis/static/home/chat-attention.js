@@ -131,6 +131,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
   }
 
   newButton.onclick = async () => {
+    if (newButton.getAttribute("aria-disabled") === "true") return;
     const targets = offscreen(articles().filter((node) =>
       fresh(node.dataset.messageId) && marks.has(node.dataset.messageId)));
     const target = targets.below[0] || targets.above.at(-1);
@@ -148,6 +149,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     }
   };
   owedButton.onclick = () => {
+    if (owedButton.getAttribute("aria-disabled") === "true") return;
     const loaded = new Map(articles().map((node) => [node.dataset.messageId, node]));
     const { above, below } = offscreen([...loaded.values()]);
     const outside = new Set([...above, ...below]);
@@ -158,6 +160,16 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     if (loaded.has(next)) place(loaded.get(next));
     else jump(next);
   };
+
+  function ledgeAction(control, available, label, empty) {
+    control.hidden = !available && document.activeElement !== control;
+    const disabled = String(!available);
+    if (control.getAttribute("aria-disabled") !== disabled)
+      control.setAttribute("aria-disabled", disabled);
+    const target = control === newButton ? control.lastElementChild : control;
+    const text = available ? label : empty;
+    if (target.textContent !== text) target.textContent = text;
+  }
 
   function paint() {
     const now = performance.now();
@@ -210,17 +222,11 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     const aboveCount = above.length + Math.max(0, total - loadedNew.length);
     const offscreenCount = aboveCount + below.length;
     const newLabel = aboveCount && below.length ? " new, above and below" : aboveCount ? " new above" : " new below";
-    newButton.hidden = !offscreenCount || Boolean(pendingClear);
-    const countLabel = offscreenCount + newLabel;
-    if (newButton.lastElementChild.textContent !== countLabel) newButton.lastElementChild.textContent = countLabel;
-    owedButton.hidden = !owed.size;
+    ledgeAction(newButton, offscreenCount > 0 && !pendingClear, offscreenCount + newLabel,
+      "no new messages off screen");
     const owedLabel = owed.size + (owed.size === 1 ? " needs a reply" : " need a reply");
-    if (owedButton.textContent !== owedLabel) owedButton.textContent = owedLabel;
-    undo.hidden = !pendingClear;
-    if (pendingClear) {
-      const text = pendingClear.count + " cleared · undo";
-      if (undo.textContent !== text) undo.textContent = text;
-    }
+    ledgeAction(owedButton, owed.size > 0, owedLabel, "nothing needs a reply");
+    ledgeAction(undo, Boolean(pendingClear), pendingClear?.count + " cleared · undo", "undo unavailable");
     ledge.hidden = newButton.hidden && owedButton.hidden && undo.hidden;
 
     if (arrivals.size && now - lastAnnouncement >= 10000 && !document.hidden) {
@@ -329,6 +335,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     update();
   });
   window.addEventListener("pagehide", settleClear);
+  ledge.addEventListener("focusout", () => queueMicrotask(() => preservePosition(paint)));
   chat.addEventListener("scroll", update, { passive:true });
   const resize = () => {
     for (const state of samples.values()) state.visible = [];

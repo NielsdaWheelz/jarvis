@@ -802,7 +802,7 @@ async function messagePage(cursor, ver) {
 
 async function messages(ver) {
   const initial = !initialized;
-  const allPages = reread;
+  const allPages = initial || reread;
   reread = false;
   const pages = [], scanned = [];
   let data, cursor = null, depth = 0, firstNewPage = -1;
@@ -841,8 +841,14 @@ async function messages(ver) {
   const returning = !isDetail(location.pathname) && chatReturn;
   if (returning && !returning.table && !$("msg-" + returning.messageId) &&
       !rows.some((row) => row.id === returning.messageId)) {
-    const origin = await read("/api/messages/" + returning.messageId);
-    if (ver !== routeVersion) {
+    let origin;
+    try {
+      origin = await read("/api/messages/" + returning.messageId);
+    } catch (error) {
+      reread ||= allPages;
+      throw error;
+    }
+    if (ver !== routeVersion || document.hidden) {
       reread ||= allPages;
       return;
     }

@@ -93,9 +93,13 @@ the owner approved the local sdk, fresh children, queued follow-ups and the offl
 | `b-late-seal-MwoLzi/SHA256SUMS` | `0e7c88f98c55779b7f408421768ab9014c7673f3840954d1ceb6b785e8f35c5e` |
 | `child-stop-rrvBtRME/SHA256SUMS` | `f20d78a3b9879f620f60a0fa2312997e69d963d645cdde8a88b975a4844fcaf1` |
 | `sdk-app-review-lVXnoi/SHA256SUMS` | `9726ad1cf516e8679c4af1e13b272aa1de1e493a26e6d2ed0c857df8034424cd` |
+| `deployment-c.qX69oU-noble-lifecycle/result.txt` | `78ea5fe44a14e76d60c1c75029b56fa9b694839ee4215f5c3310b0c64bf60706` |
+| `deployment-c.qX69oU-noble-git/result.txt` | `9783b8ff87f3163456b68bc24bc8adae4b8fdbd3f48cd1356a8285921b23ceb5` |
 
 a two-process crash fixture entered the real billed-once worker action once, wrote a synthetic effect, and exited before replying. recovery marked the action uncertain, parked the origin with one notice, and kept an independent request eligible. a second fixture recovered the exact late seal with the sdk state gone and published the original answer once. the checks and fixture cleanup passed. the frozen installation used scoped local git source substitution for unpublished commits. the lock retains the original repository urls.
 
 the retained provider suite passed 1,016 checks and skipped one. two failures reproduce at the preceding pin for the credential error message and the gemini sdk import allowlist. the final lock and console entry point also passed a clean frozen installation.
+
+the hardened noble unit passed restricted and full turns, read-only attachment access, ordinary git status/add/commit on a checkout owned by another uid, and crash cleanup followed by a fresh callback. the shell’s namespace and git configuration protections held. the sdk and stock units stopped independently, and the shared gateway stopped when unused. the installer checks the host’s required apparmor settings. the guest enabled the unconfined-transition restriction explicitly and the installed host still needs its own preflight. both detached checkouts were removed after proof.
 
 the owner chose synthetic verification for now. the paired paid trial still needs authorized same-project credential custody in an isolated candidate. verify optional developer request logging separately from data sharing. google defaults the logs on for recently created projects, and paid abuse monitoring has its own retention. synthetic tasks qualify observed harness behavior. real workspace-derived context still needs a permission determination. [developer request logs](https://aistudio.google.com/docs/logs-policy) · [paid terms](https://aistudio.google.com/docs/terms#data-use-paid) · [workspace permission](google-workspace-retention.md)

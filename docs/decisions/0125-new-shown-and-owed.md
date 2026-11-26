@@ -1,6 +1,6 @@
 # adr 0125. new, shown and owed in chat
 
-**accepted design · november 26, 2026 · implementation pending.** the owner cannot tell which of jarvis' messages he has seen. web and android will mark what is new, open where he left off, and say in words what jarvis is waiting on. this amends chat presentation in [0087](0087-private-web-home.md), [0105](0105-native-android.md), [0118](0118-chat-reading-and-approvals.md) and [0122](0122-chat-sidebar-and-phone-alerts.md). the second cut adds one table. a working [specimen](https://claude.ai/artifact/8TUX4PyFsNugUXq9YfW4K7) shows the marks and movement; where it differs from this text, this text governs.
+**accepted design · november 26, 2026 · first cut implemented in source.** the owner cannot tell which of jarvis' messages he has seen. web and android will mark what is new, open where he left off, and say in words what jarvis is waiting on. this amends chat presentation in [0087](0087-private-web-home.md), [0105](0105-native-android.md), [0118](0118-chat-reading-and-approvals.md) and [0122](0122-chat-sidebar-and-phone-alerts.md). the second cut adds one table. a working [specimen](https://claude.ai/artifact/8TUX4PyFsNugUXq9YfW4K7) shows the marks and movement; where it differs from this text, this text governs.
 
 ## what is wrong today
 
@@ -91,7 +91,7 @@ every `GET /api/messages` response gains, beside its items, `owed`: the ids of e
 
 and, in either case, no owner message dated after it is still `pending`. once he has replied the label goes at once; when jarvis has processed the reply it either settles the wait or asks again in a newer final, which then carries the label.
 
-the rule reads existing columns through `ix_message_unresolved_request` and needs no schema. it draws jarvis' recorded wait, not every question mark. a question asked in a reply that jarvis then completed is not owed. `configuration` and `external_reconciliation` waits are not owed. a request requeued for retry is not owed until the retry asks again, which a new final and a new alert then carry. an approval that was never presented has no message to label. shown state never creates, settles or reads a wait, an action or an approval.
+the rule reads existing columns through `ix_message_unresolved_request` and needs no schema. it draws jarvis' recorded wait, not every question mark. a question asked in a reply that jarvis then completed is not owed. `configuration` and `external_reconciliation` waits are not owed. an owner-input request requeued for retry is not owed until the retry asks again, which a new final and a new alert then carry. an approval that was never presented has no message to label. shown state never creates, settles or reads a wait, an action or an approval.
 
 ## notifications
 
@@ -191,6 +191,48 @@ use dev-server's `scripts/rehearse-worktree` on macbook, real browsers and the s
 12. second cut only. read on the laptop, then open the phone: marks agree and stale reply notifications go while an owed question stays. with three pages loaded on the phone, clear on the laptop: the phone's older pages lose their marks. a push landing during a read is not cancelled. an old client receives 426. a database restore carries the receipts.
 
 the [implementation plan](../implementation-plan.md#new-shown-and-owed-in-chat) owns sequence and rollout.
+
+## first-cut qualification
+
+source composes the landed 0123 and 0124 readers at `79a1108`. the first cut
+stays on `0027` and uses the matched `cited-sources-v1` viewer header. the
+owed query runs on the existing serialized connection for each message page.
+this spends a scoped read on each poll and keeps waits, actions and display
+receipts independent.
+
+web starts its local window on first load. android starts it at first-cut
+package installation, so a push can wake the app without making the new
+message historical. older alerts need positive local evidence before a sweep.
+android’s full-screen composer returns to the bottom after acceptance.
+document focus is observable on web. a screen reader’s virtual cursor uses
+ordinary on-screen evidence there.
+
+notification group titles use android’s active reply records. the app protects
+just-issued children from an empty snapshot and reconciles after a burst. an
+unusually slow or rejected post can leave a summary until the next read or
+explicit dismissal. an explicit saved chat position can require reading past
+the three opening pages. if an older read fails, the phone displays the available
+history with its existing connection notice.
+
+the macbook candidate is `3e4937d8d91685eb14bc0c4487d4c7be817014e9`.
+detached rehearsals witnessed the predecessor failures and checked the repair.
+real http and migrated postgres passed seven projection checks, including a
+canonical owner submission. chrome and webkit passed 24 browser assertions
+and two further empty-history checks. chrome also exercised the matched
+service through projection, settlement and browser submission. 24 android
+emulator checks passed, including native virtual accessibility focus, an
+8-reply group and separate question, and restoration at the original pixel
+position after process death. the temporary phone app used controlled notice
+data. the exact release build passed `scripts/verify` and produced the wheel,
+source archive and signed version 8 apk. the apk certificate matches the
+predecessor’s trusted release certificate.
+
+named receipts and artifact hashes are under
+`~/.local/state/jarvis/qualification/adr0125-implementation/`.
+the [installed follow-up](../issues/new-shown-owed-installed.md) owns the
+first-cut rollout, the owner’s dedicated-check waiver, the real firebase tap
+and the owner trial. the stopped shared-receipt cut follows that trial and
+installed drive custody.
 
 ## not in this decision
 

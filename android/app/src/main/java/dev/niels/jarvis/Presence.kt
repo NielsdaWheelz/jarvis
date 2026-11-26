@@ -197,7 +197,6 @@ internal data class PresenceTail(
 }
 
 internal class Presence {
-    val latest = ReadState<JSONObject>()
     var tail by mutableStateOf<PresenceTail?>(null)
         private set
     var handoff by mutableStateOf<String?>(null)
@@ -215,9 +214,9 @@ internal class Presence {
     private var etag: String? = null
     private var unsupported = false
     private var failures = 0
-    private var chatToken: String? = null
     private var pairedFailures = 0
-    private var forceChat = false
+    private var refreshAll = false
+    private var receiptEpoch = 0L
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val unpaired = mutableSetOf<String>()
 
@@ -268,6 +267,7 @@ internal class Presence {
     }
 
     fun accepted() {
+        receiptEpoch++
         handoff = null
         if (hasReading) tail = PresenceTail("received", PresenceMark.RECEIVED)
         announce("received.")
@@ -275,8 +275,10 @@ internal class Presence {
     }
 
     fun requestChat(reload: Boolean = false) {
-        if (reload) unsupported = false
-        forceChat = true
+        if (reload) {
+            unsupported = false
+            refreshAll = true
+        }
         wake.trySend(Unit)
     }
 
@@ -285,7 +287,7 @@ internal class Presence {
         tail = tail?.let { it.copy(frozen = it.frozen ?: elapsedRealtime(), lastHeard = lastHeardWords(lastHeard)) }
     }
 
-    private suspend fun confirm(api: HomeApi): Sample? {
+    private suspend fun confirm(api: HomeApi, history: ChatHistory): Sample? {
         if (unsupported) return null
         val headers = etag?.let { mapOf("If-None-Match" to it) }.orEmpty()
         val (code, payload, tag) = try {
@@ -297,8 +299,7 @@ internal class Presence {
                     }
             }
         } catch (signedOut: SignInRequired) {
-            latest.refresh { throw signedOut }
-            chatToken = null
+            history.rejectAccess(signedOut)
             markStale()
             return null
         } catch (_: IOException) {
@@ -351,15 +352,17 @@ internal class Presence {
         return checked
     }
 
-    suspend fun poll(api: HomeApi) {
+    suspend fun poll(api: HomeApi, history: ChatHistory, notices: PhoneNotices) {
         unsupported = false
+        var readVisit: Int? = null
+        var pairedToken: String? = null
         while (true) {
             val began = elapsedRealtime()
-            val previousOwner = sample?.owner
-            val checked = confirm(api)
-            val settling = checked != null && checked.owner == null && tail != null
+            val sampledEpoch = receiptEpoch
+            val checked = confirm(api, history)
+            val settling = checked != null && checked.owner == null && tail != null && sampledEpoch == receiptEpoch
             if (settling) tail = tail?.let { it.copy(frozen = it.frozen ?: elapsedRealtime()) }
-            if (checked?.owner != null) {
+            if (checked?.owner != null && sampledEpoch == receiptEpoch) {
                 handoff = null
                 val hasOwnerWork = checked.work?.forOwner == true
                 val shape = when (checked.owner.phase) {
@@ -372,36 +375,34 @@ internal class Presence {
                 ownerHeard = lastHeard
                 pairedFailures = 0
             }
+            val visit = history.visit
+            val revisit = refreshAll || readVisit != visit
+            val tokenChanged = checked != null && checked.chat != pairedToken
+            refreshAll = false
+            val paired = history.refresh(revisit, recheckRetained = tokenChanged) { before ->
+                readChatPage(api, notices, before, readMillis)
+            }
             var arrivals = emptySet<String>()
-            if (forceChat || checked != null && (checked.chat != chatToken || settling || unpaired.isNotEmpty() ||
-                    previousOwner != null && checked.owner == null)) {
-                forceChat = false
-                val previous = latest.data?.terminalIds()
-                val paired = latest.refresh {
-                    api.read("/api/messages", timeoutMillis = readMillis) ?: throw IOException("chat unavailable")
-                }
-                if (!paired) forceChat = true
-                if (paired) {
-                    chatToken = checked?.chat
-                    val finals = latest.data?.terminalIds().orEmpty()
-                    if (previous != null) arrivals = (finals - previous).toSet()
-                    unpaired += arrivals
-                    if (checked != null) {
-                        pairedFailures = 0
-                        if (checked.owner == null) {
-                            if (tail != null) handoff = finals.lastOrNull { it in unpaired }
-                            tail = null
-                            unpaired.clear()
-                        } else if (arrivals.isEmpty()) {
-                            unpaired.clear()
-                        }
+            if (paired) {
+                readVisit = visit
+                if (checked != null) pairedToken = checked.chat
+                val read = checkNotNull(history.latest.data)
+                arrivals = read.arrivals
+                unpaired += arrivals
+                if (checked != null && sampledEpoch == receiptEpoch) {
+                    pairedFailures = 0
+                    if (checked.owner == null) {
+                        if (tail != null) handoff = read.finals.lastOrNull { it in unpaired }
+                        tail = null
+                        unpaired.clear()
+                    } else if (arrivals.isEmpty()) {
+                        unpaired.clear()
                     }
-                } else if (latest.signedOut) {
-                    chatToken = null
-                    markStale()
-                } else if (settling && ++pairedFailures >= 3) {
-                    tail = tail?.copy(lastHeard = lastHeardWords(ownerHeard))
                 }
+            } else {
+                if (revisit) refreshAll = true
+                if (history.latest.signedOut) markStale()
+                else if (settling && sampledEpoch == receiptEpoch && ++pairedFailures >= 3) tail = tail?.copy(lastHeard = lastHeardWords(ownerHeard))
             }
             if (arrivals.isEmpty() || unsupported) {
                 withTimeoutOrNull((tickMillis - elapsedRealtime() + began).coerceAtLeast(0)) { wake.receive() }
@@ -410,21 +411,17 @@ internal class Presence {
     }
 }
 
-private fun JSONObject.terminalIds() = objects("items").mapNotNull {
-    it.getString("id").takeIf { _ -> it.string("source") in setOf("native_final", "native_failure") }
-}
-
 private fun shortTime(at: Instant): String =
     DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(at)
 
 private fun lastHeardWords(at: Instant?): String = at?.let { "last heard ${shortTime(it)}" } ?: "not connected"
 
 @Composable
-internal fun rememberPresence(api: HomeApi, authRevision: Int): Presence {
+internal fun rememberPresence(api: HomeApi, authRevision: Int, history: ChatHistory, notices: PhoneNotices): Presence {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val presence = remember(authRevision) { Presence() }
-    LaunchedEffect(lifecycle, api, presence) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { presence.poll(api) }
+    LaunchedEffect(lifecycle, api, presence, history, notices) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { presence.poll(api, history, notices) }
     }
     return presence
 }

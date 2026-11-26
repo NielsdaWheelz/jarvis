@@ -2,6 +2,7 @@ import { bindArtifacts } from "./artifacts.js";
 import { el, button, link } from "./home-dom.js";
 import { draftPreview, openEditor } from "./mail-editor.js";
 import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
+import { chatAttention, instant, tracked } from "./chat-attention.js";
 
 import { address } from "./home-address.js";
 import { linkedText, parseMessage, renderMarkdown, showTableControls, updateCitations } from "./chat-reader.js";
@@ -47,9 +48,14 @@ const presence = bindPresence({
       $("workspace-approval").querySelector("button")?.focus();
   },
   keepBottom(change) {
-    const pinned = chatPinned() && !selectedMessage;
+    const anchor = chatAnchor();
+    const atEnd = pinned && !selectedMessage && !pendingOpening && !isDetail(location.pathname) &&
+      chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 2;
+    attention.beforeLayoutChange();
     change();
-    if (pinned) $("chat").scrollTop = $("chat").scrollHeight;
+    if (atEnd) scrollChat(chat.scrollHeight);
+    else restoreChatAnchor(anchor);
+    attention.update();
   },
 });
 const draftKey = "jarvis.home.draft";
@@ -72,10 +78,10 @@ let displayed = "",
 const todoRows = new Map();
 let latest = null,
   earliest = null,
-  initialized = false,
+  oldest = null,
   selectedMessage = null;
-let acceptedMessage = null, lastArrivingTerminal = null;
-let previousTerminals = new Set();
+let lastArrivingTerminal = null, chatToken = null;
+const knownTerminals = new Set();
 const inFlight = new Map();
 const failures = new Map();
 let loginRequired = false;
@@ -90,6 +96,42 @@ const time = (at, zone) =>
     timeZone: zone,
     timeZoneName: zone ? "short" : undefined,
   });
+const chat = $("chat");
+const transcript = $("messages");
+let pinned = true, scrollTarget = null, heldPosition = null, pendingOpening = null;
+let sentPlacement = null;
+let reread = true, visitOpening = true, placeVisit = true, earlierRead = null;
+let pageSequence = 0, owedSequence = 0;
+const attention = chatAttention({
+  chat,
+  list: transcript,
+  ledge: $("chat-ledge"),
+  sidebarOpen: $("sidebar-open"),
+  icon: $("chat-icon"),
+  live: $("chat-live"),
+  formatTime: time,
+  stopAttending() { placeVisit = pinned; },
+  newVisit() {
+    reread = visitOpening = true;
+    refresh();
+  },
+  preservePosition(update) {
+    const anchor = chatAnchor();
+    update();
+    restoreChatAnchor(anchor);
+  },
+  place(node) {
+    pinned = false;
+    scrollChat(insetPosition(node));
+  },
+  jump(id) { navigate("/m/" + id); },
+  earlier: earlierMessages,
+  failure(error) {
+    if (error) failure(error, "shown");
+    else if (failures.delete("shown")) showConnection();
+  },
+});
+
 function save() {
   const files = draft.files.map(({ name, size, sha256 }) => ({ name, size, sha256 }));
   sessionStorage.setItem(draftKey, JSON.stringify({ ...draft, files }));
@@ -116,10 +158,16 @@ function changeState(values, path = location.href) {
 }
 function setPanel() {
   const open = Boolean(history.state?.panel);
+  if (!open && mobile.matches && chat.clientHeight) heldPosition = chatAnchor();
   document.body.dataset.panel = open ? "open" : "closed";
   $("sidebar-open").setAttribute("aria-expanded", String(open));
   $("chat-bar").hidden = !open || (!mobile.matches && !isDetail(location.pathname));
   presence.place(open && mobile.matches);
+  if (chat.clientHeight) {
+    if (!applyOpening()) restoreChatAnchor(heldPosition);
+    heldPosition = null;
+  }
+  attention.update();
 }
 mobile.addEventListener("change", setPanel);
 function openSidebar(origin) {
@@ -406,6 +454,8 @@ async function request(path, { allowServerError = false, ...options } = {}) {
       for (const id of ["object", "object-tools", "location", "todo-list", "messages", "workspace-approval"])
         $(id).replaceChildren();
       $("todo-empty").hidden = true;
+      attention.clearProjection();
+      knownTerminals.clear();
       failure({ login: true }, "sign in");
     }
     throw Object.assign(new Error("sign in to continue."), { login: true });
@@ -447,6 +497,12 @@ function accepted(id, submission) {
   failures.delete("receipt");
   showConnection();
   if (armed?.submission === submission) armed.request = id;
+  if (sentPlacement?.submission === submission) {
+    if ($("msg-" + id)) {
+      scrollChat(chat.scrollHeight);
+      sentPlacement = null;
+    } else sentPlacement.request = id;
+  }
   draft = newDraft();
   $("file-problem").textContent = "";
   receiptMissing = false;
@@ -455,8 +511,6 @@ function accepted(id, submission) {
   showFiles();
   $("receipt").textContent = "";
   presence.accepted();
-  acceptedMessage = $("msg-" + id) ? null : id;
-  if (!acceptedMessage) $("chat").scrollTop = $("chat").scrollHeight;
   present();
 }
 async function recover() {
@@ -529,6 +583,11 @@ $("composer").onsubmit = async (e) => {
     updateComposer();
     $("receipt").textContent = "";
     sending = setTimeout(() => { $("receipt").textContent = "sending…"; }, 400);
+    attention.sent();
+    pendingOpening = null;
+    pinned = true;
+    sentPlacement = { submission:id, request:null };
+    scrollChat(chat.scrollHeight);
     const response = await request("/api/messages/" + id, options);
     if (response.ok) accepted((await response.json()).id, id);
     else if (response.status === 409) {
@@ -665,24 +724,59 @@ function renderMessage(m, existing) {
   else node.append(controls);
   node.controls = controls;
   node.dataset.version = JSON.stringify(m);
+  node.dataset.at = m.at;
+  node.dataset.order = instant(m.at) + m.id;
+  if (!existing) attention.render(node, m);
   return node;
 }
-function selectedMessageOffset() {
-  const node = $("msg-" + selectedMessage);
-  return node.getBoundingClientRect().top - $("chat").getBoundingClientRect().top;
+function chatOffset(node) {
+  return node.getBoundingClientRect().top - chat.getBoundingClientRect().top;
 }
-function chatPinned() {
-  const chat = $("chat");
-  return chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48;
+function insetPosition(node) {
+  const preceding = node.previousElementSibling?.matches("article")
+    ? node.previousElementSibling : node.previousElementSibling?.previousElementSibling;
+  const line = parseFloat(getComputedStyle(preceding?.reader || node).lineHeight);
+  return chat.scrollTop + chatOffset(node) - 4.5 * line;
 }
-function merge(items, paired, arriving, prior) {
-  const chat = $("chat"),
-    list = $("messages");
-  const pinned = chatPinned();
+function scrollChat(top) {
+  if (!chat.clientHeight) return;
+  const before = chat.scrollTop;
+  chat.scrollTop = top;
+  if (chat.scrollTop !== before) scrollTarget = chat.scrollTop;
+}
+function chatAnchor() {
+  if (!chat.clientHeight) return null;
   const top = chat.getBoundingClientRect().top;
-  const anchor =
-    !pinned && Array.from(list.children).find((node) => node.getBoundingClientRect().bottom > top);
-  const previousTop = anchor ? anchor.getBoundingClientRect().top : null;
+  const node = [...transcript.children].find((child) =>
+    child.matches("article") && child.getBoundingClientRect().bottom > top);
+  return node ? { id:node.id, offset:chatOffset(node) } : null;
+}
+function restoreChatAnchor(anchor) {
+  const node = anchor && $(anchor.id);
+  if (node) scrollChat(chat.scrollTop + chatOffset(node) - anchor.offset);
+}
+function applyOpening() {
+  if (!pendingOpening || !chat.clientHeight) return;
+  const { node, capped } = pendingOpening;
+  pendingOpening = null;
+  if (selectedMessage || isDetail(location.pathname) || chatReturn) return;
+  scrollChat(capped ? 0 : node ? insetPosition(node) : chat.scrollHeight);
+  return true;
+}
+chat.addEventListener("scroll", () => {
+  const programmatic = chat.scrollTop === scrollTarget;
+  scrollTarget = null;
+  if (programmatic) return;
+  sentPlacement = null;
+  pendingOpening = null;
+  pinned = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48;
+}, { capture:true, passive:true });
+
+function merge(items) {
+  const anchor = chatAnchor();
+  let mutated = false;
+  // The visit separator shares the transcript but is not a message order key.
+  const ordered = [...transcript.querySelectorAll(":scope > article")];
   for (const m of items) {
     const existing = $("msg-" + m.id);
     if (m.present) {
@@ -699,115 +793,204 @@ function merge(items, paired, arriving, prior) {
       } else presentations.set(request_id, objectPath(ref));
     }
     if (existing?.dataset.version === JSON.stringify(m)) continue;
+    if (!mutated) attention.beforeLayoutChange();
+    mutated = true;
     const focused = existing?.contains(document.activeElement) ? document.activeElement : null;
     const node = renderMessage(m, existing);
     if (m.id === selectedMessage) node.classList.add("selected");
-    const fraction = (m.at.match(/\.(\d+)/)?.[1] || "").padEnd(6, "0");
-    // Date's millisecond precision alone loses the order of simultaneous writes.
-    node.dataset.order = new Date(m.at).toISOString().slice(0, 19) + fraction + m.id;
     if (existing) {
       if (!focused || focused.isConnected) continue;
+      let control;
       if (focused.dataset.readerAnchor)
-        node.querySelector('[data-reader-anchor="' + focused.dataset.readerAnchor + '"]')?.focus({ preventScroll: true });
+        control = node.querySelector('[data-reader-anchor="' + focused.dataset.readerAnchor + '"]');
       else if (focused.dataset.action)
-        node
-          .querySelector('[data-action="' + focused.dataset.action + '"]')
-          ?.focus({ preventScroll: true });
-      else if (focused?.href)
-        Array.from(node.querySelectorAll("a"))
-          .find((a) => a.href === focused.href)
-          ?.focus({ preventScroll: true });
+        control = node.querySelector('[data-action="' + focused.dataset.action + '"]');
+      else if (focused.href)
+        control = [...node.querySelectorAll("a")].find((a) => a.href === focused.href);
+      attention.restoreFocus(control, focused);
       continue;
     }
-    let lo = 0,
-      hi = list.children.length;
+    let lo = 0, hi = ordered.length;
     while (lo < hi) {
       const mid = Math.floor((lo + hi) / 2);
-      if (list.children[mid].dataset.order < node.dataset.order) lo = mid + 1;
+      if (ordered[mid].dataset.order < node.dataset.order) lo = mid + 1;
       else hi = mid;
     }
-    list.insertBefore(node, list.children[lo] || null);
+    transcript.insertBefore(node, ordered[lo] || null);
+    ordered.splice(lo, 0, node);
   }
-  if (paired) {
-    const terminal = arriving || prior;
-    presence.chatChecked(paired, terminal ? $("msg-" + terminal) : null, Boolean(arriving));
-  }
-  if (acceptedMessage && $("msg-" + acceptedMessage)) {
-    acceptedMessage = null;
-    chat.scrollTop = chat.scrollHeight;
-  } else if (anchor && previousTop !== null) {
-    const replacement = document.getElementById(anchor.id);
-    if (replacement) chat.scrollTop += replacement.getBoundingClientRect().top - previousTop;
-  } else if (pinned && !selectedMessage) chat.scrollTop = chat.scrollHeight;
+  attention.update();
+  restoreChatAnchor(anchor);
 }
+
+async function messagePage(cursor, ver) {
+  const sequence = ++pageSequence;
+  const data = await read("/api/messages" + (cursor ? "?before=" + encodeURIComponent(cursor) : ""),
+    { signal: AbortSignal.timeout(6000) });
+  if (!Array.isArray(data.owed) || data.owed.length !== data.owed_total)
+    throw new Error("incomplete conversation state");
+  if (ver === routeVersion && !document.hidden && sequence > owedSequence) {
+    owedSequence = sequence;
+    attention.setOwed(data.owed);
+    attention.update();
+  }
+  return data;
+}
+
 async function messages(ver, paired) {
-  const historyPage = path => read(path, { signal: AbortSignal.timeout(6000) });
-  let data = await historyPage("/api/messages");
-  const hasHistory = initialized;
-  const chunks = [data.items];
-  while (
-    latest &&
-    data.items.length &&
-    !data.items.some((m) => m.id === latest) &&
-    data.next_before
-  ) {
-    data = await historyPage("/api/messages?before=" + encodeURIComponent(data.next_before));
-    chunks.push(data.items);
-  }
-  if (ver !== routeVersion) return;
-  // The direct read may have a shorter scroll range until surrounding messages arrive.
-  let openingOffset = null;
-  if (!initialized) {
-    if (selectedMessage) {
-      openingOffset = selectedMessageOffset();
-      if (reloadReading?.id === selectedMessage && reloadReading.appliedOffset === openingOffset)
-        openingOffset = reloadReading.offset;
-    }
-    earliest = data.next_before;
-    initialized = true;
-  }
-  const rows = chunks.reverse().flat();
-  const terminals = rows.filter(row => row.source === "native_final" || row.source === "native_failure");
-  const arriving = hasHistory && terminals.findLast(row => !previousTerminals.has(row.id));
-  const observed = new Set(terminals.map(row => row.id));
-  const prior = observed.has(lastArrivingTerminal) ? lastArrivingTerminal : null;
-  const returning = !isDetail(location.pathname) && chatReturn;
-  if (
-    returning && !returning.table && !$("msg-" + returning.messageId) &&
-    !rows.some((row) => row.id === returning.messageId)
-  ) {
-    const origin = await read("/api/messages/" + returning.messageId);
-    if (ver !== routeVersion) return;
-    if (origin) rows.unshift(origin);
-    else chatReturn = null;
-  }
-  merge(rows, paired, arriving?.id, prior);
-  previousTerminals = observed;
-  if (paired) lastArrivingTerminal = paired.you ? arriving?.id || null : null;
-  else if (arriving) lastArrivingTerminal = arriving.id;
-  if (arriving) refreshChat(ver, true);
-  if (rows.length) latest = rows.at(-1).id;
-  $("older").hidden = !earliest;
-  if (openingOffset !== null) {
-    $("chat").scrollTop += selectedMessageOffset() - openingOffset;
-    reloadReading = null;
-  }
-  if (!isDetail(location.pathname)) restoreChatReturn();
-}
-$("older").onclick = async () => {
-  const b = $("older");
-  b.disabled = true;
+  const initial = latest === null;
+  const allPages = initial || reread;
+  reread = false;
+  const pages = [], scanned = [];
+  let data, cursor = null, depth = 0, firstNewPage = -1;
+  let foundLatest = !latest, foundOldest = !allPages || !oldest;
+  let latestId;
   try {
-    const data = await read("/api/messages?before=" + encodeURIComponent(earliest));
+    do {
+      data = await messagePage(cursor, ver);
+      if (ver !== routeVersion || document.hidden) {
+        reread ||= allPages;
+        return;
+      }
+      const items = data.items;
+      if (!depth) {
+        latestId = items.at(-1)?.id;
+        // A new head and a late insert can arrive between the same two reads.
+        if (paired && paired.chat !== chatToken && oldest) foundOldest = false;
+      }
+      if (!depth || !foundLatest || !foundOldest || initial && depth < 3) pages.push(data);
+      foundLatest ||= items.some((m) => m.id === latest);
+      foundOldest ||= items.some((m) => m.id === oldest);
+      for (const m of items) if (tracked(m)) scanned.push({ id:m.id, at:m.at, role:m.role, source:m.source });
+      if (initial) {
+        const first = items.findIndex(attention.isNew);
+        if (first >= 0) firstNewPage = depth + (first === 0 && data.next_before && depth < 2 ? 1 : 0);
+      }
+      depth++;
+      cursor = data.next_before;
+    } while (cursor && (!foundLatest || !foundOldest ||
+      allPages && attention.afterStart(data.items[0]) ||
+      initial && firstNewPage >= depth));
+  } catch (error) {
+    reread ||= allPages;
+    throw error;
+  }
+
+  if (initial) {
+    if (!latestId) {
+      visitOpening = false;
+      presence.chatChecked(paired, null, false);
+      return;
+    }
+    pages.splice(Math.min(3, Math.max(1, firstNewPage + 1)));
+  }
+  const rows = pages.toReversed().flatMap((page) => page.items);
+  // A current page can straddle the previously loaded edge after new inserts.
+  const edge = initial ? -1 : rows.findIndex((row) => row.id === oldest);
+  if (edge > 0) rows.splice(0, edge);
+  const terminals = rows.filter((row) => row.source === "native_final" || row.source === "native_failure");
+  const arriving = (!initial || !visitOpening) && terminals.findLast((row) => !knownTerminals.has(row.id));
+  const unpainted = arriving && !$("msg-" + arriving.id);
+  const handoff = arriving?.id || lastArrivingTerminal;
+  const returning = !isDetail(location.pathname) && chatReturn;
+  if (returning && !returning.table && !$("msg-" + returning.messageId) &&
+      !rows.some((row) => row.id === returning.messageId)) {
+    let origin;
+    try {
+      origin = await read("/api/messages/" + returning.messageId, { signal: AbortSignal.timeout(6000) });
+    } catch (error) {
+      reread ||= allPages;
+      throw error;
+    }
+    if (ver !== routeVersion || document.hidden) {
+      reread ||= allPages;
+      return;
+    }
+    if (origin) {
+      rows.unshift(origin);
+      scanned.push(origin);
+    } else chatReturn = null;
+  }
+  if (initial) {
+    earliest = pages.at(-1).next_before;
+    oldest = pages.at(-1).items[0]?.id;
+  }
+  const added = initial && visitOpening ? [] : rows.filter((m) =>
+    tracked(m) && !$("msg-" + m.id) &&
+    (initial || instant(m.at) + m.id > $("msg-" + latest)?.dataset.order)).map((m) => m.id);
+  const before = chat.scrollTop;
+  const follow = pinned && !selectedMessage && !isDetail(location.pathname) && !chatReturn;
+  const anchor = chatAnchor();
+  $("older").hidden = !earliest;
+  attention.receive(scanned, added);
+  merge(rows);
+  for (const terminal of terminals) knownTerminals.add(terminal.id);
+  if (paired) {
+    presence.chatChecked(paired, handoff ? $("msg-" + handoff) : null, Boolean(unpainted));
+    chatToken = paired.chat;
+    lastArrivingTerminal = paired.you ? arriving?.id || null : null;
+  } else if (arriving) lastArrivingTerminal = arriving.id;
+  restoreChatAnchor(anchor);
+  latest = latestId ?? latest;
+  if (initial || visitOpening) {
+    const boundary = [...transcript.querySelectorAll("article")].find((node) =>
+      attention.fresh(node.dataset.messageId));
+    if (visitOpening) {
+      const anchor = chatAnchor();
+      attention.openBoundary(boundary);
+      restoreChatAnchor(anchor);
+    }
+    if ((initial || placeVisit) && !returning && !isDetail(location.pathname))
+      pendingOpening = { node:$("chat-boundary") || boundary, capped:initial && firstNewPage >= 3 };
+    visitOpening = false;
+  }
+  const sentArrived = sentPlacement?.request && $("msg-" + sentPlacement.request);
+  if (sentArrived) sentPlacement = null;
+  if (pendingOpening) applyOpening();
+  else if ((follow || sentArrived) && added.length && !initial) {
+    const arriving = $("msg-" + added[0]);
+    if (!attention.attending()) pinned = false;
+    else if (chat.clientHeight) {
+      const viewport = chat.getBoundingClientRect();
+      const first = [...transcript.querySelectorAll("article")].find((node) => {
+        const box = node.getBoundingClientRect();
+        return attention.fresh(node.dataset.messageId) && box.bottom > viewport.top &&
+          (box.top < viewport.bottom || added.includes(node.dataset.messageId));
+      }) || arriving;
+      scrollChat(Math.max(before, insetPosition(first)));
+    }
+  } else if (sentArrived || follow && !initial && rows.length && chat.clientHeight &&
+    chat.scrollHeight - before - chat.clientHeight < 48) scrollChat(chat.scrollHeight);
+  if (!isDetail(location.pathname)) restoreChatReturn();
+  if (arriving) refreshChat(ver, true);
+}
+
+async function earlierMessages() {
+  if (!earliest || earlierRead) return false;
+  const before = earliest, ver = routeVersion;
+  $("older").disabled = earlierRead = true;
+  try {
+    const data = await messagePage(before, ver);
+    if (ver !== routeVersion || document.hidden) return false;
     earliest = data.next_before;
+    oldest = data.items[0]?.id ?? oldest;
+    const anchor = chatAnchor();
+    $("older").hidden = !earliest;
+    attention.receive(data.items);
+    for (const row of data.items)
+      if (row.source === "native_final" || row.source === "native_failure") knownTerminals.add(row.id);
     merge(data.items);
-    b.hidden = !earliest;
+    restoreChatAnchor(anchor);
+    return data.items.length > 0;
   } catch (error) {
     failure(error);
+    return false;
   } finally {
-    b.disabled = false;
+    $("older").disabled = false;
+    earlierRead = null;
   }
-};
+}
+$("older").onclick = earlierMessages;
 function present() {
   if (!armed?.request || document.hidden) return;
   const path = presentations.get(armed.request);
@@ -815,7 +998,7 @@ function present() {
 }
 function rememberReading() {
   if (selectedMessage && location.pathname === "/m/" + selectedMessage && $("chat").clientHeight)
-    changeState({ reading: { id: selectedMessage, offset: selectedMessageOffset() } });
+    changeState({ reading: { id: selectedMessage, offset: chatOffset($("msg-" + selectedMessage)) } });
 }
 $("chat").addEventListener("scrollend", rememberReading);
 function restoreChatReturn() {
@@ -837,8 +1020,14 @@ function restoreChatReturn() {
   if (document.activeElement !== document.body && document.activeElement !== returning.focus) return;
   const scroll = control?.closest(".table-scroll");
   if (scroll && returning.left !== undefined) scroll.scrollLeft = returning.left;
-  pane.scrollTop += anchor.getBoundingClientRect().top - pane.getBoundingClientRect().top - returning.offset;
-  control?.focus({ preventScroll: true });
+  const position = pane.scrollTop + anchor.getBoundingClientRect().top -
+    pane.getBoundingClientRect().top - returning.offset;
+  if (pane === chat) {
+    pendingOpening = null;
+    pinned = false;
+    scrollChat(position);
+  } else pane.scrollTop = position;
+  attention.restoreFocus(control);
 }
 function navigate(path, { origin, canvasSelection = path, filesSelector, replace = false } = {}) {
   armed = null;
@@ -1450,19 +1639,22 @@ async function detailRead(ver) {
   const route = address(location.href);
   if (route?.kind === "message") {
     const { id } = route;
-    const m = await read("/api/messages/" + id);
-    if (ver !== routeVersion) return;
+    const m = await read("/api/messages/" + id, { signal: AbortSignal.timeout(6000) });
+    if (ver !== routeVersion || document.hidden) return;
     $("message-unavailable").hidden = Boolean(m);
     if (!m) return;
-    merge([m]);
-    if (selectedMessage === id) return;
+    attention.receive([m]);
+    const alreadySelected = selectedMessage === id;
+    const restore = reloadReading?.id === id;
     selectedMessage = id;
+    merge([m]);
+    if (alreadySelected) return;
+    pendingOpening = null;
+    pinned = false;
     const node = $("msg-" + id);
     node.classList.add("selected");
-    const restore = reloadReading?.id === id && reloadReading.appliedOffset === undefined;
-    $("chat").scrollTop += selectedMessageOffset() - (restore ? reloadReading.offset : 0);
-    if (restore && !initialized) reloadReading.appliedOffset = selectedMessageOffset();
-    else reloadReading = null;
+    scrollChat(chat.scrollTop + chatOffset(node) - (restore ? reloadReading.offset : 0));
+    reloadReading = null;
     restoreChatReturn();
   }
 }
@@ -1609,12 +1801,16 @@ document.addEventListener("visibilitychange", () => {
     presence.suspend();
     inspection.close();
   } else {
+    reread = true;
     presence.resume();
     refresh();
   }
 });
 window.addEventListener("pageshow", event => {
-  if (event.persisted) presence.resume();
+  if (event.persisted) {
+    reread = true;
+    presence.resume();
+  }
   refresh();
 });
 window.addEventListener("online", refresh);

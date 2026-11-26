@@ -61,20 +61,21 @@ private class Reader(val message: JSONObject?, val navigate: (Route) -> Unit, va
 }
 
 @Composable
-private fun reader(message: JSONObject?, navigate: (Route) -> Unit): Reader {
+private fun reader(message: JSONObject?, navigate: (Route) -> Unit, onExternal: () -> Unit = {}): Reader {
     val context = LocalContext.current
     return Reader(message, navigate) { uri ->
+        onExternal()
         try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
         catch (_: ActivityNotFoundException) { Toast.makeText(context, "browser unavailable", Toast.LENGTH_SHORT).show() }
     }
 }
 
 @Composable
-internal fun MessageMarkdown(message: JSONObject, navigate: (Route) -> Unit) {
+internal fun MessageMarkdown(message: JSONObject, navigate: (Route) -> Unit, onExternal: () -> Unit) {
     val text = message.getString("text")
     val markdown = remember(text) { MessageDocument(text) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        MarkdownBlocks(markdown.root, markdown, reader(message, navigate))
+        MarkdownBlocks(markdown.root, markdown, reader(message, navigate, onExternal))
         val present = message.optJSONObject("present")?.optJSONObject("ref")
         if (present?.string("kind") == "source") {
             val slot = present.optInt("slot")

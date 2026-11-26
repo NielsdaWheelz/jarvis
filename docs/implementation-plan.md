@@ -271,16 +271,19 @@ remains open.
 ## new, shown and owed in chat
 
 [adr 0125](decisions/0125-new-shown-and-owed.md) records the accepted design.
-nothing is implemented. two cuts: the first changes clients and one read-only
-projection; the second is a stopped schema cut.
+the first cut is implemented in source with device-local state and a read-only
+owed projection. the second is a stopped schema cut. the
+[installed follow-up](issues/new-shown-owed-installed.md) owns the remaining
+acceptance evidence.
 
 serialize both against the actual merges of
 [0118](decisions/0118-chat-reading-and-approvals.md),
 [0122](decisions/0122-chat-sidebar-and-phone-alerts.md),
 [0123](decisions/0123-artifact-library.md) and
 [0124](decisions/0124-citations-and-viewer-delivery.md). they own the same
-transcript, sidebar, android list and client files. build on whichever reader
-and sidebar have landed; do not fork them.
+transcript, sidebar, android list and client files. [0126](decisions/0126-presence.md)
+shares the poll and movement paths and already owns the common owed query.
+build on the landed reader and sidebar.
 
 on november 26, independent claude opus 5.5 at high effort held the first
 draft on eight findings, chiefly an owed rule that followed the latest
@@ -315,10 +318,10 @@ first cut, no schema:
    same set, timing, marks, boundary and ledge, backed by private
    preferences. in `Push.kt`, hold a notice while chat is on screen, group
    replies, keep questions separate and sweep on resume from the local set.
-5. qualify journeys 1–11 of the adr on desktop and narrow browsers and the
-   signed s22+ candidate against an isolated service. stage the packaged
-   shell, the service and the same-signer android update together. tell the
-   owner that phone and laptop will disagree until the second cut.
+5. qualify journeys 1–11 against an isolated service. the owner waived
+   dedicated physical sessions for the first cut. stage the packaged shell,
+   service and same-signer android update together. check one real firebase
+   tap during ordinary use. phone and laptop can disagree until the second cut.
 6. let the owner use it for at least a week. change the definition of shown
    here, where it costs nothing, if marks linger or dry wrongly.
 

@@ -20,8 +20,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 
-internal class TodoVisits : ViewModel() {
-    val reads = mutableMapOf<String, TodoReads>()
+internal class HomeVisits : ViewModel() {
+    val todos = mutableMapOf<String, TodoReads>()
+    private var chat: ChatHistory? = null
+
+    fun chat(shown: ChatShown) = chat ?: ChatHistory(shown).also { chat = it }
 }
 
 class MainActivity : ComponentActivity() {
@@ -30,7 +33,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val initial = intent.data?.let(Routes::parse) ?: Route.Home
-        val todoReads = ViewModelProvider(this)[TodoVisits::class.java].reads
+        val visits = ViewModelProvider(this)[HomeVisits::class.java]
+        val notices = PhoneNotices.get(this)
+        notices.foreground(false)
+        val chat = visits.chat(notices.shown)
         setContent {
             val start = Routes.url(initial).toString()
             var trail by rememberSaveable {
@@ -44,7 +50,7 @@ class MainActivity : ComponentActivity() {
             val access = remember { Access.get(this@MainActivity) }
             val api = remember { HomeApi(this@MainActivity) }
             val authRevision by access.revision.collectAsState()
-            val presence = rememberPresence(api, authRevision)
+            val presence = rememberPresence(api, authRevision, chat, notices)
 
             // a repeated address is a new visit. back restores the actual origin.
             val depth = trail.lastIndex
@@ -56,7 +62,7 @@ class MainActivity : ComponentActivity() {
                 onDispose {
                     if (trail.getOrNull(depth) != address) {
                         holder.removeState(visit)
-                        todoReads.remove(visit)
+                        visits.todos.remove(visit)
                     }
                 }
             }
@@ -92,7 +98,8 @@ class MainActivity : ComponentActivity() {
                 JarvisHome(
                     entry = Routes.parse(Uri.parse(address)) ?: Route.Home,
                     onNavigate = ::navigate, onResolve = ::resolve,
-                    todoReads = { todoReads.getOrPut(visit, ::TodoReads) },
+                    todoReads = { visits.todos.getOrPut(visit, ::TodoReads) },
+                    history = chat, notices = notices,
                     onBack = if (trail.size > 1) ::back else null,
                     api = api, authRevision = authRevision, presence = presence,
                 )

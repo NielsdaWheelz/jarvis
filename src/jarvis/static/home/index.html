@@ -6,6 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <title>jarvis</title>
     <link rel="stylesheet" href="/static/home/home.css" />
+    <link id="chat-icon" rel="icon" href="/static/home/chat-rest.svg" />
     <script type="module" src="/static/home/home.js"></script>
   </head>
   <body>
@@ -30,7 +31,7 @@
         <button id="files-return" type="button" hidden>back</button>
         <button id="todo-return" type="button" hidden>back</button>
         <span id="location"></span>
-        <button id="sidebar-open" type="button" aria-controls="sidebar">chat</button>
+        <button id="sidebar-open" type="button" aria-controls="sidebar">chat<span class="chat-count" aria-hidden="true" hidden></span></button>
       </header>
       <p id="artifact-status" role="status" hidden></p>
       <section id="canvas" aria-label="workspace">
@@ -63,6 +64,12 @@
           </div>
         </article>
       </section>
+      <div id="chat-ledge" hidden>
+        <button type="button" hidden><span class="chat-lozenge" aria-hidden="true"></span><span></span></button>
+        <button type="button" class="owed" hidden></button>
+        <button type="button" hidden></button>
+      </div>
+      <div id="chat-live" class="sr-only" role="status" aria-atomic="true"></div>
       <section id="workspace-approval" aria-label="google approval" hidden></section>
       <form id="composer">
         <div id="context" hidden>

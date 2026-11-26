@@ -1,6 +1,30 @@
 # agy native parity
 
-**held · november 26, 2026 utc.** the owner chose fresh native children in [0111](../decisions/0111-native-antigravity-neon.md). the fork and resume-copy results below describe the prior qualification target. the observed cli 1.5.17 and sdk 0.1.24 children still lack the required authority binding and explicit effort selection. adapter, routing, release composition and paid qualification await a passing gate.
+**held · november 26, 2026 utc.** the owner chose fresh native children and default inherited effort in [0111](../decisions/0111-native-antigravity-neon.md). the fork and resume-copy results below describe the prior qualification target. later probes verified cli tool-call attribution and stop during a child. paid request binding and workspace credential isolation remain open. the effort observations below record the earlier explicit-selection tests. adapter, routing, release composition and paid qualification await a passing gate.
+
+## default child qualification
+
+- the linux cli uses neon/high for the fresh child. a private acp session and native mcp metadata distinguish the root and child. two intentional root calls with identical arguments have distinct progress tokens. a child carrying the root id in ordinary arguments is denied. revocation blocks both actors, and cancellation while a child waits returns a cancelled root turn. exact retry identity remains open. installed codex likewise limits its jarvis callback entry to the root thread and turn.
+- documented cli per-session tool filters left built-ins advertised in both process modes. a restricted custom agent retained `manage_task` with an empty tool list. host instructions reached the trusted system channel. the synthetic slash text reached user content.
+- an ordinary cli workspace shell executed and could read the fake attempt key from its own environment. supplying the key through the acp authentication request reproduced the exposure with an empty launcher key environment. the requested cli sandbox could not launch the shell in the isolated dev-server fixture. the failed launch leaves working sandbox isolation unqualified.
+- a paid-request hook copied a marker into ordinary tool-result text. stripping standalone markers then blocked a valid continuation. a separate serial ticket fixture admitted one request and rejected an observed retry. hook errors and missing post-call notices still left overlapping identity unproved. the installed codex path uses protected turn and thread authority and disables transport retries. preserving that behavior is the simpler candidate than changing prompts or serializing native children.
+
+in the sdk fixture, a public low-level send produced a typed user-input step and reached the next sample while the root remained active. the high-level call waited for the root to finish. the low-level receive queue resets during send, so racing tool and delivery evidence remains unqualified. the sdk's default shell reached private attempt files and shared the runtime's pid, mount and network namespaces. its working shell did not reveal the synthetic credential in the checked locations. its configured sandbox failed to start the shell on the isolated linux fixture.
+
+the next gate is a normal workspace write through the bundled sandbox on the intended linux policy, with credential, private state, proc and control-socket checks in the same run. resume release integration after that passes and the restricted workspace excludes builtin effects.
+
+the installed stock host uses the distro bubblewrap apparmor profile for its user namespace. the agy tests found that the dev-server restricts unprivileged user namespaces and the bundled shell launcher returns `operation not permitted`. test the exact staged launcher before assigning cause or changing host policy. [installed kernel setup](../operations.md) · [vendor sandbox requirements](https://antigravity.google/docs/sandbox-mode?app=antigravity)
+
+| bundle | sha-256 of manifest or named file |
+|---|---|
+| `cli-mcp-child-kLVkXb/SHA256SUMS` | `866e4f90d3a4c26bc4de5c0538f02491bb96b10bb8bc3cb936ebf01a75dedf66` |
+| `agy-sample-hook-eqw9s68s/SHA256SUMS` | `de67e176749b03c0f1d6d4e236347d0b387c7152bef69e96a2da8543b4b9d832` |
+| `agy-policy-cOB3MJ/SHA256SUMS` | `bfd8215e1904caab3b6feff7f70f3395d9c5813059aa5c52e8e351bffc3824db` |
+| `agy-shell-8HKN5K/SHA256SUMS` | `d1622f23b3424935fa2c76b521bd86a36010b5479d41c51a653bc3480a199039` |
+| `gate-sdk-steer-M1ZxuS/SHA256SUMS` | `1e0bb1b22373d3c75870b2cd80e30b4ee553db7f80988fc22e38ec322ccb6f35` |
+| `gate-sdk-shell-BRswGF/SHA256SUMS` | `c1a6ae8b3674b0e50aea06d6373196a50f22653d2ada00df6263355596c4b662` |
+| `default-gate-review-aZbX26/opus.txt` | `9e408369eb415b205b445ec364efb6406b7bd4f6b515643ede2ac17b01e78cdc` |
+| `default-gate-review-aZbX26/supplement.txt` | `93a60a7c91586dde350c4c40b6da32315f6d63334390902ec914ad7c7301faa8` |
 
 ## cli 1.5.17
 
@@ -36,4 +60,4 @@ the sdk probes used the published wheel and local fixtures. the attempt homes an
 | `gate-sdk-persistence-contract-o9UGUJ/SHA256SUMS` | `62c91f553b01903d568de0e31f71354904d01c1c358a51ee4383182dc14e7a06` |
 | `feature-a-VMB1fd/opus-sdk-resume.txt` | `5e3cf5b4610df526757bd17fafd2f493013db76d3737a2e2a2010f0047eb76d7` |
 
-close when the pinned harness proves fresh native children with explicit effort and independently bound parentage. require stable logical sample identity, demonstrable retry control and one upstream entry per sample, then run the amended synthetic gate. fixture evidence establishes local client behavior. live google model behavior, billing and installed containment remain unqualified. [cli acp](https://antigravity.google/docs/ide/extensions/acp/) · [cli subagents](https://antigravity.google/docs/subagents/) · [sdk retry controls](https://github.com/google-antigravity/antigravity-sdk-python/blob/97c5c53d0741c601ea8c2401497cad3b5ee8dc98/skills/google-antigravity-sdk/examples/getting_started/customizing_retries.md)
+close when the pinned harness proves fresh children sharing a protected attempt, inherited effort, root-only receipts, restricted workspace authority, zero transport retries and one upstream entry per authorized request. then run the amended synthetic gate. fixture evidence establishes local client behavior. live google model behavior, billing and installed containment remain unqualified. [cli acp](https://antigravity.google/docs/ide/extensions/acp/) · [cli subagents](https://antigravity.google/docs/subagents/) · [sdk retry controls](https://github.com/google-antigravity/antigravity-sdk-python/blob/97c5c53d0741c601ea8c2401497cad3b5ee8dc98/skills/google-antigravity-sdk/examples/getting_started/customizing_retries.md)

@@ -10,7 +10,7 @@ internal sealed interface Route {
     data object Home : Route
     data object Overview : Route
     data class Message(val id: String) : Route
-    data class DraftRevision(val messageId: String, val actionId: String) : Route
+    data class Mail(val messageId: String, val actionId: String, val historical: Boolean) : Route
     data class Todo(val id: String) : Route
     data class File(val id: String, val page: Long?) : Route
     data class Canvas(val slug: String, val revision: String?) : Route
@@ -41,9 +41,9 @@ internal object Routes {
         val segments = path.removePrefix("/").split('/')
         val name = segments.getOrNull(1) ?: return null
         if (segments[0] == "mail") {
-            if (query != null || segments.size != 4 || segments[2] != "revision" ||
+            if (query != null || segments.size != 4 || segments[2] !in setOf("draft", "revision") ||
                 !uuid.matches(name) || !uuid.matches(segments[3])) return null
-            return Route.DraftRevision(name, segments[3])
+            return Route.Mail(name, segments[3], historical = segments[2] == "revision")
         }
         if (segments[0] == "v") {
             if (query != null || segments.size > 3 || name.length > 64 || !slug.matches(name)) {
@@ -70,8 +70,8 @@ internal object Routes {
             Route.Home -> path("/")
             Route.Overview -> appendPath("overview")
             is Route.Message -> appendPath("m").appendPath(route.id)
-            is Route.DraftRevision -> appendPath("mail").appendPath(route.messageId)
-                .appendPath("revision").appendPath(route.actionId)
+            is Route.Mail -> appendPath("mail").appendPath(route.messageId)
+                .appendPath(if (route.historical) "revision" else "draft").appendPath(route.actionId)
             is Route.Todo -> appendPath("t").appendPath(route.id)
             is Route.File -> {
                 appendPath("f").appendPath(route.id)
@@ -84,8 +84,8 @@ internal object Routes {
         }
     }.build()
 
-    fun openCanvas(activity: Activity, route: Route.Canvas): Boolean {
-        if (route.revision == null) return false
+    fun openInBrowser(activity: Activity, route: Route): Boolean {
+        if (route !is Route.Mail && !(route is Route.Canvas && route.revision != null)) return false
         val destination = url(route)
         if (parse(destination) != route) return false
         val browser = BrowserSelector.select(activity) { it.useCustomTab } ?: return false

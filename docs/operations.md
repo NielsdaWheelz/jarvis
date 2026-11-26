@@ -486,6 +486,24 @@ generation manifest's `cut_utc` and the recorded restore instant. repeat with
 the same timestamps if needed. start observation only after that fact commits.
 surviving labels drain normally. the reported gap can be searched on request.
 
+the owner gmail editor uses `/var/lib/jarvis-owner-gmail`, outside the
+stopped copy and off-host backup. only the assistant service identity has
+access. while stopped, install the dedicated standard desktop client export
+as `client.json` with mode 0600 in the 0700 directory. run
+`jarvis owner-gmail-enroll` as the service user under the documented
+independent maintenance command. complete the loopback consent from the
+operator browser and select the already enrolled workspace account. keep the
+auth prompt and client export private. same-subject `owner-gmail-disconnect`
+and re-enrollment preserve the epoch and existing uncertainty receipts.
+
+before any restore over an existing installation, stop the assistant and run
+`jarvis owner-gmail-invalidate-restore` while the current database is still
+available. this writes the absent epoch before disconnecting the grant. restore
+with the editor fenced. keep the owner gmail directory out of restored state.
+on a newly restored host it starts absent. stopped enrollment after
+invalidation issues a fresh epoch. drafts linked before the restore remain
+readable as history. the isolated backup reader has no editor connection.
+
 for an independent stopped repair, execute the documented service-user command under `sudo -n /opt/jarvis/current/deploy/with-independent-maintenance COMMAND [ARG ...]` on the deployment host. wrap the whole foreground service invocation, including `systemd-run --wait` when used. this holds the shared release lock, checks for a published change and preserves the command’s own writer keys, runtime identity and environment.
 
 if an arrival acknowledgement is blocked, take the original account, grant,

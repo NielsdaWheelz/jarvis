@@ -237,7 +237,10 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "answered/partial require todo_result (null by default). request_id proves the "
     "todo by typed owner ref, its work.create success or frozen work_wake record.id. "
     "every named disposition must reach request_id along an unstopped path. "
-    "draft_ref names a verified draft at that origin or null. lead with a standalone "
+    "draft_ref names a verified draft at that origin or null. final replies "
+    "automatically link verified mail drafts created for their named requests. "
+    "the owner edits or sends separately in the viewer. "
+    "lead with a standalone "
     "plain-text finding. label unsaved prose suggested reply. "
     "answered states a supported outcome. claim a change only with a matching "
     "receipt or direct verification. dispatch, idle and approval alone do not "
@@ -832,6 +835,8 @@ def _role_revision(
     }
     if role_id == "main":
         value["native_request_schema"] = NATIVE_REQUEST_SCHEMA
+        if profile in {"agy_neon", "google_neon"}:
+            value["main_revision"] = manifest.roles["main"].revision
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 

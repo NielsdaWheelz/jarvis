@@ -49,7 +49,7 @@
     "main": {
       "effort": "max",
       "model": "gpt-6.2-astra",
-      "revision": "jarvis-main-google-workspace-v27"
+      "revision": "jarvis-main-google-workspace-v28"
     }
   },
   "schema_version": "jarvis-session-compatibility.v6"

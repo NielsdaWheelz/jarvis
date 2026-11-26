@@ -34,6 +34,12 @@ IDENTITY_SCOPES = frozenset(
     {"openid", "https://www.googleapis.com/auth/userinfo.email"}
 )
 ENROLLMENT_SCOPES = SCOPES | IDENTITY_SCOPES
+OWNER_DRAFT_SCOPES = IDENTITY_SCOPES | {"https://www.googleapis.com/auth/gmail.compose"}
+_OWNER_DRAFT_COPY = (
+    "this standard human client can manage account drafts and send mail. "
+    "the private viewer uses it only for your eligible jarvis drafts. "
+    "jarvis agent tools cannot use this connection."
+)
 _APPROVAL_COPY = (
     "this client must be marked for an ai-powered agent in google cloud. "
     "its permission can trash ordinary mail and change message labels. jarvis "
@@ -62,7 +68,7 @@ class VerifiedTokens:
     expires_in: int
 
 
-def granted_scopes(values: object) -> frozenset[str]:
+def granted_scopes(values: object, *, owner_drafts: bool = False) -> frozenset[str]:
     if not isinstance(values, str):
         raise ValueError("missing granted OAuth scope")
     scope_list = values.split()
@@ -70,9 +76,12 @@ def granted_scopes(values: object) -> frozenset[str]:
         "https://www.googleapis.com/auth/userinfo.email" if v == "email" else v
         for v in scope_list
     )
-    if not IDENTITY_SCOPES <= result <= ENROLLMENT_SCOPES or len(result) != len(
-        scope_list
-    ):
+    valid = (
+        result == OWNER_DRAFT_SCOPES
+        if owner_drafts
+        else (IDENTITY_SCOPES <= result <= ENROLLMENT_SCOPES)
+    )
+    if not valid or len(result) != len(scope_list):
         raise ValueError("unexpected or incomplete Google OAuth scopes")
     return result
 
@@ -210,6 +219,7 @@ async def exchange_workspace_code(
     nonce: str,
     redirect_uri: str,
     expected_email: str,
+    owner_drafts: bool = False,
 ) -> VerifiedTokens:
     """Redeem this loopback flow's code and independently verify its identity."""
     try:
@@ -245,7 +255,7 @@ async def exchange_workspace_code(
         return VerifiedTokens(
             account,
             subject,
-            granted_scopes(token.get("scope")),
+            granted_scopes(token.get("scope"), owner_drafts=owner_drafts),
             access,
             _text(token, "refresh_token"),
             expires,
@@ -262,6 +272,7 @@ async def enroll_workspace(
     *,
     expected_email: str,
     pending_label_id: str | None,
+    expected_subject: str | None = None,
     confirm: Callable[[str], bool],
     show_url: Callable[[str], None],
 ) -> WorkspaceEnrollment:
@@ -272,6 +283,8 @@ async def enroll_workspace(
     if (
         export is None
         or set(export) != {"installed"}
+        or manager.owner_drafts != (expected_subject is not None)
+        or (manager.owner_drafts and pending_label_id is not None)
         or not valid_pending_label(pending_label_id)
         or not re.fullmatch(r"[^@\s]+@[^@\s]+", expected_email)
     ):
@@ -282,7 +295,9 @@ async def enroll_workspace(
     project = _text(client, "project_id")
     if not manager.matches_client(project, client_id, secret):
         raise WorkspaceError("grant_unavailable")
-    if not confirm(f"connect {expected_email} to {project}? {_APPROVAL_COPY}"):
+    copy = _OWNER_DRAFT_COPY if manager.owner_drafts else _APPROVAL_COPY
+    scopes = OWNER_DRAFT_SCOPES if manager.owner_drafts else ENROLLMENT_SCOPES
+    if not confirm(f"connect {expected_email} to {project}? {copy}"):
         raise WorkspaceError("cancelled")
     state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
     challenge = (
@@ -346,7 +361,7 @@ async def enroll_workspace(
                 {
                     "client_id": client_id,
                     "redirect_uri": redirect,
-                    "scope": " ".join(sorted(ENROLLMENT_SCOPES)),
+                    "scope": " ".join(sorted(scopes)),
                     "response_type": "code",
                     "access_type": "offline",
                     "prompt": "consent",
@@ -370,4 +385,5 @@ async def enroll_workspace(
         nonce=nonce,
         expected_email=expected_email,
         pending_label_id=pending_label_id,
+        expected_subject=expected_subject,
     )

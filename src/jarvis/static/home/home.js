@@ -1,20 +1,9 @@
+import { el, button, link } from "./home-dom.js";
+import { draftPreview, openEditor } from "./mail-editor.js";
 const $ = (id) => document.getElementById(id);
-const el = (tag, text, cls) => {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  if (cls) node.className = cls;
-  return node;
-};
-function button(label, click) {
-  const node = el("button", label);
-  node.type = "button";
-  node.addEventListener("click", click);
-  return node;
-}
-function link(label, path, cls) {
-  const node = el("a", label, cls);
-  node.href = path;
-  return node;
+function creationPath(messageId, created) {
+  const kind = created.editable === true ? "draft" : "revision";
+  return "/mail/" + messageId + "/" + kind + "/" + created.create_action_id;
 }
 function objectPath(ref) {
   switch (ref.kind) {
@@ -71,7 +60,9 @@ function save() {
   sessionStorage.setItem(draftKey, JSON.stringify({ ...draft, files }));
 }
 const isDetail = (path) => /^\/[mt]\//.test(path);
-const draftRevisionRoute = /^\/mail\/([^/]+)\/revision\/([^/]+)$/;
+const mailId = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const mailRoute = new RegExp("^/mail/(" + mailId + ")/(revision|draft)/(" + mailId + ")$");
+let mailEditor = null;
 
 function changeState(values, path = location.href) {
   history.replaceState({ ...history.state, ...values }, "", path);
@@ -680,12 +671,19 @@ function renderMessage(m) {
   }
   if (m.draft_revision_error === "integrity")
     node.append(el("p", "draft revision failed integrity checks.", "draft-evidence"));
-  if (m.draft_revision_id) {
+  if (m.draft_revision_id && !m.drafts?.some(d => d.editable !== true && d.create_action_id === m.draft_revision_id)) {
     const revision = draftRevisionLink(m.id, m.draft_revision_id);
     revision.classList.add("draft-evidence");
     node.append(revision);
   }
-  if (m.present)
+  for (const [i, created] of (m.drafts || []).entries()) {
+    const subject = created.subject || "(no subject)";
+    const numbered = m.drafts.filter((other) => other.subject === created.subject).length > 1;
+    const action = created.editable === true ? "open draft" : "open draft revision";
+    const name = action + " · " + subject + (numbered ? " · " + (i + 1) : "");
+    node.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
+  }
+  if (m.present && m.present.ref.kind !== "draft")
     node.append(link("open " + label(m.present.ref), objectPath(m.present.ref), "result"));
   node.dataset.version = JSON.stringify(m);
   return node;
@@ -704,7 +702,15 @@ function merge(items) {
   const previousTop = anchor ? anchor.getBoundingClientRect().top : null;
   for (const m of items) {
     const existing = $("msg-" + m.id);
-    if (m.present) presentations.set(m.present.request_id, m.present.ref);
+    if (m.present) {
+      const {ref, request_id} = m.present;
+      if (ref.kind === "draft") {
+        const created = m.drafts?.find(d => d.request_id === request_id &&
+          ref.request_id === request_id && d.create_action_id === ref.create_action_id);
+        if (created) presentations.set(request_id, creationPath(m.id, created));
+        else presentations.delete(request_id);
+      } else presentations.set(request_id, objectPath(ref));
+    }
     if (existing?.dataset.version === JSON.stringify(m)) continue;
     const node = renderMessage(m);
     if (m.id === selectedMessage) node.classList.add("selected");
@@ -797,9 +803,9 @@ $("older").onclick = async () => {
   }
 };
 function present() {
-  if (!armed?.request) return;
-  const ref = presentations.get(armed.request);
-  if (ref) navigate(objectPath(ref));
+  if (!armed?.request || document.hidden) return;
+  const path = presentations.get(armed.request);
+  if (path) navigate(path);
 }
 function rememberReading() {
   if (selectedMessage && location.pathname === "/m/" + selectedMessage && $("chat").clientHeight)
@@ -824,6 +830,8 @@ function restoreRevisionReturn() {
 
 function navigate(path, { origin, canvasSelection = path } = {}) {
   armed = null;
+  if (mailEditor?.dirty() && path !== location.pathname &&
+      !window.confirm("leave this draft? changes that gmail has not confirmed may be lost.")) return;
   if (
     canvasSelection === todosCanvas &&
     location.pathname === "/" &&
@@ -833,8 +841,8 @@ function navigate(path, { origin, canvasSelection = path } = {}) {
     return;
   rememberOverview(origin);
   rememberReading();
-  const revision = draftRevisionRoute.exec(path);
-  const fromRevision = draftRevisionRoute.test(location.pathname);
+  const revision = mailRoute.exec(path);
+  const fromRevision = mailRoute.test(location.pathname);
   const fromRevisionMessage = Boolean(
     revision && origin?.classList.contains("draft-revision-link") && !fromRevision,
   );
@@ -883,7 +891,7 @@ document.addEventListener("click", (e) => {
     return;
   if (
     a.origin === location.origin &&
-    (/^\/(?:$|overview$|[mftv]\/)/.test(a.pathname) || draftRevisionRoute.test(a.pathname))
+    (/^\/(?:$|overview$|[mftv]\/)/.test(a.pathname) || mailRoute.test(a.pathname))
   ) {
     e.preventDefault();
     navigate(a.pathname + a.search, { origin: a });
@@ -901,6 +909,10 @@ function empty(title) {
 }
 
 function startRoute() {
+  if (mailEditor && mailEditor.path !== history.state?.canvasSelection) {
+    mailEditor.close();
+    mailEditor = null;
+  }
   routeVersion++;
   failures.delete("canvas");
   failures.delete("detail");
@@ -924,7 +936,7 @@ function startRoute() {
     delete $("records").dataset.version;
     $("records").dataset.item = path;
   }
-  if (draftRevisionRoute.test(displayed) && !draftRevisionRoute.test(location.pathname)) {
+  if (mailRoute.test(displayed) && !mailRoute.test(location.pathname)) {
     $("object").replaceChildren();
     displayed = "";
   }
@@ -933,12 +945,13 @@ function startRoute() {
   refresh();
 }
 
-async function draftRevisionRead(ver, path, messageId) {
+async function mailRead(ver, path, messageId, kind, actionId) {
+  const editing = kind === "draft";
   let sheet = $("draft-revision");
   if (displayed !== path) {
     current = null;
     displayed = path;
-    $("location").textContent = "draft revision";
+    $("location").textContent = editing ? "draft" : "draft revision";
     $("object-tools").hidden = true;
     const back = link("back to message", "/m/" + messageId);
     back.addEventListener("click", (event) => {
@@ -950,7 +963,7 @@ async function draftRevisionRead(ver, path, messageId) {
         history.back();
       }
     });
-    const title = el("h1", "draft revision");
+    const title = el("h1", editing ? "draft" : "draft revision");
     title.tabIndex = -1;
     sheet = el("section");
     sheet.id = "draft-revision";
@@ -964,37 +977,13 @@ async function draftRevisionRead(ver, path, messageId) {
     title.focus({ preventScroll: true });
   }
   if (sheet.dataset.loaded) return;
-  const revision = await read("/api" + path);
+  const revision = await read("/api/mail/" + messageId + "/revision/" + actionId);
   if (ver !== routeVersion) return;
   const content = sheet.lastElementChild;
-  if (revision === null) {
-    content.replaceChildren(el("p", "draft revision is not available for this message."));
-  } else if (revision.status === "integrity") {
-    content.replaceChildren(el("p", "draft revision failed integrity checks."));
-  } else if (revision.status === "complete") {
-    content.replaceChildren();
-    content.append(el("h2", revision.subject || "(no subject)"));
-    if (revision.observed_at) content.append(el("p", "recorded at " + time(revision.observed_at), "secondary"));
-    const envelope = el("dl");
-    for (const [field, mailboxes] of [
-      ["from", [revision.from]],
-      ["to", revision.to],
-      ["cc", revision.cc],
-      ["bcc", revision.bcc],
-    ]) {
-      const names = mailboxes.map(({ name, address }) => name ? name + " <" + address + ">" : address);
-      envelope.append(el("dt", field), el("dd", names.join(", ") || "none"));
-    }
-    content.append(envelope);
-    if (revision.files.length) {
-      const files = el("ol");
-      for (const file of revision.files)
-        files.append(el("li", file.filename + " · " + file.size_bytes.toLocaleString() + " bytes"));
-      content.append(el("h2", "attachments"), files);
-    }
-    content.append(el("p", revision.body_text || "empty email body", "prose draft-revision-body"));
-  } else {
-    throw new Error("could not load this draft revision.");
+  content.replaceChildren(draftPreview(revision, editing));
+  if (editing && revision?.status === "complete") {
+    if (revision.editable === true) mailEditor = openEditor(content, path, revision, digest);
+    else content.append(el("p", "this saved revision is read-only."));
   }
   sheet.dataset.loaded = "true";
 }
@@ -1027,9 +1016,9 @@ async function canvasRead(ver) {
     return;
   }
   const url = new URL(path, location.origin);
-  const revision = draftRevisionRoute.exec(url.pathname);
+  const revision = mailRoute.exec(url.pathname);
   if (revision) {
-    await draftRevisionRead(ver, url.pathname, revision[1]);
+    await mailRead(ver, url.pathname, revision[1], revision[2], revision[3]);
     return;
   }
   const [, kind, key, more] = url.pathname.split("/");
@@ -1479,7 +1468,8 @@ window.addEventListener("pagehide", () => {
   rememberReading();
 });
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refresh();
+  if (document.hidden) armed = null;
+  else refresh();
 });
 window.addEventListener("online", refresh);
 setInterval(refresh, 3000);

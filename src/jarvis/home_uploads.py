@@ -28,7 +28,7 @@ MESSAGE_PART_LIMIT = 128 * 1024
 FILE_LIMIT = 10
 
 
-def _media_type(header: bytes) -> str:
+def safe_media_type(header: bytes) -> str:
     if header.startswith(b"%PDF-"):
         return "application/pdf"
     if header.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -72,7 +72,7 @@ def _stage(
                     file.filename or "original",
                     size,
                     digest.hexdigest(),
-                    _media_type(header),
+                    safe_media_type(header),
                 )
                 try:
                     os.link(
@@ -87,7 +87,7 @@ def _stage(
         os.close(directory)
 
 
-class _Form(MultiPartParser):
+class CompleteMultipartParser(MultiPartParser):
     complete = False
 
     def on_end(self) -> None:
@@ -110,12 +110,12 @@ async def read_submission(
             raise HTTPException(422, "incomplete multipart upload")
 
     media = request.headers.get("content-type", "").partition(";")[0].strip().lower()
-    parser: _Form | None = None
+    parser: CompleteMultipartParser | None = None
     files: list[UploadFile] = []
     form = None
     try:
         if media == "multipart/form-data":
-            parser = _Form(
+            parser = CompleteMultipartParser(
                 request.headers,
                 limited(),
                 max_files=FILE_LIMIT + 1,
@@ -203,24 +203,24 @@ async def attachment_response(
     )
 
 
+def download_headers(name: str, media_type: str, length: int) -> dict[str, str]:
+    filename = name.replace("\\", "/").split("/")[-1]
+    filename = "".join(ch for ch in filename if ch.isprintable()).strip() or "original"
+    disposition = "attachment" if media_type == "application/octet-stream" else "inline"
+    encoded = quote(filename, safe="")
+    return {
+        "Content-Disposition": f"{disposition}; filename*=utf-8''{encoded}",
+        "Content-Length": str(length),
+        "X-Content-Type-Options": "nosniff",
+    }
+
+
 def _original_response(path: Path, name: str, head: bool) -> Response:
     stream = path.open("rb")
     try:
-        media_type = _media_type(stream.read(16))
+        media_type = safe_media_type(stream.read(16))
         stream.seek(0)
-        filename = name.replace("\\", "/").split("/")[-1]
-        filename = (
-            "".join(ch for ch in filename if ch.isprintable()).strip() or "original"
-        )
-        disposition = (
-            "attachment" if media_type == "application/octet-stream" else "inline"
-        )
-        encoded_name = quote(filename, safe="")
-        headers = {
-            "Content-Disposition": f"{disposition}; filename*=utf-8''{encoded_name}",
-            "Content-Length": str(os.fstat(stream.fileno()).st_size),
-            "X-Content-Type-Options": "nosniff",
-        }
+        headers = download_headers(name, media_type, os.fstat(stream.fileno()).st_size)
         if head:
             stream.close()
             return Response(media_type=media_type, headers=headers)

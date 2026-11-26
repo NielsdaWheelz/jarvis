@@ -163,9 +163,10 @@ internal fun JarvisHome(route: Route, onNavigate: (Route) -> Unit, onBack: (() -
                             is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, newDraft) {
                                 chat = true
                             }
-                            is Route.DraftRevision -> DraftRevisionPane(
-                                route, api, reload, signIn, onNavigate.takeIf { onBack == null },
-                            )
+                            is Route.Mail -> Pane {
+                                TextButton(onClick = { onNavigate(route) }) { Text("open in browser") }
+                                TextButton(onClick = { onNavigate(Route.Message(route.messageId)) }) { Text("open message") }
+                            }
                             is Route.Todo -> TodoDetail(route, api, reload, signIn, onNavigate, newDraft)
                             is Route.File -> FilePane(route, api, reload, signIn, newDraft)
                             is Route.Canvas -> CanvasPane(route, api, reload, signIn, activity, onNavigate, newDraft)
@@ -417,7 +418,7 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
         else Prose(proposal.getString("detail"), navigate)
         BodyStatus(proposal.string("status_label") ?: proposal.getString("status").replace('_', ' '))
         if (revision != null) {
-            TextButton(onClick = { navigate(Route.DraftRevision(id, revision)) }) {
+            TextButton(onClick = { navigate(Route.Mail(id, revision, historical = true)) }) {
                 Text("open draft revision")
             }
         }
@@ -428,68 +429,27 @@ private fun MessageEntry(message: JSONObject, navigate: (Route) -> Unit, discuss
             Text("reply to ${proposal.getString("title")}")
         }
     }
-    message.string("draft_revision_id")?.let { revision ->
-        TextButton(onClick = { navigate(Route.DraftRevision(id, revision)) }) { Text("open draft revision") }
+    val drafts = message.objects("drafts")
+    message.string("draft_revision_id")?.takeUnless { revision ->
+        drafts.any { it.opt("editable") != true && it.string("create_action_id") == revision }
+    }?.let { revision ->
+        TextButton(onClick = { navigate(Route.Mail(id, revision, historical = true)) }) { Text("open draft revision") }
     }
     if (message.string("draft_revision_error") == "integrity") {
         BodyStatus("exact revision failed integrity checks")
     }
+    drafts.forEachIndexed { index, created ->
+        val action = created.getString("create_action_id")
+        val subject = created.string("subject").orEmpty().ifBlank { "(no subject)" }
+        val repeated = drafts.count { it.string("subject") == created.string("subject") } > 1
+        val name = if (repeated) "$subject · ${index + 1}" else subject
+        val historical = created.opt("editable") != true
+        val label = if (historical) "open draft revision" else "open draft"
+        TextButton(onClick = { navigate(Route.Mail(id, action, historical)) }) { Text("$label · $name") }
+    }
     DiscussionRef.parse(message.optJSONObject("present")?.optJSONObject("ref"))?.let { ref ->
         TextButton(onClick = { navigate(ref.route()) }) { Text("open ${ref.label}") }
     }
-}
-
-@Composable
-private fun DraftRevisionPane(
-    route: Route.DraftRevision,
-    api: HomeApi,
-    reload: Pair<Int, Int>,
-    signIn: () -> Unit,
-    openColdSource: ((Route) -> Unit)?,
-) {
-    val path = "/api/mail/${route.messageId}/revision/${route.actionId}"
-    Read(path, reload, signIn, { api.read(path) }, signInLabel = "sign in to open this draft revision") { revision ->
-        Pane {
-            Heading("exact draft revision")
-            if (revision == null) {
-                BodyStatus("this revision is not linked to this message")
-                return@Pane
-            }
-            when (revision.string("status")) {
-                "complete" -> {
-                    revision.string("observed_at")?.let { BodyStatus("observed ${formattedTime(it)}") }
-                    revision.string("subject")?.let { Section(it.ifEmpty { "(no subject)" }) }
-                    revision.optJSONObject("from")?.let { Text("from · ${draftMailbox(it)}") }
-                    for (field in listOf("to", "cc", "bcc")) {
-                        revision.optJSONArray(field)?.let { recipients ->
-                            val names = recipients.objects().joinToString(", ", transform = ::draftMailbox)
-                            Text("$field · " + names.ifEmpty { "none" })
-                        }
-                    }
-                    val context = LocalContext.current
-                    for (file in revision.objects("files")) {
-                        val size = android.text.format.Formatter.formatFileSize(context, file.getLong("size_bytes"))
-                        Text("${file.getString("filename")} · $size")
-                    }
-                    revision.string("body_text")?.let { Text(it.ifEmpty { "empty email body" }) }
-                }
-                "integrity" -> BodyStatus("exact revision failed integrity checks")
-                else -> {
-                    BodyStatus("could not read this draft revision")
-                    return@Pane
-                }
-            }
-            openColdSource?.let { navigate ->
-                TextButton(onClick = { navigate(Route.Message(route.messageId)) }) { Text("open message") }
-            }
-        }
-    }
-}
-
-private fun draftMailbox(mailbox: JSONObject): String {
-    val address = mailbox.getString("address")
-    val name = mailbox.string("name")
-    return if (name.isNullOrEmpty()) address else "$name <$address>"
 }
 
 @Composable
@@ -512,7 +472,7 @@ private fun CanvasPane(
                 BodyStatus("this page is no longer available")
                 return@Pane
             }
-            val open = { browserError = !Routes.openCanvas(activity, Route.Canvas(ref.slug, ref.revision)) }
+            val open = { browserError = !Routes.openInBrowser(activity, Route.Canvas(ref.slug, ref.revision)) }
             LaunchedEffect(ref) {
                 if (route.revision == null) navigate(ref.route())
                 else if (!opened) {

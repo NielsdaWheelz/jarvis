@@ -3,6 +3,7 @@ package dev.niels.jarvis
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -49,13 +50,18 @@ class MainActivity : ComponentActivity() {
             }
 
             fun navigate(route: Route) {
+                if (route is Route.Mail) {
+                    if (!Routes.openInBrowser(this, route)) {
+                        Toast.makeText(this, "could not open this draft in a browser", Toast.LENGTH_LONG).show()
+                    }
+                    return
+                }
                 val target = Routes.url(route).toString()
                 if (trail.last() != target) {
                     val current = Routes.parse(Uri.parse(trail.last()))
                     val resolved = current == Route.Home ||
                         (current is Route.Canvas && current.revision == null &&
-                            route is Route.Canvas && route.slug == current.slug) ||
-                        (current is Route.DraftRevision && trail.size == 1 && route == Route.Message(current.messageId))
+                            route is Route.Canvas && route.slug == current.slug)
                     val previous = trail.indexOf(target)
                     trail = ArrayList(when {
                         previous >= 0 -> trail.take(previous + 1)

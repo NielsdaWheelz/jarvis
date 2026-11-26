@@ -8,7 +8,7 @@ audience: product, engineering, design, operations, and future coding agents
 
 ## proposed native antigravity route
 
-[design 0111](docs/decisions/0111-native-antigravity-neon.md) specifies a full api-funded main through the official antigravity sdk between personal codex and stock codex-neon after confirmed personal exhaustion. agy starts native children with a fresh task brief. the two paid harnesses share the existing project and data boundary. the installed routing contract governs until a separately authorized hard cut.
+[design 0111](docs/decisions/0111-native-antigravity-neon.md) specifies a full api-funded main through the official antigravity sdk between personal codex and stock codex-neon after confirmed personal exhaustion. agy starts native children with a fresh task brief and keeps its native shell offline. the two paid harnesses share the existing project and data boundary. the installed routing contract governs until a separately authorized hard cut.
 
 ## direct google quota recovery target
 

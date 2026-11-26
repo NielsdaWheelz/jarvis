@@ -359,7 +359,8 @@ api and can be released independently.
 ## presence
 
 [adr 0126](decisions/0126-presence.md) owns the states, words, motion and
-acceptance. adr 0125 (new, shown and owed) owns the red, favicon, arrival
+acceptance and [candidate evidence](decisions/0126-presence.md#qualification-on-macbook).
+adr 0125 (new, shown and owed) owns the red, favicon, arrival
 announcements, hidden-tab reads and transcript movement that presence relies
 on. presence is additive: no schema, prompt, model binding or stopped cut.
 one writer per path. freeze the read specimens before client work.

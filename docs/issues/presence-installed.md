@@ -2,9 +2,11 @@
 
 [adr 0126](../decisions/0126-presence.md) requires the signed candidate on the
 s22+ and acceptance on both installed clients. adb on macbook listed no
-devices on november 26, 2026. an emulator can qualify the candidate's compose
-and lifecycle behavior. the s22+ still needs the send, tail, talkback,
-animator-scale-zero and background-read checks.
+devices on november 26, 2026. the detached android 35 replay passed 13 checks
+at `def8c93`. the signed v9 candidate is
+`~/.local/state/jarvis/qualification/adr0126-implementation.EqNnxsCX/android/signed-v9-final/jarvis-candidate.apk`.
+the s22+ still needs the send, tail, spoken talkback, animator-scale-zero and
+background-read checks.
 
 the read-only production check selected `22e9d2a57cff2d50d9c4872d605b72b134db463d`
 with both jarvis services active. the current source includes the

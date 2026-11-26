@@ -1,6 +1,8 @@
 # adr 0126. show when jarvis is working
 
-**design for implementation · 26 november 2026.** this amends:
+**implemented · 26 november 2026 · installed acceptance open.**
+
+this amends the following contracts.
 
 - client freshness in [0087](0087-private-web-home.md), [0105](0105-native-android.md)
   and [0122](0122-chat-sidebar-and-phone-alerts.md);
@@ -265,7 +267,8 @@ non-empty.
 
 **owner work, `you`.** this is the state of the owner's newest unparked web
 message that is either pending, or waiting on an approval where some waiting
-action is `queued` or `executing` and none is `awaiting_approval`.
+action is `queued` or `executing` and none is `awaiting_approval`. the action
+set is the request's recorded wait references.
 
 - that second case reads `working` in the tail. until the executor enters,
   the tail says `working` with no elapsed time. only process-local work arms
@@ -420,3 +423,55 @@ independent opus review of this text before red and of evidence before release.
 - it mirrors the mark in a sidebar title row that 0122 removed.
 
 this text replaces each of those.
+
+## implementation decisions
+
+- presence reads the same owed projection as 0125. it follows the request's
+  exact action references, including an action created by a causal child.
+  between approval and executor entry the tail may say `working`, while the
+  header has no live work to confirm.
+- the chat token counts all projected rows as well as hashing the newest
+  cursor. the count costs a scan of the scoped chat and catches a commit
+  behind the head. a late reply keeps its canonical position. web animates
+  an unpainted reply in that cell. android fades the old tail when the reply
+  sorts above it. an already-painted browser reply stays opaque.
+- the settling read can cost another chat round trip. web bounds reads and
+  clears freshness after nine seconds without confirmation, including a held
+  socket. a 304 keeps the original elapsed-time anchor and confirms state.
+- web reserves one line for transport status. android keeps the mark's 48 dp
+  target and 8 dp of rule clearance even when idle. android uses ttf for the
+  same licensed latin faces that ship as woff2 on web. at animator scale zero,
+  presence uses its own short opacity transitions and still silent work.
+- the signed candidate uses version code 9, after the 0125 version-8
+  reservation. the release needs the artifact and citation client contract
+  installed first. [installed acceptance](../issues/presence-installed.md)
+
+## qualification on macbook
+
+opus held red on paired ordering, tail retirement, deferral replacement and
+the retired gmail-send witness. the amended specification passed that gate.
+the temporary probes then witnessed the missing route, the missing browser
+tail, and the android exact-message navigation. the calendar journey used a
+controlled google transport held after the real detached approval path entered.
+
+the detached wheel from `8f46ee7852c8116e41b97ba974d30c6501f8c4b5`
+passed 19 service checks against postgres 16.15 and loopback http. its
+sha256 is `0806eae052ca49dd200272e59cc649b6fa2f420cb1cf39c006f1e3a7c490a4d7`.
+the same wheel passed 182 checks across chromium and webkit, desktop and
+narrow, both schemes and both motion settings. each browser also passed five
+journeys through the real service and database. the mail trigger was a
+synthetic event backed by the real journal.
+
+`scripts/verify` passed at `def8c9392f8962d22637ec68e1d8fe30f34f0b4b`.
+only android source and assets differ between those two commits. the detached
+android 35 replay passed 13 checks against an isolated http fixture. it
+observed both read-order races, preserved scroll after redirect recovery, and
+measured the configured 120 ms shape and word fades and 900 ms owner dip at
+animator scale zero. the matching signed v9 apk has sha256
+`97fda1f58727b68c8ebbbee4621e88cef2303a3b58669c19387b961d0c32eb05`.
+
+the source reviews, commit-bound receipts, hashes and separate cleanup
+receipts are in
+`~/.local/state/jarvis/qualification/adr0126-implementation.EqNnxsCX/`.
+the [installed check](../issues/presence-installed.md) carries the physical
+handset, spoken talkback and production journeys.

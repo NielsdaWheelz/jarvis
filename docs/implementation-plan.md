@@ -56,6 +56,55 @@ the implementation and isolated qualification are recorded in
 [0096 evidence](decisions/0096-calendar-on-demand.md#implementation-evidence).
 the [live calendar check](decisions/0096-calendar-on-demand.md#live-google-calendar) passed. production selected `43ed919/0019`, and gmail polled after owner resume 32. [installed cut](decisions/0096-calendar-on-demand.md#installed-calendar-cut)
 
+## skid worker placement
+
+[adr 0114](decisions/0114-skid-worker-placement.md) specifies the accepted
+v14 target on the selected v13 predecessor (`00f579e`). implementation,
+candidate proof and installed acceptance are pending.
+
+1. **skid cli.** add the id selector to start parsing, help and fleet-client
+   routing. use the existing machine-handle parser, peer lookup and start
+   operation. prove a label that spells another computer's id still selects
+   by name with `--machine` and by identity with `--machine-id`.
+2. **jarvis worker binding.** remove the enum across tool inputs, wire decoders
+   and result projections. move target resolution from the observer to write
+   admission. reuse the private action contract for start, fresh assignment
+   and `after`. enforce the same causal scope as answer reads for follow-ups.
+   update start receipt validation, action recovery, historical
+   receipt reads, retirement checks and the deployment verifier. publish the
+   revised catalog and binding together.
+3. **prove the paired artifacts on macbook.** use dev-server's
+   `scripts/rehearse-worktree` for the detached rehearsal. exercise the real
+   cli, worker action store and restart path against a temporary enrolled fleet.
+   retain named evidence outside scratch, reopen and hash it, and record
+   fixture teardown separately.
+
+   | exercise | evidence required |
+   | --- | --- |
+   | add a fifth, offline peer with an unseen name | the two required hosts remain readable. the fifth is present with its error. the service verifier succeeds, then fails when a required host is missing or down |
+   | request an absent name, then enroll it. separately inject an ambiguous status reply, a malformed reply and a status outage | the original unknown-name request stays rejected. the ambiguous reply reports ambiguity. malformed and unreadable replies report roster unavailable. each leaves zero worker actions and zero dispatches |
+   | accept a job for a, move its name to b, restart before dispatch. lose the submit reply and restart after result commit before ack | a receives the original job uuid. b receives zero job calls. recovery, result paging and ack address a. exactly one wake commits for the original job |
+   | accept a start for a, then rename or remove a before execution | rename permits one start on a and its new label in the receipt. removal sends nothing to b. a lost reply or wrong machine id stays uncertain and causes zero repeat starts |
+   | name a prior job from another causal component in the same conversation | registration rejects it before insertion. a related job uses the original handle even after a rename |
+   | request an unsupported profile on an enrolled host | skid's refusal reaches jarvis for the selected host. no alternate host or profile runs the brief |
+   | retire v13 with a completed job awaiting ack | preflight and startup both hold the cut. settle under v13, reopen v12 and v13 public receipts, and page an answer over 8 kib byte-for-byte. the private ref stays private |
+
+4. **release and verify.** publish and pin the qualified skid cli. under the
+   existing named maintenance procedure, confirm the selected artifacts, drain
+   incompatible worker obligations under their owning release and
+   check the stopped source. activate v14 and the verified cli together through
+   the existing operator-workstation `deploy/activate-release` path with its
+   `--agent-client` manifest.
+   return to the source release only when custody and source activation checks
+   establish a safe return. otherwise keep the hold. after new effects,
+   reconcile or repair forward. verify existing required workers through the
+   restricted jarvis service identity. list desktop from jarvis, then run one
+   scoped assignment on an applied
+   desktop profile, read its answer and confirm its acknowledgement. observe
+   an offline desktop as a partial inventory with required hosts still healthy.
+   record the two artifact identities, source proof, installed observations and
+   cleanup separately. [deployment procedure](operations.md#skid-only-worker-cutover)
+
 ## terminal-only worker cutover — source implemented and isolated-qualified
 
 [adr 0069](decisions/0069-terminal-only-workers.md) and the linked skid spec

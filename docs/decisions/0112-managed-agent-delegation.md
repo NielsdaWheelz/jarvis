@@ -1,5 +1,8 @@
 # adr 0112 · managed agent delegation
 
+[adr 0114](0114-skid-worker-placement.md) moves machine binding to action
+admission at the v14 cut. the observer-time binding below describes v12.
+
 the [worker tools](../../SPEC.md#73-tool-contracts-and-exact-catalog) use a
 native assignment result. jarvis owns action identity, consent and reporting.
 skid owns machine placement, the live terminal and unacknowledged results.

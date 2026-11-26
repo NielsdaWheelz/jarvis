@@ -1647,11 +1647,14 @@ pipeline, never a nested agent.
 | `memory.search`, `memory.open`, `memory.view`, `memory.zoom`, `memory.date` | main, dreamer | Read; automatic |
 | `memory.save_note` | main full plan only | admitted local append; no gate/action |
 
-[adr 0112](docs/decisions/0112-managed-agent-delegation.md) owns the current
-worker contract. [adr 0113](docs/decisions/0113-desktop-worker.md) adds the
-`desktop` label in v13. machines are `macbook|dev-server|arch|desktop`. the selected host's
-applied skid configuration owns profile keys. model-visible terminal targets
-are `{machine,handle}`; the handle is `t-` plus 16 lowercase hex characters.
+[adr 0112](docs/decisions/0112-managed-agent-delegation.md) owns managed jobs.
+[adr 0113](docs/decisions/0113-desktop-worker.md) defines the four-name v13
+predecessor. [adr 0114](docs/decisions/0114-skid-worker-placement.md) specifies
+the accepted v14 target. in v14, worker machine names come from the installed
+skid roster. inventory retains healthy and unavailable peers. the selected
+host's applied skid configuration owns its launch profiles. model-visible
+terminal targets are `{machine,handle}`, with `t-` plus 16 lowercase hex
+characters for the handle.
 exact target refs stay private.
 
 | tool | input | skid entry |
@@ -1659,7 +1662,7 @@ exact target refs stay private.
 | agent.delegate | machine, profile, cwd, brief, model?, effort? or after, brief | job submit/action id; result and ack by the same id and enrolled machine |
 | agent.list | machine?, group?, unassigned?; group/unassigned exclusive | list |
 | agent.info | target | info |
-| agent.start | machine, profile, name?, cwd?, group?, model?, effort? | start without stdin |
+| agent.start | machine, profile, name?, cwd?, group?, model?, effort? | v14 start without stdin, by captured machine id |
 | agent.read | target, maxBytes default 16384/max 32768 | read |
 | agent.send | target, text | guarded send with captured ref and stdin |
 | agent.text | target, text | explicit text with captured ref and stdin |
@@ -1667,11 +1670,15 @@ exact target refs stay private.
 | agent.stop | target | stop with captured ref |
 | agent.close | target, terminal_only default false | close with captured ref |
 
-jarvis saves an assignment action and its exact origin before dispatch. the
-model immediately receives `{job_id,state:"accepted"}`. a follow-up uses an
-eligible prior assignment from the same causal component and the same live
-worker. the observer pins the enrolled machine through skid's local fleet
-status, admits external submission under current ownership and pause, and
+in v14, after live request admission, a fresh delegate or start resolves its
+name against one local skid roster snapshot. exactly one enrolled computer
+must match. jarvis commits its private machine handle with the action before
+returning an accepted assignment or executing a start. unknown or ambiguous
+names and unavailable roster reads return a targeting failure and leave no
+queued work. an eligible follow-up in the same causal component inherits the
+prior assignment's machine and worker. the observer uses the capture for
+submission, reconciliation, result pages and acknowledgement. it admits
+external submission under current ownership and pause, and
 holds a result request beyond main's lifetime. it reopens by id after restart
 or disconnect. it atomically saves exact result bytes and one waking message.
 ack follows that transaction. result evidence grants no new write authority.
@@ -1684,14 +1691,16 @@ through stdin. ordinary terminal calls use the existing bounded 20-second
 child and 64 kib output envelope (one mib for inventory). held results use
 35 seconds and the same envelope with digest-verified byte paging. a valid
 partial receipt survives nonzero exit. stderr is discarded. explicit terminal
-actions capture one exact ref and retain the unchanged `BilledOnce` policy.
+controls capture one exact ref. starts capture the machine handle. both
+retain the `BilledOnce` policy.
 a confirmed terminal write establishes only delivery. job submission
 reconciles by its original uuid and pinned host, with replay allowed only
 on authoritative absence under the idempotent reservation protocol.
 
-finalized retired worker revisions retain their opaque stored receipts.
-unfinished retired work blocks activation and is drained under its original
-release. deploy the qualified skid and jarvis artifacts together. code
+settled v12 and v13 assignments retain their public receipt and paged answer. older
+opaque worker archives retain their original receipts. unfinished incompatible
+work, including pending result acknowledgements, blocks activation and drains
+under its owning release. deploy the qualified skid and jarvis artifacts together. code
 rollback after new receipts requires the stopped operator procedure and
 preserves their exact evidence.
 
@@ -2488,6 +2497,9 @@ approval, execution, reconciliation, and receipts.
 - `execution_contract.agent_target` privately captures an addressed worker's
   original ref and normalized identity before the gate/action insert. execution
   and observation use that capture; a new lookup grants no replacement target.
+- in v14, a start or assignment captures its enrolled machine handle in the
+  same immutable execution contract. the original tool arguments keep the
+  owner's label or prior job id. a replay uses the stored capture.
 - Within that contract, `policy_revision` covers the deterministic authority
   policy and the AutomaticWriteGate definition fingerprint, including its
   prompt, model configuration, and output contract.

@@ -150,7 +150,8 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0105](0105-native-android.md) | native android and discord retirement | implementation authorized. installed acceptance remains open. |
 | [0108](0108-codex-quota-standby.md) | ordered codex standby accounts | source and isolated qualification complete. installed acceptance remains open. |
 | [0109](0109-existing-codex-credits.md) | use existing paid codex credits | accepted. amends the billing and selection rules in 0108. |
-| [0113](0113-desktop-worker.md) | desktop worker on the managed skid fleet | source candidate |
+| [0113](0113-desktop-worker.md) | desktop worker on the managed skid fleet | v13 predecessor. 0114 supersedes the fixed roster at the v14 cut |
+| [0114](0114-skid-worker-placement.md) | skid worker placement | accepted target. skid owns enrollment and jarvis binds the machine id when admitting a write |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 

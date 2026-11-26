@@ -50,10 +50,10 @@ from jarvis.agent_tools import (
     AGENT_WRITE_IDS,
     AgentActionEvidence,
     AgentCloseReceipt,
-    AgentDelegateInput,
     AgentDelegateReceipt,
     AgentError,
     AgentMachineId,
+    AgentPlacement,
     AgentStartInput,
     AgentTargetInput,
     AgentWriteResult,
@@ -131,6 +131,7 @@ ACTION_MAX_ATTEMPTS = 2
 _MAX_CONTRACT_TEXT = 256
 _MAX_RESOLUTION_TEXT_BYTES = 262_144
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_LEGACY_DELEGATION_REVISIONS = ("jarvis-agent-control-v12", "jarvis-agent-control-v13")
 _RETIRED_AGENT_REVISIONS = (
     "jarvis-agent-control-v1",
     "jarvis-agent-control-v2",
@@ -143,7 +144,7 @@ _RETIRED_AGENT_REVISIONS = (
     "jarvis-agent-control-v9",
     "jarvis-agent-control-v10",
     "jarvis-agent-control-v11",
-    "jarvis-agent-control-v12",
+    *_LEGACY_DELEGATION_REVISIONS,
 )
 _RETIRED_CODEX_REVISIONS = ("jarvis-codex-control-v1", "jarvis-codex-control-v2")
 
@@ -232,6 +233,7 @@ class ExecutionContract(_ExecutionEnvelope):
 
     schema_version: Literal["jarvis.action.v2"]
     agent_target: AgentWriteTarget | None = None
+    agent_placement: AgentPlacement | None = None
     workspace: FrozenWorkspaceWrite | None = None
     workspace_grant_id: UUID | None = None
     workspace_prepare_attempts: Annotated[int, Field(ge=0)] = 0
@@ -245,6 +247,8 @@ class ExecutionContract(_ExecutionEnvelope):
 
     def as_json(self) -> dict[str, object]:
         value = cast(dict[str, object], self.model_dump(mode="json"))
+        if self.agent_placement is None:
+            del value["agent_placement"]
         if self.workspace is None:
             del value["workspace"]
             del value["workspace_prepare_attempts"]
@@ -308,6 +312,13 @@ class StoredAction:
     @property
     def agent_target(self) -> AgentWriteTarget | None:
         return self.current_execution_contract.agent_target
+
+    @property
+    def agent_placement(self) -> AgentPlacement:
+        placement = self.current_execution_contract.agent_placement
+        if placement is None:
+            raise ActionPersistenceDefect("worker action lacks its captured machine")
+        return placement
 
     @property
     def recovered_external_attempts(self) -> int:
@@ -912,46 +923,20 @@ class ActionStore:
                 f"retired unfinished worker action blocks activation: {unfinished}"
             )
 
-    async def register_delegation(
-        self,
-        job_id: UUID,
-        request: AgentDelegateInput,
-        *,
-        source_conversation_id: str,
-    ) -> AgentDelegateReceipt | None:
+    async def register_delegation(self, job_id: UUID) -> AgentDelegateReceipt:
         async with self.engine.begin() as connection:
             stored = await require_locked_action(connection, job_id)
             if stored.tool_name != AGENT_DELEGATE_ID or stored.status != "executing":
                 raise ActionPersistenceDefect(
                     "delegation requires entered registration"
                 )
-            machine = request.machine
-            machine_id = None
-            if request.after is not None:
-                prior = await recorded_action(
-                    connection,
-                    request.after,
-                    source_conversation_id=source_conversation_id,
-                )
-                if (
-                    prior is None
-                    or prior.tool_name != AGENT_DELEGATE_ID
-                    or prior.result is None
-                    or "registration_receipt" not in prior.result
-                ):
-                    return None
-                previous = delegation_state(prior)
-                machine, machine_id = previous.machine, previous.machine_id
-                if machine_id is None:
-                    return None
-            assert machine is not None
             receipt = AgentDelegateReceipt(job_id=job_id)
             await _update_action(
                 connection,
                 job_id,
                 status="queued",
                 result=DelegationState(
-                    registration_receipt=receipt, machine=machine, machine_id=machine_id
+                    registration_receipt=receipt, machine=stored.agent_placement.machine
                 ).model_dump(mode="json"),
             )
             return receipt
@@ -978,7 +963,7 @@ class ActionStore:
         return tuple(map(_stored_action, rows))
 
     async def enter_delegation_submission(
-        self, job_id: UUID, *, machine_id: AgentMachineId, source_conversation_id: str
+        self, job_id: UUID, *, source_conversation_id: str
     ) -> DelegationState | None:
         async with self.engine.begin() as connection:
             await lock_conversation(connection, source_conversation_id)
@@ -989,18 +974,12 @@ class ActionStore:
                 return None
             stored = await require_locked_action(connection, job_id)
             state = delegation_state(stored)
-            if (
-                state.outcome is not None
-                or state.submission == "confirmed"
-                or state.machine_id not in (None, machine_id)
-            ):
+            if state.outcome is not None or state.submission == "confirmed":
                 raise ActionPersistenceDefect(
                     "delegation cannot enter submission on this machine"
                 )
             if state.submission == "unentered":
-                state = state.model_copy(
-                    update={"submission": "entered", "machine_id": machine_id}
-                )
+                state = state.model_copy(update={"submission": "entered"})
                 await _update_action(
                     connection, job_id, result=state.model_dump(mode="json")
                 )
@@ -2552,6 +2531,10 @@ def _validate_stored_action(stored: StoredAction) -> None:
             raise ValueError("workspace action identity changed")
         if stored.status == "succeeded":
             _verify_workspace_receipt(stored, _stored_tool_result(stored)["value"])
+    if (stored.tool_name in ("agent.start", AGENT_DELEGATE_ID)) != (
+        stored.current_execution_contract.agent_placement is not None
+    ):
+        raise ValueError("worker placement capture differs from its operation")
     if str(stored.tool_name).startswith("agent."):
         if (
             stored.tool_name not in AGENT_WRITE_IDS
@@ -2568,6 +2551,10 @@ def _validate_stored_action(stored: StoredAction) -> None:
         AGENT_INPUT_TYPES[str(stored.tool_name).removeprefix("agent.")].model_validate(
             stored.payload
         )
+        if stored.payload.get("machine") is not None and (
+            stored.agent_placement.machine != stored.payload["machine"]
+        ):
+            raise ValueError("worker placement label differs from its request")
         addressed = stored.payload.get("target")
         captured = stored.agent_target
         if addressed is not None:
@@ -2633,7 +2620,8 @@ def _stored_tool_result(stored: StoredAction) -> ToolResult:
         return _tool_result(stored.result)
     if set(stored.result) != {"tool_result", "control"}:
         raise ActionPersistenceDefect("invalid private worker receipt")
-    _agent_evidence(stored, stored.result["control"])
+    if not legacy_managed_worker(stored):
+        _agent_evidence(stored, stored.result["control"])
     value = stored.result["tool_result"]
     if not isinstance(value, dict):
         raise ActionPersistenceDefect("invalid private worker receipt")
@@ -2664,6 +2652,10 @@ async def recorded_action_result(
     if stored is None:
         return None
     if isinstance(stored.execution_contract, _ArchivedExecutionContract):
+        if is_registered_delegation(stored):
+            return _registration_result(stored)
+        if legacy_managed_worker(stored) and stored.status in {"succeeded", "failed"}:
+            return _stored_tool_result(stored)
         if (
             stored.tool_name in _RETIRED_WORKSPACE_REVISIONS
             and stored.status in {"succeeded", "failed"}
@@ -2675,21 +2667,19 @@ async def recorded_action_result(
     return action_replay_result(stored)
 
 
+def _registration_result(stored: StoredAction) -> ToolResult:
+    return {
+        "type": "Success",
+        "value": delegation_state(stored).registration_receipt.model_dump(mode="json"),
+    }
+
+
 def action_replay_result(stored: StoredAction) -> ToolResult | None:
     """Return the immutable callback result, independently of later host outcomes."""
     if isinstance(stored.execution_contract, _ArchivedExecutionContract):
         raise ActionPersistenceDefect("archived actions cannot replay")
-    if (
-        stored.tool_name == AGENT_DELEGATE_ID
-        and stored.result is not None
-        and "registration_receipt" in stored.result
-    ):
-        return {
-            "type": "Success",
-            "value": delegation_state(stored).registration_receipt.model_dump(
-                mode="json"
-            ),
-        }
+    if is_registered_delegation(stored):
+        return _registration_result(stored)
     if stored.status == "uncertain" and stored.tool_name in WRITE_TOOL_IDS:
         return {
             "type": "Failure",
@@ -2783,7 +2773,12 @@ def _agent_receipt_resolution(
         if stored.result is None
         else validate_stored_agent_evidence(operation, stored.result).observed
     )
-    result = classify_agent_receipt(operation, value, observed)
+    result = classify_agent_receipt(
+        operation,
+        value,
+        observed,
+        machine_id=stored.agent_placement.machine_id if operation == "start" else None,
+    )
     if result is None:
         return "uncertain", agent_uncertainty_result(stored)
     failed = isinstance(result, AgentError)
@@ -2957,8 +2952,53 @@ def registered_delegation() -> ColumnElement[bool]:
     )
 
 
+class _LegacyDelegationState(DelegationState):
+    machine_id: AgentMachineId | None
+
+
+def legacy_managed_worker(stored: StoredAction) -> bool:
+    return (
+        stored.execution_contract.implementation_revision
+        in _LEGACY_DELEGATION_REVISIONS
+    )
+
+
+def is_registered_delegation(stored: StoredAction) -> bool:
+    return (
+        stored.tool_name == AGENT_DELEGATE_ID
+        and (
+            legacy_managed_worker(stored)
+            or stored.execution_contract.implementation_revision
+            == AGENT_IMPLEMENTATION_REVISION
+        )
+        and stored.result is not None
+        and "registration_receipt" in stored.result
+    )
+
+
+def followup_placement(prior: StoredAction) -> AgentPlacement | None:
+    if not is_registered_delegation(prior):
+        return None
+    state = delegation_state(prior)
+    if isinstance(state, _LegacyDelegationState):
+        if state.machine_id is None:
+            return None
+        return AgentPlacement(machine=state.machine, machine_id=state.machine_id)
+    return prior.agent_placement
+
+
 def delegation_state(stored: StoredAction) -> DelegationState:
-    state = DelegationState.model_validate(stored.result)
+    if legacy_managed_worker(stored):
+        state = _LegacyDelegationState.model_validate(stored.result)
+    elif (
+        stored.execution_contract.implementation_revision
+        == AGENT_IMPLEMENTATION_REVISION
+    ):
+        state = DelegationState.model_validate(stored.result)
+        if state.machine != stored.agent_placement.machine:
+            raise ActionPersistenceDefect("delegation label differs from its placement")
+    else:
+        raise ActionPersistenceDefect("unknown registered delegation revision")
     if (
         stored.tool_name != AGENT_DELEGATE_ID
         or state.registration_receipt.job_id != stored.id
@@ -2972,7 +3012,11 @@ def delegation_state(stored: StoredAction) -> DelegationState:
         or (state.outcome is None and state.ack_pending)
         or (state.outcome is not None and state.submission == "unentered")
         or (state.terminal is not None and state.submission == "unentered")
-        or (state.submission != "unentered" and state.machine_id is None)
+        or (
+            isinstance(state, _LegacyDelegationState)
+            and state.submission != "unentered"
+            and state.machine_id is None
+        )
     ):
         raise ActionPersistenceDefect("delegation lifecycle disagrees with its state")
     return state
@@ -3006,13 +3050,13 @@ def action_resolution_text(stored: StoredAction) -> str:
             ensure_ascii=False,
             separators=(",", ":"),
         )
-    context["result"] = _safe_resolution_result(stored)
+    context["result"] = public_resolution_result(stored)
     return json.dumps(
         context, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     )
 
 
-def _safe_resolution_result(stored: StoredAction) -> dict[str, object]:
+def public_resolution_result(stored: StoredAction) -> dict[str, object]:
     if stored.result is None:
         raise RuntimeError("resolved action has no durable result")
     if stored.status == "uncertain" and str(stored.tool_name) in GMAIL_WRITE_NAMES:

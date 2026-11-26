@@ -71,7 +71,7 @@ systemctl daemon-reload
 systemctl start "$unit"
 [[ "$(stat -c '%u:%g:%a:%d:%i' "$source_state")" == "$source_metadata" ]]
 [[ "$(stat -c '%d:%i' "$state")" == "$(stat -c '%d:%i' "$source_state")" ]]
-verify_agent_client "$candidate" "$state"
+verify_agent_client "$candidate" "$state" "$release/.venv/bin/python"
 sync -f "$candidate"
 mv -fT -- "$candidate" "$cli"
 sync -f "$(dirname "$cli")"

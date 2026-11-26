@@ -34,7 +34,9 @@ from jarvis.agent_tools import (
     AgentLabel,
     AgentListInput,
     AgentListResult,
+    AgentMachineId,
     AgentPeerResult,
+    AgentPlacement,
     AgentReadInput,
     AgentReadResult,
     AgentSendInput,
@@ -48,6 +50,7 @@ from jarvis.agent_tools import (
     AgentWriteTarget,
     ObservedSession,
     WireFailure,
+    WireFleetStatus,
     WireInventory,
     WireReadResult,
     WireStartResult,
@@ -71,6 +74,8 @@ def classify_agent_receipt(
     | AgentWriteResult
     | AgentCloseReceipt
     | None,
+    *,
+    machine_id: AgentMachineId | None = None,
 ) -> AgentStartResult | AgentControlResult | AgentCloseResult | AgentError | None:
     """Project owned evidence; None is unresolved, invalid owned data is a defect."""
     if operation == "start":
@@ -96,8 +101,8 @@ def classify_agent_receipt(
     if isinstance(observed, WireStartResult):
         if operation != "start" or not isinstance(value, AgentStartInput):
             raise ValueError("foreign launch receipt")
-        if observed.label != value.machine:
-            raise ValueError("launch receipt differs from request")
+        if observed.machine != machine_id:
+            raise ValueError("launch receipt differs from captured machine")
         projected = AgentStartResult(
             machine=observed.label,
             target=None
@@ -173,6 +178,20 @@ def _closed_json(raw: bytes) -> object:
     return json.loads(
         raw, object_pairs_hook=object_pairs, parse_constant=invalid_constant
     )
+
+
+def decode_agent_reply[T: BaseModel](raw: bytes, model: type[T]) -> T | WireFailure:
+    decoded = _closed_json(raw)
+    if not isinstance(decoded, dict):
+        raise ValueError("invalid skid envelope")
+    value = cast(dict[str, object], decoded)
+    if type(value.get("ok")) is not bool:
+        raise ValueError("invalid skid envelope")
+    if value["ok"] and set(value) == {"ok", "result"}:
+        return model.model_validate(value["result"])
+    if not value["ok"] and set(value) == {"ok", "error"}:
+        return WireFailure.model_validate(value["error"])
+    raise ValueError("invalid skid envelope")
 
 
 def _session(machine: AgentLabel, value: object) -> AgentSessionResult:
@@ -265,21 +284,12 @@ class AgentController:
                         pass
                     finally:
                         process.stdin.close()
-                decoded = _closed_json(await stdout_task)
+                raw = await stdout_task
                 if fleet_status:
-                    return model.model_validate(decoded)
-                if not isinstance(decoded, dict):
-                    raise ValueError("invalid skid envelope")
-                value = cast(dict[str, object], decoded)
-                if type(value.get("ok")) is not bool:
-                    raise ValueError("invalid skid envelope")
-                if value["ok"]:
-                    if set(value) != {"ok", "result"}:
-                        raise ValueError("invalid skid success envelope")
-                    return model.model_validate(value["result"])
-                if set(value) != {"ok", "error"}:
-                    raise ValueError("invalid skid failure envelope")
-                return WireFailure.model_validate(value["error"])
+                    if await process.wait() != 0:
+                        return WireFailure(code="unavailable", dispatch="not_sent")
+                    return model.model_validate(_closed_json(raw))
+                return decode_agent_reply(raw, model)
         except (TimeoutError, ValueError, OSError) as exc:
             if write:
                 raise AgentOutcomeUnknown(
@@ -351,6 +361,26 @@ class AgentController:
             else observed.session.agent.profile,
         )
 
+    async def resolve_machine(self, machine: AgentLabel) -> AgentPlacement | AgentError:
+        roster = await self.call(["status"], WireFleetStatus, inventory=True)
+        if isinstance(roster, WireFailure):
+            return AgentError(code="roster_unavailable", dispatch="not_sent")
+        try:
+            matches = [
+                placement
+                for placement in roster.enrolled()
+                if placement.machine == machine
+            ]
+        except ValueError:
+            return AgentError(code="roster_unavailable", dispatch="not_sent")
+        if len(matches) == 1:
+            return matches[0]
+        return AgentError(
+            code="machine_ambiguous" if matches else "machine_unknown",
+            dispatch="not_sent",
+            machine=machine,
+        )
+
     async def _target(
         self, value: AgentTargetInput, context: ExecutionContext
     ) -> AgentWriteTarget:
@@ -379,9 +409,13 @@ class AgentController:
         value: AgentStartInput | AgentTargetInput,
         observed: WireFailure | WireStartResult | AgentWriteResult | AgentCloseReceipt,
         context: ExecutionContext,
+        *,
+        machine_id: AgentMachineId | None = None,
     ) -> AgentStartResult | AgentControlResult | AgentCloseResult:
         try:
-            projected = classify_agent_receipt(operation, value, observed)
+            projected = classify_agent_receipt(
+                operation, value, observed, machine_id=machine_id
+            )
         except ValueError as exc:
             raise AgentOutcomeUnknown("invalid write receipt; not replayed") from exc
         await self._stage(context, observed)
@@ -458,11 +492,15 @@ class AgentController:
     async def start(
         self, value: AgentStartInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentStartResult]:
+        stored = await self._actions.get(self._effect_id(context))
+        if stored is None or stored.agent_placement.machine != value.machine:
+            raise RuntimeError("start lacks its captured machine")
+        machine_id = stored.agent_placement.machine_id
         argv = [
             "start",
             *([] if value.name is None else [value.name]),
-            "--machine",
-            value.machine,
+            "--machine-id",
+            machine_id,
             "--profile",
             value.profile,
         ]
@@ -475,7 +513,9 @@ class AgentController:
             if item is not None:
                 argv += ["--" + flag, item]
         result = await self.call(argv, WireStartResult, write=True)
-        projected = await self._receipt("start", value, result, context)
+        projected = await self._receipt(
+            "start", value, result, context, machine_id=machine_id
+        )
         assert isinstance(projected, AgentStartResult)
         return HandlerSuccess(projected, actual_attempts=1)
 
@@ -544,14 +584,5 @@ class AgentController:
     async def delegate(
         self, value: AgentDelegateInput, context: ExecutionContext
     ) -> HandlerSuccess[AgentDelegateReceipt]:
-        receipt = await self._actions.register_delegation(
-            self._effect_id(context),
-            value,
-            source_conversation_id=self.source_conversation_id,
-        )
-        if receipt is None:
-            raise DeclaredToolFailure(
-                AgentError(code="job_not_found", dispatch="not_sent"),
-                actual_attempts=0,
-            )
+        receipt = await self._actions.register_delegation(self._effect_id(context))
         return HandlerSuccess(receipt, actual_attempts=0)

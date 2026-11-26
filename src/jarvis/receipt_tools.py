@@ -37,11 +37,14 @@ from jarvis.action_requests import CanonicalUuid
 from jarvis.actions import (
     archived_worker_action,
     delegation_state,
+    is_registered_delegation,
+    legacy_managed_worker,
+    public_resolution_result,
     recorded_action,
     recorded_action_result,
 )
 from jarvis.admission import JarvisOwner
-from jarvis.agent_tools import AGENT_DELEGATE_ID, AGENT_IMPLEMENTATION_REVISION
+from jarvis.agent_tools import AGENT_DELEGATE_ID
 from jarvis.connectors import gmail_headers
 from jarvis.db import native_attempt, native_invocation, read_position
 from jarvis.delegation import delegation_evidence
@@ -190,19 +193,18 @@ async def _result(
     reply: dict[str, Any] = row["reply"] or {}
     if row["action_id"] is not None and row["tool_id"].startswith(("agent.", "codex.")):
         stored = await recorded_action(connection, row["action_id"])
-        if (
-            stored is not None
-            and stored.tool_name == AGENT_DELEGATE_ID
-            and stored.execution_contract.implementation_revision
-            in ("jarvis-agent-control-v12", AGENT_IMPLEMENTATION_REVISION)
-            and stored.result is not None
-            and "registration_receipt" in stored.result
-        ):
+        if stored is not None and is_registered_delegation(stored):
             return {
                 "type": "Success",
                 "value": delegation_evidence(delegation_state(stored)),
             }
         if stored is not None and archived_worker_action(stored):
+            if (
+                legacy_managed_worker(stored)
+                and stored.result is not None
+                and ("control" in stored.result or "tool_result" in stored.result)
+            ):
+                return public_resolution_result(stored)
             return stored.result
     if reply.get("type") == "local_result":
         return reply["result"]
@@ -504,7 +506,7 @@ async def _read(
                 raise DeclaredToolFailure(NotFound(), actual_attempts=0)
             outcome = (
                 delegation_state(stored).outcome
-                if stored.result is not None and "registration_receipt" in stored.result
+                if is_registered_delegation(stored)
                 else None
             )
             return _chunk(

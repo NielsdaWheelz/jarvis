@@ -20,6 +20,7 @@ from llm_tools import (
     ToolSpec,
 )
 from pydantic import (
+    AfterValidator,
     AwareDatetime,
     BaseModel,
     ConfigDict,
@@ -81,11 +82,21 @@ type AgentKey = Literal[
 ]
 type AgentProfile = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")]
 type AgentReference = Annotated[str, Field(min_length=1, max_length=4096)]
-type AgentLabel = Literal["macbook", "dev-server", "arch", "desktop"]
+
+
+def _machine_name(value: str) -> str:
+    # Skid's machine.ValidName accepts UTF-8 with interior spaces and no controls.
+    value.encode("utf-8")
+    if value.strip() != value or any(unicodedata.category(c) == "Cc" for c in value):
+        raise ValueError("invalid skid machine name")
+    return value
+
+
+type AgentLabel = Annotated[str, Field(min_length=1), AfterValidator(_machine_name)]
 type AgentMachineId = Annotated[str, Field(pattern=r"^mh-[0-9a-f]{32}$")]
 type AgentHandle = Annotated[str, Field(pattern=r"^t-[0-9a-f]{16}$")]
 type AgentName = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")]
-AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v13"
+AGENT_IMPLEMENTATION_REVISION = "jarvis-agent-control-v14"
 AGENT_POLICY_EPOCH = "jarvis-agent-control-v5"
 _STORED_EVIDENCE = object()
 
@@ -431,7 +442,7 @@ class Recovery(_Wire):
 
 class Peer(_Wire):
     label: AgentLabel
-    machine: str
+    machine: AgentMachineId
     ok: bool = Field(strict=True)
     observedAt: str | None = None
     profiles: tuple[Profile, ...] | None = None
@@ -441,11 +452,9 @@ class Peer(_Wire):
 
     @model_validator(mode="after")
     def observed_or_error(self) -> Peer:
-        if self.ok != (self.error is None) or self.ok != (
-            self.profiles is not None
-            and self.sessions is not None
-            and self.observedAt is not None
-            and self.recovery is not None
+        fields = (self.profiles, self.sessions, self.observedAt, self.recovery)
+        if (self.error is None) != self.ok or any(
+            (field is not None) != self.ok for field in fields
         ):
             raise ValueError("peer inventory is inconsistent")
         return self
@@ -459,19 +468,23 @@ class WireInventory(_Wire):
     def partial_matches(self) -> WireInventory:
         if self.partial != any(not item.ok for item in self.peers):
             raise ValueError("inventory partial flag is inconsistent")
+        if len({peer.label for peer in self.peers}) != len(self.peers) or len(
+            {peer.machine for peer in self.peers}
+        ) != len(self.peers):
+            raise ValueError("inventory repeats a machine identity")
         return self
 
 
 class ObservedSession(_Wire):
     label: AgentLabel
-    machine: str
+    machine: AgentMachineId
     observedAt: str
     session: AgentTerminal
 
 
 class WireStartResult(_Wire):
     label: AgentLabel
-    machine: str
+    machine: AgentMachineId
     creation: Literal["not_sent", "created", "unknown"]
     prompt: Literal["not_requested"]
     target: AgentReference | None = None
@@ -531,6 +544,11 @@ class AgentWriteTarget(_Closed):
     ref: AgentReference
     name: str | None = None
     profile: str | None = None
+
+
+class AgentPlacement(_Closed):
+    machine: AgentLabel
+    machine_id: AgentMachineId
 
 
 class AgentSessionResult(_Closed):
@@ -594,6 +612,7 @@ class AgentError(_Closed):
     type: Literal["AgentFailure"] = "AgentFailure"
     code: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
     dispatch: Literal["not_sent", "sent", "unknown"]
+    machine: AgentLabel | None = None
     target: AgentTarget | None = None
     launch: AgentStartResult | None = None
     close: AgentCloseResult | None = None
@@ -618,27 +637,45 @@ JOB_RESULT_SECONDS = 35.0
 
 
 class _FleetApplication(BaseModel):
-    deviceId: str
-    name: str
+    deviceId: str = Field(min_length=1)
+    name: AgentLabel
 
 
 class _FleetMember(BaseModel):
-    deviceId: str
+    deviceId: str = Field(min_length=1)
+    kind: Literal["computer", "phone"]
     machine: AgentMachineId | None = None
+
+    @model_validator(mode="after")
+    def enrolled_kind(self) -> _FleetMember:
+        if (self.kind == "computer") != (self.machine is not None):
+            raise ValueError("fleet member kind and machine differ")
+        return self
 
 
 class WireFleetStatus(BaseModel):
+    # Status has other fields for display and applied configuration.
     applications: tuple[_FleetApplication, ...]
     members: tuple[_FleetMember, ...]
 
-    def machine_id(self, label: AgentLabel) -> AgentMachineId | None:
-        selected = [app.deviceId for app in self.applications if app.name == label]
-        if len(selected) != 1:
-            return None
-        matches = [
-            member.machine for member in self.members if member.deviceId == selected[0]
-        ]
-        return matches[0] if len(matches) == 1 else None
+    def enrolled(self) -> tuple[AgentPlacement, ...]:
+        computers = {
+            member.deviceId: member.machine
+            for member in self.members
+            if member.machine is not None
+        }
+        devices = {app.deviceId for app in self.applications}
+        if (
+            len({member.deviceId for member in self.members}) != len(self.members)
+            or len(set(computers.values())) != len(computers)
+            or len(devices) != len(self.applications)
+            or devices != computers.keys()
+        ):
+            raise ValueError("invalid fleet membership join")
+        return tuple(
+            AgentPlacement(machine=app.name, machine_id=computers[app.deviceId])
+            for app in self.applications
+        )
 
 
 class _WireJob(_Wire):
@@ -685,7 +722,6 @@ class JobOutcome(_Closed):
 class DelegationState(_Closed):
     registration_receipt: AgentDelegateReceipt
     machine: AgentLabel
-    machine_id: AgentMachineId | None = None
     submission: Literal["unentered", "entered", "confirmed"] = "unentered"
     terminal: JobTerminal | None = None
     outcome: JobOutcome | None = None
@@ -766,7 +802,8 @@ def agent_tool_limits(verb: str) -> ToolLimits:
 
 def agent_family(controller: AgentController) -> ToolFamily:
     common = (
-        "use the short {machine,handle} returned by discovery/start. t- selects a "
+        "use exact machine names from agent.list and the short {machine,handle} "
+        "returned by discovery/start. t- selects a "
         "terminal. "
         "the host captures exact targets before terminal writes. "
         "delegate assignments for automatic replies. use terminal controls for "
@@ -832,7 +869,8 @@ def agent_family(controller: AgentController) -> ToolFamily:
             "delegate",
             "assign a concrete outcome with the relevant scope and evidence in "
             "the brief. use machine, profile and cwd for a new worker, or after "
-            "for a follow-up in the same conversation. accepted means recorded. "
+            "for a follow-up to a job in this request's causal component. "
+            "accepted means the job and its destination are recorded. "
             "the exact answer arrives automatically; a busy worker refuses. "
             "open this invocation's result in receipt.read to locate its terminal.",
             controller.delegate,

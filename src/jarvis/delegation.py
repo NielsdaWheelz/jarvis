@@ -18,10 +18,10 @@ from jarvis.agent_tools import (
     JOB_PAGE_BYTES,
     JOB_RESULT_SECONDS,
     AgentDelegateInput,
+    AgentMachineId,
     DelegationState,
     JobOutcome,
     WireFailure,
-    WireFleetStatus,
     WireJobAck,
     WireJobPage,
     WireJobSubmission,
@@ -148,25 +148,11 @@ class Delegations:
         from jarvis.agent_control import AgentOutcomeUnknown
 
         state = delegation_state(stored)
+        machine_id = stored.agent_placement.machine_id
         if state.outcome is not None:
-            await self._ack(stored.id, state, cancellation)
+            await self._ack(stored.id, machine_id, cancellation)
             return
         request = AgentDelegateInput.model_validate(stored.payload)
-        delay = 1.0
-        machine_id = state.machine_id
-        while machine_id is None and not cancellation.cancelled:
-            roster = await _until_stopped(
-                self._skid.call(["status"], WireFleetStatus, inventory=True),
-                cancellation,
-            )
-            if isinstance(roster, WireFleetStatus):
-                machine_id = roster.machine_id(state.machine)
-                if machine_id is not None:
-                    break
-            await _until_stopped(asyncio.sleep(delay), cancellation)
-            delay = min(delay * 2, 30.0)
-        if machine_id is None:
-            return
         address = [str(stored.id), "--machine", machine_id]
         submit = state.submission == "unentered"
         delay = 1.0
@@ -174,7 +160,6 @@ class Delegations:
             if submit:
                 admitted = await self._actions.enter_delegation_submission(
                     stored.id,
-                    machine_id=machine_id,
                     source_conversation_id=self._scope,
                 )
                 if admitted is None or cancellation.cancelled:
@@ -270,7 +255,7 @@ class Delegations:
                         source_conversation_id=self._scope,
                     )
                     on_event()
-                    await self._ack(stored.id, state, cancellation)
+                    await self._ack(stored.id, machine_id, cancellation)
                     return
             await _until_stopped(asyncio.sleep(delay), cancellation)
             delay = min(delay * 2, 30.0)
@@ -316,14 +301,13 @@ class Delegations:
         return JobOutcome(state=first.state, reason=first.reason, answer=answer or None)
 
     async def _ack(
-        self, job_id: UUID, state: DelegationState, cancellation: CancellationToken
+        self, job_id: UUID, machine_id: AgentMachineId, cancellation: CancellationToken
     ) -> None:
         delay = 1.0
-        assert state.machine_id is not None
         while not cancellation.cancelled:
             result = await _until_stopped(
                 self._skid.call(
-                    ["job", "ack", str(job_id), "--machine", state.machine_id],
+                    ["job", "ack", str(job_id), "--machine", machine_id],
                     WireJobAck,
                 ),
                 cancellation,

@@ -52,6 +52,7 @@ from jarvis.actions import (
     ExecutionContract,
     StoredAction,
     action_replay_result,
+    followup_placement,
     retired_worker_action,
     workspace_owner_live,
 )
@@ -60,6 +61,9 @@ from jarvis.agent_control import AgentController
 from jarvis.agent_tools import (
     AGENT_DELEGATE_ID,
     AGENT_WRITE_IDS,
+    AgentDelegateInput,
+    AgentError,
+    AgentStartInput,
     AgentTargetInput,
 )
 from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
@@ -324,12 +328,31 @@ class WriteToolDispatcher:
         arguments = request.model_dump(mode="json")
         if contains_secret(arguments, self._host_secrets):
             return completed_tool_result(dict(_INVALID_INPUT))
-        target = None
-        if tool_id in AGENT_WRITE_IDS and isinstance(payload, AgentTargetInput):
-            target = await self._agents.locate(tool_id, payload)
         authority = classify_write(tool_id, payload)
         if authority == "rejected":
             return completed_tool_result(dict(_UNAVAILABLE))
+        target = None
+        placement = None
+        if tool_id in AGENT_WRITE_IDS and isinstance(payload, AgentTargetInput):
+            target = await self._agents.locate(tool_id, payload)
+        elif isinstance(payload, AgentDelegateInput | AgentStartInput):
+            if isinstance(payload, AgentDelegateInput) and payload.after is not None:
+                prior = next(
+                    (item for item in previous if item.id == payload.after), None
+                )
+                placement = None if prior is None else followup_placement(prior)
+                if placement is None:
+                    placement = AgentError(code="job_not_found", dispatch="not_sent")
+            else:
+                assert payload.machine is not None
+                placement = await self._agents.resolve_machine(payload.machine)
+            if isinstance(placement, AgentError):
+                return completed_tool_result(
+                    {
+                        "type": "Failure",
+                        "error": placement.model_dump(mode="json", exclude_none=True),
+                    }
+                )
 
         async def check_admitted(connection: AsyncConnection) -> None:
             if authorize is not None:
@@ -418,6 +441,7 @@ class WriteToolDispatcher:
             model_step_ordinal=lineage.ordinal,
             input_message_ids=tuple(map(str, lineage.input_ids)),
             agent_target=target,
+            agent_placement=placement,
             workspace=frozen,
             workspace_prepare_attempts=prepare_attempts,
             workspace_prepare_seconds=prepare_seconds,

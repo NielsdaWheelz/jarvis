@@ -80,6 +80,7 @@ from jarvis.actions import (
     standing_workspace_input,
 )
 from jarvis.admission import JarvisOwner
+from jarvis.agent_tools import AGENT_DELEGATE_ID
 from jarvis.approval_tools import (
     APPROVAL_RESPOND_SPEC,
     ApprovalRespondInput,
@@ -949,11 +950,17 @@ class PostgresNativeJournal:
             }:
                 value.update(type="local_result", result=result.result, host_ref=None)
             elif (
-                row["tool_id"] in WRITE_TOOL_IDS
-                and result.host_ref is None
+                result.host_ref is None
                 and result.result["type"] == "Failure"
+                and (
+                    row["tool_id"] in WRITE_TOOL_IDS
+                    or (
+                        row["tool_id"] in {"agent.start", AGENT_DELEGATE_ID}
+                        and result.result["error"].get("type") == "AgentFailure"
+                    )
+                )
             ):
-                # Preparation can refuse before an action exists.
+                # Preparation and placement can refuse before an action exists.
                 value.update(type="local_result", result=result.result, host_ref=None)
             elif result.host_ref is not None:
                 reference = str(result.host_ref)

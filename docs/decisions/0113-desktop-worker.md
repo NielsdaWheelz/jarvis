@@ -1,5 +1,8 @@
 # adr 0113 · desktop worker
 
+[adr 0114](0114-skid-worker-placement.md) supersedes this fixed roster at
+the v14 cut and extends its settlement and receipt rules to v13 actions.
+
 the owner uses the refurbished tower for games and development. the installed
 skid fleet has three computers. adding the tower publishes a fourth label to
 each member. jarvis decodes that label even during an unfiltered inventory read.

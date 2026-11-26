@@ -9,7 +9,7 @@ cat <<'REMOTE'
 set -euo pipefail
 [[ "$(systemctl show --property=ProtectHome --value jarvis.service)" == yes ]]
 [[ "$(systemctl show --property=NoNewPrivileges --value jarvis.service)" == yes ]]
-verify_agent_client /usr/local/libexec/skidbladnir /run/jarvis-skid-state
+verify_agent_client /usr/local/libexec/skidbladnir /run/jarvis-skid-state /opt/jarvis/current/.venv/bin/python
 printf 'jarvis agent client boundary passed; cognition health is checked separately.\n'
 REMOTE
 } | ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n bash -s

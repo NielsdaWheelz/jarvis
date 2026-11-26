@@ -590,7 +590,7 @@ class WriteToolDispatcher:
                 )
             ):
                 raise WorkspaceError("owner_required")
-            if grant_id is not None:
+            if tool in WRITE_TOOL_IDS:
                 current = self._workspace_grant()
                 if current is None or (current.grant_id, current.account) != (
                     grant_id,

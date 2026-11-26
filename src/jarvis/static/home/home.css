@@ -55,7 +55,8 @@ a {
   overflow-wrap: anywhere;
 }
 :focus-visible,
-.attach:focus-within {
+.attach:focus-within,
+#location:has(> a:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -169,7 +170,7 @@ nav {
   padding: 0.65rem 1rem;
 }
 #chat-tab,
-nav a {
+nav .todos-control {
   border: 0;
   color: var(--muted);
 }

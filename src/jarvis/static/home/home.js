@@ -33,6 +33,7 @@ function label(ref) {
 }
 const mobile = matchMedia("(max-width:720px)");
 const draftKey = "jarvis.home.draft";
+const todosCanvas = "todos";
 let reloadReading = null;
 const newDraft = () => ({ id: null, text: "", ref: null, files: [], uncertain: false });
 let draft = JSON.parse(sessionStorage.getItem(draftKey) || "null") || newDraft();
@@ -63,6 +64,7 @@ const time = (at, zone) =>
     timeZoneName: zone ? "short" : undefined,
   });
 const save = () => sessionStorage.setItem(draftKey, JSON.stringify(draft));
+const isDetail = (path) => /^\/[mt]\//.test(path);
 
 function changeState(values, path = location.href) {
   history.replaceState({ ...history.state, ...values }, "", path);
@@ -88,11 +90,15 @@ function openSidebar() {
 }
 function closeSidebar() {
   armed = null;
-  if (history.state?.fromCanvas) history.back();
-  else {
-    changeState({ panel: false, chat: false }, history.state?.canvas || "/");
-    startRoute();
+  if (history.state.fromCanvas) {
+    history.back();
+    return;
   }
+  changeState(
+    { panel: false, chat: false, canvasAddress: null, reading: null, resultCursors: [] },
+    history.state.canvasAddress || location.href,
+  );
+  startRoute();
 }
 $("sidebar-open").onclick = () => {
   openSidebar();
@@ -654,18 +660,36 @@ function rememberReading() {
     changeState({ reading: { id: selectedMessage, offset: selectedMessageOffset() } });
 }
 $("chat").addEventListener("scrollend", rememberReading);
-function navigate(path, origin) {
+function navigate(path, { origin, canvasSelection = path } = {}) {
+  armed = null;
+  if (
+    canvasSelection === todosCanvas &&
+    location.pathname === "/" &&
+    history.state.canvasSelection === todosCanvas &&
+    !history.state.panel
+  )
+    return;
   rememberOverview(origin);
   rememberReading();
-  armed = null;
-  const detail = /^\/[mt]\//.test(path);
-  const fromCanvas = !history.state?.panel && !/^\/[mt]\//.test(location.pathname);
-  const state = detail
-    ? { ...history.state, panel: true, chat: false, fromCanvas, reading: null, resultCursors: [] }
-    : {};
+  const fromDetail = isDetail(location.pathname);
+  const state = isDetail(path)
+    ? {
+        ...history.state,
+        panel: true,
+        chat: false,
+        fromCanvas: !history.state.panel && !fromDetail,
+        canvasAddress: fromDetail
+          ? history.state.canvasAddress
+          : location.pathname + location.search,
+        reading: null,
+        resultCursors: [],
+      }
+    : { canvasSelection };
   history.pushState(state, "", path);
   startRoute();
 }
+for (const control of document.querySelectorAll(".todos-control"))
+  control.onclick = () => navigate("/", { canvasSelection: todosCanvas });
 document.addEventListener("click", (e) => {
   const a = e.target.closest("a");
   if (
@@ -681,7 +705,7 @@ document.addEventListener("click", (e) => {
     return;
   if (a.origin === location.origin && /^\/(?:$|overview$|[mftv]\/)/.test(a.pathname)) {
     e.preventDefault();
-    navigate(a.pathname + a.search, a);
+    navigate(a.pathname + a.search, { origin: a });
   }
 });
 window.onpopstate = () => {
@@ -702,9 +726,14 @@ function startRoute() {
   showConnection();
   reloadReading = history.state?.reading;
   const path = location.pathname + location.search;
-  const detail = /^\/[mt]\//.test(path);
-  if (detail && history.state?.panel === undefined) changeState({ panel: true });
-  changeState({ canvas: detail ? history.state?.canvas || "/" : path });
+  const detail = isDetail(path);
+  if (location.pathname === "/overview") {
+    changeState({ canvasSelection: todosCanvas }, "/");
+  } else if (!history.state?.canvasSelection) {
+    changeState(
+      detail ? { canvasSelection: "/", canvasAddress: "/", panel: true } : { canvasSelection: path },
+    );
+  }
   $("draft-choice").hidden = true;
   selectedMessage = null;
   document.querySelector(".selected")?.classList.remove("selected");
@@ -721,16 +750,16 @@ function startRoute() {
 
 async function canvasRead(ver) {
   const same = () => ver === routeVersion;
-  let path = history.state.canvas;
+  let path = history.state.canvasSelection;
   let ref;
   if (path === "/") {
     const home = await read("/api/home");
     if (!same()) return;
     ref = home.view;
-    path = ref ? objectPath(ref) : "/overview";
-    changeState({ canvas: path }, location.pathname === "/" ? path : location.href);
+    path = ref ? objectPath(ref) : todosCanvas;
+    changeState({ canvasSelection: path });
   }
-  const overview = path === "/overview";
+  const overview = path === todosCanvas;
   $("overview").hidden = !overview;
   $("object").hidden = overview;
   if (overview) {
@@ -763,11 +792,14 @@ async function canvasRead(ver) {
       $("object-tools").hidden = true;
       return;
     }
-    if (!more)
-      changeState(
-        { canvas: objectPath(ref) },
-        location.pathname === url.pathname ? objectPath(ref) : location.href,
-      );
+    if (!more) {
+      const pinned = objectPath(ref);
+      if (isDetail(location.pathname)) {
+        changeState({ canvasSelection: pinned, canvasAddress: pinned });
+      } else {
+        changeState({ canvasSelection: pinned }, pinned);
+      }
+    }
   } else {
     const n = Number(url.searchParams.get("page"));
     ref = { kind: "file", id: key, ...(Number.isSafeInteger(n) && n > 0 ? { page: n } : {}) };
@@ -796,16 +828,24 @@ async function canvasRead(ver) {
     name = encoded ? decodeURIComponent(encoded[1]) : /filename="([^"]+)"/i.exec(disposition)?.[1];
     if (!disposition.startsWith("inline")) type = null;
   }
-  const identity = objectPath(ref) + (fileState || "");
+  const canonical = objectPath(ref);
+  const title = name || label(ref);
+  const locationLabel = $("location");
+  if (ref.kind === "view" && location.pathname === "/") {
+    if (locationLabel.firstElementChild?.getAttribute("href") !== canonical)
+      locationLabel.replaceChildren(link(title, canonical));
+  } else if (locationLabel.firstElementChild || locationLabel.textContent !== title) {
+    locationLabel.textContent = title;
+  }
+  const identity = canonical + (fileState || "");
   if (displayed === identity) return;
   current = ref;
   displayed = identity;
   $("object").replaceChildren();
   $("object-tools").replaceChildren();
-  $("location").textContent = name || label(ref);
   if (ref.kind === "view" || type === "application/pdf") {
     const frame = el("iframe");
-    frame.title = name || label(ref);
+    frame.title = title;
     if (ref.kind === "view") {
       frame.setAttribute("sandbox", "allow-scripts");
       frame.src = "/content/" + ref.slug + "/" + ref.rev;
@@ -875,9 +915,10 @@ function overviewPosition() {
 function rememberOverview(origin) {
   if (
     !restoreOverview &&
-    location.pathname === "/overview" &&
+    history.state?.canvasSelection === todosCanvas &&
+    !isDetail(location.pathname) &&
     !history.state?.panel &&
-    displayed === "/overview"
+    displayed === todosCanvas
   ) {
     const position = overviewPosition();
     if (origin?.matches?.("#todo-list a")) position.focus = origin.dataset.id;
@@ -973,7 +1014,7 @@ function renderOverview(page) {
   for (let i = 0; i < children.length; i++)
     if (list.children[i] !== children[i]) list.insertBefore(children[i], list.children[i] || null);
   while (list.children.length > children.length) list.lastChild.remove();
-  if (!history.state.panel && location.pathname === "/overview") {
+  if (!history.state.panel && !isDetail(location.pathname)) {
     if (position) restorePosition(position, rows);
     else if (restoreOverview) {
       $("canvas").scrollTop = 0;
@@ -1102,7 +1143,7 @@ async function poll(part, load) {
     }
   } catch (error) {
     if (ver !== routeVersion) return;
-    if (part === "canvas" && history.state.canvas === "/overview") {
+    if (part === "canvas" && history.state.canvasSelection === todosCanvas) {
       const node = $("todo-error");
       if (node.hidden || node.dataset.login !== String(Boolean(error.login))) {
         node.replaceChildren(

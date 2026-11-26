@@ -15,7 +15,9 @@ reader is still `0025`. the macbook built and qualified the matched `0027`
 reader against the release lock without accessing production backups.
 the digest-addressed archive, reader proof and reopened hashes are under
 `~/.local/state/jarvis/qualification/adr0125-reader-0027.8m64TgcY/build/`.
-stage it with the release and rehearse against the actual stopped snapshot.
+verify it again with the actual stopped snapshot. production still holds
+the separate inactive `26f9588` candidate. the installer would prune it;
+confirm its disposition when ready to stage this release.
 
 1. resolve [google data use](google-workspace-retention.md) and finish [live qualification](drive-files-live.md). keep the byte and edit gates closed until their live proofs pass.
 2. stage the matched host, web shell, signed android client, and backup reader. follow the [operator runbook](../operations.md) under named stopped custody. verify and hash the private import map before applying the migration. hold on an unexplained row or an unsettled old effect.

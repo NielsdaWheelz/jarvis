@@ -75,15 +75,24 @@ close when the pinned harness proves fresh children sharing a protected attempt,
 
 ## release qualification
 
-the owner approved the local sdk, fresh children, queued follow-ups and the offline shell in adr 0111. the packaged sdk passed the exact signed callback through both private sockets and the shared gateway with synthetic responses. a linux rehearsal used local git and wrote the workspace while the actual sdk trajectory database remained unreadable to the shell. closure removed the database. the postgres 16.12 rehearsal at schema `0024` passed 15 opening and recovery cases, including quota refusal, queued follow-up, and paid disarm at stop. these probes made no paid calls.
+the owner approved the local sdk, fresh children, queued follow-ups and the offline shell in adr 0111. the packaged sdk passed the exact signed callback through both private sockets and the shared gateway with synthetic responses. its first funding refusal preserved both the accepted local input step and zero released model output. an intentionally changed input digest proved zero upstream entries. a linux rehearsal used local git and wrote the workspace while the actual sdk trajectory database remained unreadable to the shell. closure removed the database. the final postgres 16.12 rehearsal at schema `0024` passed 18 cases, including funding refusal, queued follow-up, paid disarm at stop, the exact 190,000-byte input limit and durable child lineage. these probes made no paid calls.
 
 | reopened evidence under `~/Documents/jarvis-agy-implementation-evidence/` | manifest sha-256 |
 | --- | --- |
 | `neon-sdk-ingress-T8xYq6/SHA256SUMS` | `af97ffa7428fce4105db4978f6de5b51a40fca1a946f6cd158f246c83e71a562` |
 | `feature-a-sdk-turn-1xYOz7/SHA256SUMS` | `f0c05bb30405334b5ae43ce1025d993fb9abbaa357146a9c25ea803bb703ad8a` |
 | `feature-b-postgres-9Whn5j6T/SHA256SUMS` | `4ea47ef4024b31d5380348d01c3a010746c453743aa06ebbb8ee03d67bba8890` |
+| `feature-b-final-RJNzAedi/SHA256SUMS` | `5a08b5e6d5ba95d8674da426aa18cd6eb4e78c5ed644a09115bad47ce0e4dfbe` |
 | `kernel-sdk.hzuKdk/SHA256SUMS` | `cfb4ef24d0cfdac8b4217e3a8cc9a2623a1377c6f96e4f451bc82ad1ddd7847b` |
 | `sdk-child-event.bJ5qeo/SHA256SUMS` | `177d95f5a085082b1055866cf595299cb456ec28c2b0d69e9fcba65b634f8801` |
 | `agy-sdk-rollover-3bKBXaaG/SHA256SUMS` | `09ba8f56b4cfa7bdccd92329dbdaacb9ce9b4806e4f9c9a8176d1334c5cba182` |
+| `sdk-exact-input-A10J8X/frozen/qualification.txt` | `35f459d19695752f290a78857a569c8249024dc555aca7b20dd81b1c1d45a2d6` |
+| `sdk-frozen-release-W6WB1m/final/qualification.txt` | `c75e80a1df3fc2404b3739eb7ea1db751708d0213bf08f47b28887a63e56c900` |
+| `b-action-restart-prove-NWSy8C/SHA256SUMS` | `a42a429cc963cc9adcf3638a765f8f4949bd1a68c42ead5211535d62b9844d8b` |
+| `b-late-seal-MwoLzi/SHA256SUMS` | `0e7c88f98c55779b7f408421768ab9014c7673f3840954d1ceb6b785e8f35c5e` |
+| `child-stop-rrvBtRME/SHA256SUMS` | `f20d78a3b9879f620f60a0fa2312997e69d963d645cdde8a88b975a4844fcaf1` |
+| `sdk-app-review-lVXnoi/SHA256SUMS` | `9726ad1cf516e8679c4af1e13b272aa1de1e493a26e6d2ed0c857df8034424cd` |
+
+a two-process crash fixture entered the real billed-once worker action once, wrote a synthetic effect, and exited before replying. recovery marked the action uncertain, parked the origin with one notice, and kept an independent request eligible. a second fixture recovered the exact late seal with the sdk state gone and published the original answer once. the checks and fixture cleanup passed. the frozen installation used scoped local git source substitution for unpublished commits. the lock retains the original repository urls.
 
 the owner chose synthetic verification for now. the paired paid trial still needs authorized same-project credential custody in an isolated candidate. verify optional developer request logging separately from data sharing. google defaults the logs on for recently created projects, and paid abuse monitoring has its own retention. synthetic tasks qualify observed harness behavior. real workspace-derived context still needs a permission determination. [developer request logs](https://aistudio.google.com/docs/logs-policy) · [paid terms](https://aistudio.google.com/docs/terms#data-use-paid) · [workspace permission](google-workspace-retention.md)

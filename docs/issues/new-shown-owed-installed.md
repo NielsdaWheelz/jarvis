@@ -13,7 +13,9 @@ exact reply.
 on november 27 utc, stock release `45fe785` started on schema `0027`.
 the authenticated web shell accepted a new message and showed its exact
 reply. the installed message api returned owed ids and their count, and
-rejected the stale viewer with 426. firebase accepted the reply notice.
+rejected the stale viewer with 426. a live filing proposal appeared in the
+owed set and left it after the owner approval. firebase accepted the reply
+notice.
 this records provider acceptance. the physical tap is still due.
 
 - install signed android v10 on the enrolled handset and open chat once.

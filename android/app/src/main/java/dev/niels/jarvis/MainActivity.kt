@@ -38,14 +38,14 @@ class MainActivity : ComponentActivity() {
         val initial = intent.data?.let(Routes::parse) ?: Route.Home
         val visits = ViewModelProvider(this)[HomeVisits::class.java]
         val notices = PhoneNotices.get(this)
-        notices.foreground(false, drain = false)
+        val opening = notices.foreground(false)
         val api = HomeApi(applicationContext)
         val reports = ShownReports.get(applicationContext)
         val chat = visits.chat(api, reports, notices)
         setContent {
             LaunchedEffect(chat, notices) {
                 snapshotFlow { chat.latest.settled }.first { it }
-                notices.releaseHeld()
+                notices.releaseHeld(opening)
             }
             val start = Routes.url(initial).toString()
             var trail by rememberSaveable {

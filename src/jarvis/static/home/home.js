@@ -563,6 +563,7 @@ $("confirm-discard").onclick = () => {
   if (activeSend || !draft.uncertain) return;
   if (armed?.submission === draft.id) armed = null;
   failures.delete("receipt");
+  failures.delete("send");
   showConnection();
   preservePage(resetDraft);
   $("message").focus({ preventScroll: true });
@@ -588,6 +589,7 @@ function accepted(receipt, submission) {
   const offset = last && chatOffset(last);
   const scroll = chat.scrollTop;
   failures.delete("receipt");
+  failures.delete("send");
   showConnection();
   if (armed?.submission === submission) armed.request = receipt.id;
   resetDraft();
@@ -641,6 +643,7 @@ $("composer").onsubmit = async (event) => {
   const id = draft.id ?? crypto.randomUUID();
   const flight = new AbortController();
   activeSend = flight;
+  if (failures.delete("send")) showConnection();
   armed = { submission: id, request: null };
   draft.id = id;
   draft.uncertain = true;
@@ -705,7 +708,7 @@ $("composer").onsubmit = async (event) => {
       caption("");
     } else {
       caption("checking whether your message arrived…");
-      if (!flight.signal.aborted) failure(error, "receipt");
+      if (!flight.signal.aborted) failure(error, "send");
     }
   } finally {
     clearTimeout(sending);

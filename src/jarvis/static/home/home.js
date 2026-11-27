@@ -115,6 +115,7 @@ const attention = chatAttention({
     restoreChatAnchor(anchor);
   },
   place(node) {
+    finishAdvance();
     fontOpening = null;
     pinned = false;
     scrollChat(insetPosition(node));
@@ -844,10 +845,14 @@ function scrollChat(top) {
   if (!chat.clientHeight) return;
   const target = Math.min(Math.max(0, top), chat.scrollHeight - chat.clientHeight);
   const before = chat.scrollTop;
+  if (fontOpening && fontOpening.scrollTop !== before) fontOpening = null;
   if (Math.abs(before - target) < .02) return;
   finishAdvance();
   chat.scrollTop = target;
-  if (chat.scrollTop !== before) scrollTarget = chat.scrollTop;
+  if (chat.scrollTop !== before) {
+    scrollTarget = chat.scrollTop;
+    if (fontOpening) fontOpening.scrollTop = scrollTarget;
+  }
 }
 function chatAnchor() {
   if (!chat.clientHeight) return null;
@@ -884,7 +889,7 @@ function applyOpening() {
     if (selectedMessage || isDetail(location.pathname)) return;
     scrollChat(capped ? 0 : node ? insetPosition(node) : chat.scrollHeight);
   }
-  if (fontLoad === "fallback") fontOpening = opening;
+  if (fontLoad === "fallback") fontOpening = { ...opening, scrollTop: chat.scrollTop };
   return true;
 }
 chat.addEventListener("scroll", () => {
@@ -1971,12 +1976,13 @@ Promise.allSettled([
   finishAdvance();
   const anchor = chatAnchor();
   attention.beforeLayoutChange();
+  // A compositor can scroll before the corresponding DOM event is delivered.
+  if (fontOpening?.scrollTop === chat.scrollTop) pendingOpening ||= fontOpening;
+  fontOpening = null;
   const sidebar = $("sidebar");
   sidebar.toggleAttribute("data-literata", reading.status === "fulfilled");
   sidebar.toggleAttribute("data-cormorant", display.status === "fulfilled");
   fontLoad = "settled";
-  pendingOpening ||= fontOpening;
-  fontOpening = null;
   if (!applyOpening()) restoreChatAnchor(anchor);
   attention.update();
 });

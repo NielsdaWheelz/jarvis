@@ -464,10 +464,11 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       setTotals(data, number);
       paintCounts(newCount());
     },
-    page(data, number) {
+    page(data, number, loadedOnly = false) {
       setTotals(data, number);
       const freshIds = new Set(data.new);
       for (const message of data.items) {
+        if (loadedOnly && !document.getElementById("msg-" + message.id)) continue;
         const state = remember(message);
         if (!state || state.new === false ||
             state.new && writes && (reports.has(message.id) || isClearing(state))) continue;

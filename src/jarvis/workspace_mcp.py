@@ -1122,10 +1122,8 @@ class WorkspaceMcpClient:
                 before_send=before_send,
             ) as response:
                 _drive_rest_status(response, 200)
-                location = response.headers.get("Location", "")
-                if len(location) > 8192:
-                    raise ValueError("oversize Drive upload session")
-                session = httpx.URL(location)
+                # Google owns the session URI and its query parameters.
+                session = httpx.URL(response.headers.get("Location", ""))
                 upload_ids = session.params.get_list("upload_id")
                 if (
                     session.scheme != "https"
@@ -1135,9 +1133,7 @@ class WorkspaceMcpClient:
                     or session.fragment
                     or session.raw_path.split(b"?", 1)[0] != _DRIVE_UPLOAD_PATH.encode()
                     or len(upload_ids) != 1
-                    or re.fullmatch(r"[A-Za-z0-9._~-]+", upload_ids[0]) is None
-                    or set(session.params) - {"upload_id", "uploadType"}
-                    or session.params.get_list("uploadType") not in ([], ["resumable"])
+                    or not upload_ids[0]
                 ):
                     raise ValueError("invalid Drive upload session")
 

@@ -101,6 +101,16 @@ verified in trash and the test grants revoked. the reopened receipts are
 keep revision gated pending a provider-enforced condition at the full
 attachment size.
 
+the first matched jarvis run passed docs and stopped before the binary pdf
+upload. a narrower check found that google returned a successful upload
+session uri with extra query fields. jarvis rejected the uri before sending
+bytes. the connector now preserves the opaque query on google's exact upload
+endpoint. both fixtures went to trash and google accepted both revocations.
+the reopened failures are `live-rollout-jarvis-rest-01/provider/facts.json`
+with sha256 `7e59878d5df663013cd3b7a96781ba01e4ba9ecfd4b0b0ccf72100266f76787d`
+and `live-rollout-jarvis-transport-01/facts.json` with sha256
+`7b297487c5d302a11a31bc03761f44d0604071c9e3d678d0f6fb89d77b1e84b3`.
+
 ### earlier retired probes
 
 both disposable folders were confirmed in trash. google accepted project

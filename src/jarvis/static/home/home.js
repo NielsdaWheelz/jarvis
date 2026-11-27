@@ -439,7 +439,7 @@ function discuss(ref, title, origin) {
   const blocked = activeSend || draft.uncertain;
   openSidebar(origin, blocked);
   if (blocked) {
-    caption("settle the earlier message first.");
+    preservePage(() => { $("file-problem").textContent = "settle the earlier message first."; });
     return;
   }
   const choice = $("draft-choice");
@@ -580,7 +580,7 @@ function accepted(receipt, submission) {
   const focused = $("composer").contains(document.activeElement);
   const follow = pinned && chat.clientHeight && chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 2;
   const anchor = chatAnchor();
-  const last = transcript.querySelector("article:last-child");
+  const last = transcript.querySelector(":scope > article:last-child");
   const offset = last && chatOffset(last);
   const scroll = chat.scrollTop;
   failures.delete("receipt");

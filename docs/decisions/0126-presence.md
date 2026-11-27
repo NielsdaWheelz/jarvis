@@ -1,5 +1,7 @@
 # adr 0126. show when jarvis is working
 
+the [daybook](0127-the-daybook.md#crossing) adds a one-time web page advance at a send receipt and sets the provisional reply in the daybook's stamp.
+
 **implemented · 26 november 2026 · installed acceptance open.**
 
 this amends the following contracts.

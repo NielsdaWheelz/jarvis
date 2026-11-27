@@ -1,5 +1,7 @@
 # adr 0116. attach files to the open chat draft
 
+the [daybook](0127-the-daybook.md#the-foot) extends web drops to the rail and governs settlement, discard, and the inline android dock.
+
 **implemented. source and isolated acceptance passed. installation pending.**
 
 the owner wants to paste a screenshot while writing to jarvis and drag a file

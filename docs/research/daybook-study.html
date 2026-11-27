@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- study for adr 0127. the adr text governs where they differ. small capitals are faked with tracked capitals here: the hosted literata subset lacks them. -->
+<title>jarvis daybook</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;1,400&family=Literata:ital,opsz,wght@0,7..72,380..600;1,7..72,380..600&display=swap">
+<style>
+/* layout: a specimen sheet. the proposed rail at true size beside its canvas, then the phone, then the composer's states under glass. */
+:root {
+  --paper: #f4f2ec; --rail: #fbfaf6; --ink: #252621; --muted: #64675f;
+  --line: #d8d9ce; --accent: #43564a; --rubric: #a33b25; --wght: 400;
+  --text: Literata, Charter, Georgia, serif;
+  --display: "Cormorant Garamond", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #191b19; --rail: #20221f; --ink: #f3f2e8; --muted: #acafa5;
+    --line: #42453e; --accent: #b5cbb7; --rubric: #ee9a83; --wght: 380; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #191b19; --rail: #20221f; --ink: #f3f2e8; --muted: #acafa5;
+  --line: #42453e; --accent: #b5cbb7; --rubric: #ee9a83; --wght: 380; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--paper); }
+body {
+  color: var(--ink);
+  font: var(--wght) 1rem/1.5 var(--text);
+  font-variant-numeric: oldstyle-nums; font-optical-sizing: auto; font-synthesis: none;
+}
+.sheet {
+  max-width: 70rem; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 2.5rem 5rem;
+  display: flex; flex-direction: column; gap: 3.5rem;
+}
+.sheet > header h1 { font: 400 clamp(2.6rem, 6vw, 4rem)/1 var(--display); letter-spacing: -.045em; margin: 0 0 .75rem; }
+.sheet > header p { margin: 0; color: var(--muted); max-width: 34rem; }
+.tenets { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.5rem 2.5rem; }
+.tenets h2, .part > h2 { font: 400 1.6rem/1.2 var(--display); letter-spacing: -.02em; margin: 0 0 .4rem; }
+.tenets p, .part > p, .notes p, .notes li { margin: 0; text-wrap: pretty; }
+.part { display: flex; flex-direction: column; gap: 1rem; }
+.part > p { max-width: 40rem; color: var(--muted); }
+.label { color: var(--muted); }
+.plain { font: inherit; color: var(--ink); background: none; border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .7rem; cursor: pointer; }
+.plain:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.plain[aria-pressed="true"] { border-color: var(--ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── the proposal itself: everything under .j is the design ── */
+.j {
+  --gutter: 1.5rem; --u: .75rem;
+  color: var(--ink); background: var(--rail);
+  font: var(--wght) 1rem/1.5 var(--text);
+  font-variant-numeric: oldstyle-nums proportional-nums;
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
+}
+.j .chat {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain;
+  padding: 1.5rem 1rem 1.25rem var(--gutter);
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+.j .leaf { min-height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
+.j ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+
+/* the day is the unit */
+.j .day { font: 400 1.3125rem/1.5rem var(--display); letter-spacing: -.01em; margin: calc(4 * var(--u)) 0 0; }
+.j .day:first-child { margin-top: 0; }
+
+/* two hands: jarvis set in roman, you written in italic. every message carries one small stamp line, always. */
+.j article { position: relative; margin: calc(2 * var(--u)) 0 0; overflow-wrap: break-word; text-wrap: pretty; hyphens: auto; hyphenate-limit-chars: 10 4 4; }
+.j article[data-role="owner"] { margin-top: calc(2.5 * var(--u)); font-style: italic; text-wrap: wrap; hyphens: manual; white-space: pre-wrap; }
+.j article[data-role="owner"] + article[data-role="assistant"] { margin-top: calc(.5 * var(--u)); }
+.j .day + article { margin-top: calc(.5 * var(--u)); }
+.j article[data-role="owner"]::before, .j .composer::before {
+  content: ""; position: absolute; inline-size: .6rem; border-top: 1.5px solid var(--muted);
+}
+.j article[data-role="owner"]::before { inset: 1.98rem auto auto -1.125rem; }
+.j article[data-role="owner"] em { font-style: normal; }
+.j .stamp {
+  display: flex; align-items: baseline; gap: .5rem; height: 1rem; margin-bottom: .2rem;
+  font: 400 .75rem/1rem var(--text); font-style: normal; color: var(--muted); white-space: normal;
+}
+.j .stamp time { margin-inline-start: auto; font-variant-numeric: oldstyle-nums tabular-nums; letter-spacing: .04em; }
+.j .murmur { font: italic 400 1.06rem/1rem var(--display); color: var(--muted); }
+.j .owed { color: var(--rubric); }
+.j .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+/* the reviewer's alternative: italic only until accepted, roman on the record */
+.j[data-hand="roman"] article[data-role="owner"] { font-style: normal; padding-left: 1rem; }
+
+/* 0125's marks, re-seated on the first line */
+.j .new { position: absolute; left: -1.07rem; top: 1.72rem; width: .45rem; height: .45rem; background: var(--ink); border: 1.5px solid var(--ink); transform: rotate(45deg); }
+.j .new.shown { background: transparent; border-color: var(--muted); }
+.j .boundary { display: flex; align-items: center; gap: .5rem; margin: calc(2.5 * var(--u)) 0 0 calc(-1 * var(--gutter)); font: italic 400 1.06rem/1.5rem var(--display); }
+.j .boundary::before { content: ""; flex: 1; min-width: 1.55rem; border-top: 1px solid var(--ink); }
+.j .selected::after { content: ""; position: absolute; inset-block: 0; left: calc(-1 * var(--gutter)); border-left: 2px solid var(--accent); }
+
+/* the reader, in 44 characters */
+.j .md :is(p, ul, ol, blockquote, pre, .tbl) { margin-block: var(--u); }
+.j .md > :first-child { margin-top: 0; }
+.j .md > :last-child { margin-bottom: 0; }
+.j .md :is(ul, ol) { padding-inline-start: 1.25em; }
+.j .md li::marker { color: var(--muted); font-variant-numeric: oldstyle-nums tabular-nums; }
+.j .md li + li { margin-top: .25rem; }
+.j .md strong { font-weight: 600; }
+.j .md a { color: inherit; text-decoration: underline 1px var(--accent); text-underline-offset: .2em; }
+.j .md a:hover { text-decoration-thickness: 2px; }
+.j .md sup { font-size: .68em; line-height: 0; }
+.j .md sup a { text-decoration: none; color: var(--accent); padding: 0 .1em; }
+.j .md code { font: 400 .86em/1 var(--mono); font-style: normal; hyphens: none; }
+.j .md pre { margin-inline-end: -1rem; padding: .5rem 1rem .5rem 0; border-block: 1px solid var(--line); overflow-x: auto; white-space: pre; }
+.j .md blockquote { margin-inline: 0; padding-inline-start: .85em; border-inline-start: 1px solid var(--muted); }
+.j .tbl { overflow-x: auto; }
+.j table { width: 100%; border-collapse: collapse; border-block: 1px solid var(--ink); font-size: .875rem; line-height: 1.3125rem; font-variant-numeric: lining-nums tabular-nums; }
+.j th { font-weight: 400; color: var(--muted); text-align: start; border-bottom: 1px solid var(--line); }
+.j :is(th, td) { padding: .25rem .75rem .25rem 0; vertical-align: top; }
+.j :is(th, td):last-child { padding-right: 0; text-align: end; }
+
+/* apparatus: kind and entry, set as a colophon */
+.j .app { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 .75rem; margin-top: .375rem; font-size: .875rem; line-height: 1.3125rem; font-style: normal; white-space: normal; }
+.j .k, .j .status { color: var(--muted); }
+.j .app a { color: var(--ink); text-decoration: underline 1px var(--line); text-underline-offset: .22em; cursor: pointer; }
+.j .app a:hover { text-decoration-color: var(--accent); }
+.j .n { color: var(--muted); }
+/* a proposal keeps its indent for life; the pilcrow stands in it only while a decision is owed */
+.j .prop { position: relative; margin: var(--u) 0 0; padding-left: 1.1rem; }
+.j .prop[data-owed]::before { content: "¶"; position: absolute; left: 0; top: .12rem; font: 1.25rem/1 var(--display); color: var(--rubric); }
+.j .prop h3 { font: inherit; margin: 0; text-wrap: balance; }
+.j .prop p { margin: 0; font-size: .875rem; line-height: 1.3125rem; }
+.j .prop .app { margin-top: .25rem; }
+.j .prop footer { display: flex; justify-content: space-between; align-items: baseline; margin-top: .25rem; font-size: .875rem; }
+.j .word { font: var(--wght) .875rem/1.5rem var(--text); color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; }
+.j .word:hover { color: var(--ink); }
+.j .reply { font: italic var(--wght) 1rem/1.5rem var(--text); color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline 1px var(--accent); text-underline-offset: .2em; }
+
+/* presence: 0126's point and its murmur, unchanged in meaning */
+.pt { --s: .33rem; position: relative; display: inline-block; flex: none; width: .82rem; height: .7em; color: var(--accent); }
+.pt::before, .pt::after { content: ""; position: absolute; width: var(--s); height: var(--s); left: .13rem; bottom: .12rem; border-radius: 50%; opacity: 0; }
+.pt[data-p="owner"]::before { opacity: 1; background: currentColor; }
+.pt[data-p="queued"]::before { opacity: 1; border: 1px solid currentColor; }
+.pt[data-p="held"] { color: var(--muted); }
+.pt[data-p="held"]::before { opacity: 1; border: 1px solid currentColor; }
+.pt::after { background: currentColor; }
+.j .tail { margin-top: calc(.5 * var(--u) + 1.2rem); display: flex; align-items: baseline; }
+.j .tail .murmur, .j .ghost { font-size: 1.14rem; line-height: 1.5rem; }
+.j .ghost { position: absolute; inset: 1.2rem auto auto .94rem; pointer-events: none; }
+.j .ledge { display: flex; justify-content: space-between; align-items: center; padding: .15rem 1rem .15rem var(--gutter); border-top: 1px solid var(--line); font: italic 400 1.06rem/1.5rem var(--display); }
+.j .ledge i { display: inline-block; width: .42rem; height: .42rem; background: var(--ink); transform: rotate(45deg); margin-right: .5rem; vertical-align: .12em; }
+.j .ledge .owed { font-style: normal; font-family: var(--text); }
+
+/* the foot of the page: the composer is the next line, already in your hand */
+.j .composer { position: relative; flex: none; padding: .75rem 1rem .4rem var(--gutter); border-top: 1px solid var(--line); transition: border-color 120ms linear, box-shadow 120ms linear; }
+.j .composer:focus-within, .j .composer[data-focus] { border-top-color: var(--ink); box-shadow: 0 -1px 0 var(--ink); }
+.j .composer::before { left: calc(var(--gutter) - 1.125rem); top: 1.53rem; }
+.j .composer:has(.slips)::before { display: none; }
+.j textarea, .j .typed {
+  display: block; width: 100%; min-height: 1.5rem; max-height: 18rem; margin: 0; padding: 0;
+  border: 0; outline: 0; resize: none; overflow-y: auto; background: transparent; color: var(--ink);
+  font: italic var(--wght) 1rem/1.5 var(--text); font-variant-numeric: oldstyle-nums; caret-color: var(--accent);
+  transition: color 120ms linear;
+}
+.j textarea::placeholder, .j .typed:empty::before { content: "to jarvis"; font: italic 400 1.14rem/1.5rem var(--display); color: var(--muted); opacity: 1; }
+.j .composer[data-state="flight"] :is(textarea, .typed) { color: color-mix(in srgb, var(--ink) 58%, transparent); caret-color: transparent; }
+.j .composer[data-state="held"] textarea { caret-color: transparent; cursor: default; }
+.j .foot { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-top: .3rem; min-height: 1.5rem; }
+.j .caption { display: flex; align-items: baseline; font: italic 400 1.06rem/1.3rem var(--display); color: var(--muted); }
+.j .caption .pt { height: .62em; }
+/* send is always there: grey with nothing to send, ink when armed */
+.j .send { pointer-events: none; transition: color 120ms linear, transform 140ms; white-space: nowrap; }
+.j .send kbd { font: inherit; margin-left: .3rem; }
+.j .composer:is([data-armed], [data-state="held"]) .send { color: var(--ink); pointer-events: auto; }
+.j .composer[data-state="flight"] .send { visibility: hidden; }
+.j .send:active { transform: scale(.97); transition-duration: 120ms, 60ms; }
+.j .composer:is([data-state="flight"], [data-state="held"]) .attach { display: none; }
+.j .slips { display: flex; flex-direction: column; margin-bottom: .5rem; font-size: .875rem; line-height: 1.3125rem; }
+.j .slip { display: flex; align-items: center; gap: .6rem; min-height: 2.75rem; border-bottom: 1px solid var(--line); }
+.j .slip .thumb { flex: none; width: 2.5rem; height: 2.5rem; background: linear-gradient(135deg, var(--line), var(--paper)); display: grid; place-items: center; font: 400 .7rem/1 var(--mono); color: var(--muted); }
+.j .slip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.j .slip small { color: var(--muted); font-size: inherit; font-variant-numeric: lining-nums tabular-nums; }
+.j .slip .murmur { line-height: 1.3rem; }
+.j .x { font: 400 1.1rem/1 var(--text); color: var(--muted); background: none; border: 0; padding: .5rem; margin-right: -.5rem; cursor: pointer; }
+
+/* the shipped face carries true small capitals; google's subset does not, so tracked capitals stand in for them here */
+.label, .plain, .j .k, .j .status, .j th, .j .owed, .j .word, .j .ledge .owed {
+  text-transform: uppercase; font-size: .6875rem; font-weight: 500; letter-spacing: .09em;
+}
+.j .send kbd { font-size: .875rem; letter-spacing: 0; }
+
+/* ── the stage that holds it ── */
+.stage { display: grid; grid-template-columns: 23rem minmax(0, 1fr); height: 46rem; border: 1px solid var(--line); background: var(--paper); overflow: hidden; }
+.stage > .j { border-right: 1px solid var(--line); }
+.canvas { display: flex; flex-direction: column; min-width: 0; }
+.bar { display: flex; align-items: baseline; gap: 1rem; padding: .7rem 1.3rem .55rem; border-bottom: 1px solid var(--line); }
+.wordmark { font: 400 2rem/1.1 var(--display); letter-spacing: -.055em; }
+.bar .pt { --s: .43rem; width: 1.2rem; margin-left: -.9rem; }
+.bar nav { display: flex; gap: 1rem; color: var(--muted); font: 400 1rem/1.5 system-ui, sans-serif; }
+.bar nav b { font-weight: 400; color: var(--ink); text-decoration: underline; text-underline-offset: .17em; }
+.todos { padding: 2.5rem clamp(1.25rem, 5vw, 4rem); max-width: 44rem; font: 400 1rem/1.48 system-ui, sans-serif; overflow: hidden; }
+.todos h3 { font: inherit; font-weight: 600; font-size: .95rem; color: var(--muted); margin: 1.5rem 0 .25rem; }
+.todos h3:first-child { margin-top: 0; }
+.todos div { padding: .65rem 0; border-bottom: 1px solid var(--line); }
+.todos div span { display: block; font: 400 1.45rem/1.2 var(--display); }
+.todos div small { color: var(--muted); font-size: .85rem; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
+.pair { display: grid; grid-template-columns: minmax(0, 24.375rem) minmax(0, 1fr); gap: 2rem 3.5rem; align-items: start; }
+.phone { height: 53rem; border: 1px solid var(--line); border-radius: 1.75rem; overflow: hidden; font-size: 1.0625rem; }
+.phone .bar { position: relative; }
+.phone .bar .pilcrow { font: 400 1.25rem/1 var(--display); color: var(--rubric); margin-left: -.7rem; }
+.phone .legend { position: absolute; left: 1.3rem; top: 100%; transform: translate(-.3rem, -50%); padding-inline: .3rem; background: var(--rail); font: italic 400 1.06rem/1 var(--display); color: var(--rubric); }
+.phone .foot { min-height: 3rem; align-items: center; margin-top: 0; }
+.phone .composer { padding-bottom: 0; }
+.notes { display: flex; flex-direction: column; gap: 1.75rem; }
+.notes h3 { font: 400 1.3125rem/1.3 var(--display); margin: 0 0 .3rem; }
+.notes ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .35rem; }
+.notes li::marker { color: var(--muted); }
+.glass { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 1.75rem 2rem; align-items: start; }
+.glass figure { margin: 0; display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.glass .j { border: 1px solid var(--line); border-top: 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 2rem 3rem; }
+@media (max-width: 860px) {
+  .stage { grid-template-columns: minmax(0, 1fr); height: 40rem; }
+  .stage > .j { border-right: 0; }
+  .canvas { display: none; }
+  .pair { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .j .composer, .j textarea, .j .send { transition: none; } }
+</style>
+
+<div class="sheet" lang="en">
+  <header>
+    <h1>the daybook</h1>
+    <p>a proposal for the jarvis conversation, built to be typed in. the left column below is the rail at its true width. everything in it is type or a hairline.</p>
+  </header>
+
+  <section class="tenets">
+    <div><h2>hands, not labels</h2><p>you write in italic. jarvis answers in roman. the interface murmurs in muted cormorant. with two voices for life, a name on every message says nothing, so the letterform says it.</p></div>
+    <div><h2>one sheet</h2><p>the composer is the unwritten foot of the same page, already in your hand. sending does not restyle your words. the page moves up one line and they are on it.</p></div>
+    <div><h2>every motion is a receipt</h2><p>your words cross the rule when the server holds them and not before. a beat is a confirmed poll. nothing loops and nothing pretends to type.</p></div>
+  </section>
+
+  <section class="part">
+    <h2>the rail, live</h2>
+    <div class="controls">
+      <span class="label">enter sends · shift-enter breaks the line</span>
+      <button class="plain" id="cut" type="button" aria-pressed="false">cut the line</button>
+      <button class="plain" id="hand" type="button" aria-pressed="false">set my hand in roman</button>
+    </div>
+    <span class="label" id="note">cut the line, then send, to watch an unconfirmed message stay in your hand</span>
+    <div class="stage">
+      <aside class="j" id="rail" aria-label="conversation">
+        <div class="chat" id="chat" tabindex="0">
+          <div class="leaf">
+            <div id="messages">
+              <h3 class="day">wednesday 25 november</h3>
+              <article data-role="owner"><div class="stamp"><time>08:12</time></div><div class="md"><p>what's on tomorrow?</p></div></article>
+              <article data-role="assistant"><div class="stamp"><time>08:12</time></div><div class="md"><p>two things. standup at 10:00, and the dentist at 15:30, which collides with the design review you accepted yesterday.<sup><a>1</a></sup></p></div>
+                <div class="app"><span class="k">source</span><span><a>calendar · thursday 26</a></span></div></article>
+              <article data-role="owner"><div class="stamp"><time>08:14</time></div><div class="md"><p>ugh. move the dentist to friday morning and let them know.</p></div></article>
+              <article data-role="assistant"><div class="stamp"><time>08:15</time></div><div class="md"><p>friday 08:40 is yours. the note to the practice went as you approved it.</p></div>
+                <section class="prop"><h3>note to dr. okafor's office</h3><p>could we move thursday's 15:30 to friday 08:40? the earlier slot suits better.</p>
+                  <div class="app"><span class="k">revision</span><span><a>moving thursday's appointment</a></span><span class="k">you</span><span><a>approved</a> <span class="n">· 08:16</span></span></div>
+                  <footer><span class="status">sent</span></footer></section></article>
+
+              <h3 class="day">thursday 26 november</h3>
+              <article data-role="assistant"><div class="stamp"><time>07:02</time></div>
+                <div class="md"><p>the landlord answered about the radiator. he offers friday 9–12 or monday after 14:00.</p>
+                  <ol><li>friday runs into the dentist. you would need to be home by nine.</li><li>monday is clear.</li><li>he wants the boiler model. it is on the plate you photographed in october: <code>ecotec plus 831</code>.</li></ol></div>
+                <div class="app"><span class="k">file</span><span><a>boiler-plate.jpg</a> <span class="n">· in files</span></span><span class="k">about</span><span><a>reply to the landlord</a> <span class="n">· todo</span></span></div></article>
+              <article data-role="owner"><div class="stamp"><time>09:31</time></div><div class="md"><p>monday. what did the last two repairs cost?</p></div></article>
+              <article data-role="assistant"><div class="stamp"><time>09:32</time></div><div class="md"><p>$225 across two visits. he still shows the second as unpaid; your bank does not.</p>
+                  <div class="tbl"><table><thead><tr><th>date</th><th>work</th><th>paid</th></tr></thead><tbody><tr><td>14 mar</td><td>valve</td><td>85.00</td></tr><tr><td>2 sep</td><td>bleed, pump</td><td>140.00</td></tr></tbody></table></div>
+                  <blockquote><p>monday after two suits me. i will bring the part.</p></blockquote></div>
+                <div class="app"><span class="k">artifact</span><span><a>repairs ledger</a> <span class="n">· rev 3</span></span></div></article>
+            </div>
+            <div class="tail" id="tail" hidden><span class="pt" id="tail-point" data-p="queued"></span><span class="murmur" id="tail-words">received</span></div>
+          </div>
+        </div>
+        <form class="composer" id="composer">
+          <label class="sr" for="message">message jarvis</label>
+          <textarea id="message" rows="1" placeholder="to jarvis"></textarea>
+          <div class="foot">
+            <button class="word attach" type="button">attach</button>
+            <span class="caption" id="caption" role="status"></span>
+            <button class="word send" id="send" type="submit">send<kbd>↵</kbd></button>
+          </div>
+        </form>
+      </aside>
+      <section class="canvas" aria-hidden="true">
+        <div class="bar"><span class="wordmark">jarvis</span><span class="pt" id="head-point" data-p="none"></span><nav><b>todos</b><span>artifacts</span><span>files</span></nav></div>
+        <div class="todos">
+          <h3>this week</h3>
+          <div><span>move the dentist</span><small>conflicts with thursday's design review · from mail</small></div>
+          <div><span>reply to the landlord about the radiator</span><small>due friday</small></div>
+          <div><span>renew the car registration</span><small>due 30 november · reminder set</small></div>
+          <h3>later</h3>
+          <div><span>book the piano tuner</span><small>before the holidays</small></div>
+          <div><span>return the library books</span><small>borges, two volumes · overdue tuesday</small></div>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <section class="part">
+    <h2>the phone, on return</h2>
+    <div class="pair">
+      <div class="phone j" id="phone" aria-label="android conversation">
+        <div class="bar"><span class="wordmark">jarvis</span><span class="pilcrow">¶</span><span class="legend">waiting on you</span></div>
+        <div class="chat">
+          <div>
+            <h3 class="day">wednesday 25 november</h3>
+            <article data-role="owner"><div class="stamp"><time>22:41</time></div><div class="md"><p>remind me to return the library books on saturday.</p></div></article>
+            <article data-role="assistant"><div class="stamp"><time>22:41</time></div><div class="md"><p>set for saturday 10:00. two volumes of borges, due back tuesday last.</p></div>
+              <div class="app"><span class="k">about</span><span><a>return the library books</a> <span class="n">· todo</span></span></div></article>
+            <div class="boundary"><span>new since 22:41</span><button class="word" type="button">clear</button></div>
+            <h3 class="day" style="margin-top:1.5rem">thursday 26 november</h3>
+            <article data-role="assistant"><span class="new"></span><div class="stamp"><span class="owed">needs a reply</span><time>07:02</time></div>
+              <div class="md"><p>the landlord answered about the radiator: friday 9–12 or monday after 14:00. friday runs into the dentist.</p></div>
+              <section class="prop" data-owed><h3>reply to mr. halloran</h3><p>monday after two suits me. the boiler is an ecotec plus 831.</p>
+                <div class="app"><span class="k">draft</span><span><a>re: radiator</a></span></div>
+                <footer><button class="reply" type="button">reply</button><span class="status">awaiting approval</span></footer></section></article>
+            <article data-role="assistant"><span class="new"></span><div class="stamp"><time>07:30</time></div>
+              <div class="md"><p>the car registration lapses on 30 november. renewing online is $64.</p></div></article>
+          </div>
+        </div>
+        <div class="ledge"><span><i></i>2 new</span><span class="owed">1 needs a reply</span></div>
+        <div class="composer"><div class="typed"></div><div class="foot"><button class="word attach" type="button">attach</button><span class="word send">send</span></div></div>
+      </div>
+      <div class="notes">
+        <div><h3>dock the composer</h3><p>on android today, writing to jarvis replaces the whole screen, so you cannot read him while you answer. this is the largest defect on either client and no amount of typography hides it. the field moves to the foot of the conversation.</p></div>
+        <div><h3>one sign, only while it is true</h3><p>the red pilcrow already means jarvis is waiting on you. it now also stands beside the exact proposal that is owed, and leaves when you have answered. red still means owed and nothing else.</p></div>
+        <div><h3>send is always there</h3><p>on a phone, enter breaks the line, so the word is the only way to send. it is grey with nothing to send and ink when armed, on a full 48dp target.</p></div>
+        <div><h3>finish the theme</h3><p>dividers are material's purple-grey, dialogs are lavender, errors are a second red, and a spinner loops where the presence rules forbid loops. none of it was chosen.</p></div>
+        <div><h3>two haptics</h3><p>one confirm when the server accepts your message. one tick when an awaited reply lands while you are looking. the tap itself is silent, because a tap proves nothing.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="part">
+    <h2>the foot of the page</h2>
+    <p>every state the send path already distinguishes keeps a face. an unconfirmed message never enters the record: it stays in the composer, where you can act on it.</p>
+    <div class="glass">
+      <figure><span class="label">resting</span><div class="j"><div class="composer"><div class="typed"></div><div class="foot"><span class="word attach">attach</span><span class="word send">send<kbd>↵</kbd></span></div></div></div></figure>
+      <figure><span class="label">written</span><div class="j"><div class="composer" data-focus data-armed><div class="typed">monday. what did the last two repairs cost?</div><div class="foot"><span class="word attach">attach</span><span class="word send">send<kbd>↵</kbd></span></div></div></div></figure>
+      <figure><span class="label">in flight, after 400 ms</span><div class="j"><div class="composer" data-state="flight"><div class="typed">monday. what did the last two repairs cost?</div><div class="foot"><span class="caption"><span class="pt" data-p="queued"></span>sending…</span></div></div></div></figure>
+      <figure><span class="label">unconfirmed</span><div class="j"><div class="composer" data-state="held"><div class="typed">monday. what did the last two repairs cost?</div><div class="foot"><span class="caption"><span class="pt" data-p="held"></span>no receipt yet. retry is safe: it cannot arrive twice.</span><span class="word send">retry</span></div></div></div></figure>
+      <figure><span class="label">with a reference and a file</span><div class="j"><div class="composer" data-armed><div class="slips"><div class="slip"><span class="murmur">discussing · repairs ledger</span><button class="x" type="button" aria-label="remove reference">×</button></div><div class="slip"><div class="thumb">jpg</div><span>boiler-plate.jpg</span><small>1.2 mb</small><button class="x" type="button" aria-label="remove boiler-plate.jpg">×</button></div></div><div class="typed">this is the plate. is it the model he means?</div><div class="foot"><span class="word attach">attach</span><span class="word send">send<kbd>↵</kbd></span></div></div></div></figure>
+    </div>
+  </section>
+
+  <section class="part">
+    <h2>underneath</h2>
+    <div class="cols notes">
+      <div><h3>faster, without new machinery</h3><ul>
+        <li>your message appears the instant the server accepts it, set from the row the server returns. today it waits two further round trips while the composer sits empty.</li>
+        <li>the tick stays at three seconds. a faster one would blur the beats into a throb to save a second on turns that take many.</li>
+        <li>no streaming transport, for the same reason.</li>
+      </ul></div>
+      <div><h3>defects found on the way</h3><ul>
+        <li>a send whose connection hangs freezes the composer for good. it needs a way out.</li>
+        <li>a file dropped anywhere but the composer replaces the page.</li>
+        <li>the button reads retry send during an ordinary first send.</li>
+        <li>on a phone browser, enter sends and nothing types a new line.</li>
+        <li>the google approval box has no styles at all.</li>
+      </ul></div>
+      <div><h3>removed from view</h3><ul>
+        <li>names and dates on every message. both stay in the markup for screen readers and for copying.</li>
+        <li>the pile of open-this links and every bordered button in the rail.</li>
+        <li>the textarea's resize handle and its two empty rows.</li>
+        <li>android: open exact message and a divider under every message, refresh, new message.</li>
+        <li>the declared body font that was never shipped.</li>
+      </ul></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const q = (s) => document.querySelector(s);
+  const chat = q("#chat"), list = q("#messages"), tail = q("#tail"), words = q("#tail-words");
+  const tailPoint = q("#tail-point"), headPoint = q("#head-point");
+  const box = q("#message"), composer = q("#composer"), caption = q("#caption"), sendButton = q("#send");
+  const cutButton = q("#cut"), handButton = q("#hand"), note = q("#note");
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const clock = () => new Date().toTimeString().slice(0, 5);
+  const make = (tag, props) => Object.assign(document.createElement(tag), props);
+  const replies = [
+    "<p>noted. i have put it with thursday's things. nothing else moves.</p>",
+    "<p>done. two consequences:</p><ol><li>saturday morning is now full until eleven.</li><li>the piano tuner still has no date.</li></ol>",
+    "<p>i looked. there is nothing in mail or the calendar that contradicts it, so i have left everything as it stands.</p>",
+  ];
+  const verbs = ["reading mail", "checking the calendar", "looking through your todos"];
+  let cut = false, sending = false, working = false, turn = 0, restore = null;
+
+  // names are not shown, but every stamp still carries one for screen readers and for copying.
+  const name = (node) => node.querySelector(".stamp").prepend(make("b", { className: "sr", textContent: node.dataset.role === "owner" ? "you " : "jarvis " }));
+  document.querySelectorAll(".j article").forEach(name);
+
+  const bottom = () => { chat.scrollTop = chat.scrollHeight; };
+  function grow() {
+    box.style.height = "auto";
+    box.style.height = box.scrollHeight + "px";
+    composer.toggleAttribute("data-armed", Boolean(box.value.trim()) && !sending);
+    bottom();
+  }
+  function say(text, point) {
+    caption.replaceChildren();
+    if (!text) return;
+    caption.append(make("span", { className: "pt" }), text);
+    caption.firstChild.dataset.p = point;
+  }
+  // the page advances once, on acceptance: layout is final first, then one translate carries the eye.
+  function feed(mutate) {
+    const ref = list.lastElementChild, before = ref.getBoundingClientRect().top;
+    mutate(); bottom();
+    const dy = before - ref.getBoundingClientRect().top;
+    if (!dy || reduced.matches) return;
+    const timing = { duration: Math.min(420, 140 + 0.5 * Math.abs(dy)), easing: "cubic-bezier(.2,0,0,1)" };
+    for (const node of [list, tail]) node.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], timing);
+  }
+  function beat() {
+    for (const point of [tailPoint, headPoint]) {
+      if (reduced.matches) { point.animate([{ opacity: 1 }, { opacity: .45, offset: .18 }, { opacity: 1 }], 900); continue; }
+      point.animate([{ transform: "scale(1)" }, { transform: "scale(1.34)", offset: .11 }, { transform: "scale(1)" }], { duration: 1200, pseudoElement: "::before" });
+      point.animate([{ transform: "scale(1)", opacity: .85 }, { transform: "scale(4.4)", opacity: 0 }], { duration: 1800, easing: "cubic-bezier(.15,.6,.25,1)", pseudoElement: "::after" });
+    }
+  }
+  function article(role) {
+    const node = make("article", {}), stamp = make("div", { className: "stamp" }), body = make("div", { className: "md" });
+    node.dataset.role = role;
+    stamp.append(make("time", { textContent: clock() }));
+    node.append(stamp, body);
+    name(node);
+    return node;
+  }
+  function rename(text) {
+    words.animate([{ opacity: 1 }, { opacity: 0 }], 140).onfinish = () => {
+      words.textContent = text;
+      words.animate([{ opacity: 0 }, { opacity: 1 }], 220);
+    };
+  }
+  async function work() {
+    if (working) return;
+    working = true;
+    await wait(1100);
+    tailPoint.dataset.p = headPoint.dataset.p = "owner";
+    rename("thinking"); beat();
+    const pulse = setInterval(beat, 3000);
+    await wait(3000);
+    rename(verbs[turn % verbs.length]);
+    await wait(3000);
+    clearInterval(pulse);
+    // arrival is 0126's handoff and nothing more: the reply takes the tail's cell, words fade, prose fades in.
+    const node = article("assistant");
+    node.querySelector(".md").innerHTML = replies[turn++ % replies.length];
+    const said = words.textContent;
+    tail.hidden = true; headPoint.dataset.p = "none";
+    list.append(node); bottom();
+    if (!reduced.matches) {
+      const ghost = make("span", { className: "murmur ghost", textContent: said });
+      node.append(ghost);
+      ghost.animate([{ opacity: 1 }, { opacity: 0 }], 160).onfinish = () => ghost.remove();
+      node.querySelector(".md").animate([{ opacity: 0 }, { opacity: 1 }], 280);
+    }
+    working = false;
+  }
+  function accept(text) {
+    const node = article("owner");
+    node.querySelector(".md").append(make("p", { textContent: text }));
+    feed(() => {
+      list.append(node);
+      box.value = ""; box.readOnly = false; sending = false;
+      delete composer.dataset.state; say(""); sendButton.firstChild.textContent = "send";
+      if (!working) { tail.hidden = false; tailPoint.dataset.p = "queued"; words.textContent = "received"; }
+      grow();
+    });
+    work();
+  }
+  async function send() {
+    const text = box.value.trim();
+    if (!text || sending) return;
+    sending = true;
+    composer.removeAttribute("data-armed");
+    composer.dataset.state = "flight"; box.readOnly = true;
+    const slow = setTimeout(() => say("sending…", "queued"), 400);
+    await wait(cut ? 1600 : 260);
+    clearTimeout(slow);
+    if (cut) {
+      composer.dataset.state = "held";
+      say("checking whether your message arrived…", "held");
+      const held = new Promise((resolve) => { restore = resolve; });
+      wait(2600).then(() => { if (restore) { say("no receipt yet. retry is safe: it cannot arrive twice.", "held"); sendButton.firstChild.textContent = "retry"; } });
+      await held;
+    }
+    accept(text);
+  }
+  composer.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (composer.dataset.state !== "held") return send();
+    if (!cut && restore) { restore(); restore = null; }
+  });
+  box.addEventListener("input", grow);
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    if (!e.repeat) composer.requestSubmit();
+  });
+  cutButton.addEventListener("click", () => {
+    cut = !cut;
+    cutButton.setAttribute("aria-pressed", String(cut));
+    cutButton.textContent = cut ? "restore the line" : "cut the line";
+    note.textContent = cut ? "the line is cut. send something, then restore it" : "cut the line, then send, to watch an unconfirmed message stay in your hand";
+    if (!cut && restore) { restore(); restore = null; }
+  });
+  handButton.addEventListener("click", () => {
+    const roman = handButton.getAttribute("aria-pressed") !== "true";
+    handButton.setAttribute("aria-pressed", String(roman));
+    handButton.textContent = roman ? "set my hand in italic" : "set my hand in roman";
+    for (const node of [q("#rail"), q("#phone")]) roman ? node.dataset.hand = "roman" : delete node.dataset.hand;
+    note.textContent = roman ? "the reviewer's alternative: italic only until accepted, roman once on the record" : "the proposal: your hand is italic, before and after sending";
+    bottom();
+  });
+  bottom();
+  document.fonts?.ready.then(bottom);
+})();
+</script>

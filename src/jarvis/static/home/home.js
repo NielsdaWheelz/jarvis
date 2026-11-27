@@ -1971,20 +1971,21 @@ Promise.allSettled([
     document.fonts.load('400 1rem "Cormorant Garamond"'),
     document.fonts.load('italic 400 1rem "Cormorant Garamond"'),
   ]),
-]).then(([reading, display]) => {
+]).then(results => {
   clearTimeout(typeDeadline);
-  finishAdvance();
-  const anchor = chatAnchor();
-  attention.beforeLayoutChange();
   // A compositor can scroll before the corresponding DOM event is delivered.
   if (fontOpening?.scrollTop === chat.scrollTop) pendingOpening ||= fontOpening;
   fontOpening = null;
-  const sidebar = $("sidebar");
-  sidebar.toggleAttribute("data-literata", reading.status === "fulfilled");
-  sidebar.toggleAttribute("data-cormorant", display.status === "fulfilled");
-  fontLoad = "settled";
-  if (!applyOpening()) restoreChatAnchor(anchor);
-  attention.update();
+  const [reading, display] = results.map(result =>
+    result.status === "fulfilled" && result.value.every(matches => matches.length > 0));
+  preservePage(() => {
+    const sidebar = $("sidebar");
+    sidebar.toggleAttribute("data-literata", reading);
+    sidebar.toggleAttribute("data-cormorant", display);
+    fontLoad = "settled";
+    fitMessage();
+  });
+  if (applyOpening()) attention.update();
 });
 if (draft.uncertain) $("receipt").textContent = "checking whether your message arrived…";
 showFiles();

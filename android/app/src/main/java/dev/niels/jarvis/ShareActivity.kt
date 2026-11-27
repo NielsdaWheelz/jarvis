@@ -41,7 +41,7 @@ class ShareActivity : ComponentActivity() {
                         }
                         CaptureState.Saved -> LaunchedEffect(Unit) {
                             startActivity(Intent(this@ShareActivity, MainActivity::class.java)
-                                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                                 .putExtra("chat", true))
                             finish()
                         }

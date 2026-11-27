@@ -195,6 +195,8 @@ also references its immutable private chat message. `origin_kind, origin_id,
 product, operation, target_key, reason, remedy, state` typed and checked.
 `grant_id uuid` when known. `operation_ref jsonb` a closed local reference.
 `revision bigint` initially 1, `retry_at timestamptz null` and `updated_at timestamptz`.
+`verified_receipt jsonb null` holds a dated, exact readback of an acknowledged
+effect after a verification block resolves. the original receipt stays intact.
 use uuid origins and references: read → invocation id, write/verification →
 action id and stage, source → episode id and bound label. when a read fails
 before a read receipt exists, the native invocation identifies it.

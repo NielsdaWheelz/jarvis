@@ -1340,6 +1340,10 @@ the snapshot binds the existing grant and schedule conversion. settle
 unrepresentable or differently bound schedules through the predecessor.
 keep the dated todo record when disposing of a schedule. source and target
 backup verification are separate from the selected service's live checks.
+take the stopped predecessor dump before migration or release selection. the
+named release hold stops the backup service and blocks timer-triggered starts
+until the target has migrated and the matching backup reader is published.
+the protected snapshot binds the oauth grant via the hashed private-state copy.
 
 prepare the matched signed android update before releasing the new service.
 an older app can show the generic notification and will ask for an update

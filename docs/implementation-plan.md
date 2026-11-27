@@ -10,10 +10,17 @@ worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
 runtime change, release, deployment or resumption.
 
-[one main and workspace recovery](decisions/0132-one-main.md) is a design
-cut. units a–c own cognition, connector effects and workspace blockers;
+[one main and workspace recovery](decisions/0132-one-main.md) has a source
+candidate. units a–c own cognition, connector effects and workspace blockers.
 unit d composes them, migrates the predecessor and qualifies the matched
-clients. source implementation, live qualification and activation are pending.
+clients. the november 27 controlled rehearsals covered one-main admission,
+blocked work and intake recovery, the `0029` migration, a readable encrypted
+backup and the signed android upgrade in an emulator. the owner waived
+physical handset checks. the [live draft discard failure](issues/google-workspace-mcp.md)
+holds activation. production still runs `0028`. the selected-release journeys
+for native routes and gmail intake remain pending. implementation evidence
+and cleanup receipts are under
+`~/.local/state/jarvis/qualification/adr0132-one-main-implementation/` on macbook.
 
 on november 27 independent opus 5.5 passed all four design units on spec blob
 `fb65225d0fa4021550896d361dca62d621dc6062` after closing nine initial findings,

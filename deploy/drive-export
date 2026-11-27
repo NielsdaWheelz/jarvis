@@ -179,9 +179,11 @@ def run(args: argparse.Namespace) -> None:
     if not re.fullmatch(r"[a-z0-9-]{1,64}", args.account):
         raise Failure("invalid r2 account")
     credentials = read_private_json(args.credentials)
+    credential_keys = {"access_key_id", "secret_access_key"}
     if (
         credentials is None
-        or set(credentials) != {"access_key_id", "secret_access_key"}
+        or set(credentials)
+        not in (credential_keys, credential_keys | {"session_token"})
         or not all(isinstance(value, str) and value for value in credentials.values())
     ):
         raise Failure("expected the private read-only r2 credential")
@@ -207,6 +209,7 @@ def run(args: argparse.Namespace) -> None:
         endpoint_url=f"https://{args.account}.r2.cloudflarestorage.com",
         aws_access_key_id=credentials["access_key_id"],
         aws_secret_access_key=credentials["secret_access_key"],
+        aws_session_token=credentials.get("session_token"),
         region_name="auto",
         config=Config(
             connect_timeout=10, read_timeout=60, retries={"total_max_attempts": 2}

@@ -67,13 +67,94 @@ reopened `live-rollout-stale-02/facts.json` has sha256
 
 the third integrated run verified the native pdf export and stopped during the 100 mib
 create before a validated acknowledgement. the exact synthetic file was
-absent from the folder when checked. this leaves the result uncertain and
+absent from the folder when checked in drive. this leaves the result uncertain and
 does not establish a provider size limit. record the upload status separately
 from the acknowledgement and byte-verifying readback on the next run. the
 folder was verified in trash, both grants were disconnected, and google
 accepted revocation. the reopened `live-rollout-03/facts.json` under
 `~/.local/state/jarvis/qualification/adr0120-integrated-provider/` has sha256
 `e62e272cb3e6be27718f5a505f33c721fba6545ee3d7dda569d1233013008ea5`.
+
+the isolated mcp retry yielded all 139,810,646 wire bytes. google returned
+http 400 and an unstructured tool error before an acknowledgement. the
+standard drive api on the same grant uploaded exactly 104,857,600 decoded
+bytes in 36.2 seconds. a separate download in 8.7 seconds matched the
+sha-256 and file version. both disposable folders were verified in trash
+and google accepted both revocations. reopened receipts in the same
+directory are `live-rollout-max-01/facts.json` with sha256
+`ab7c09bf3ca72ffaa14e6c1dd66bfc83e70c095471747917e9ece04751c6644f` and
+`live-rollout-rest-01/facts.json` with sha256
+`8657e2b622484fea1ae6029fd7b9a3d9929cb0f75700e1889effa7a9e81fd64c`.
+[0129](../decisions/0129-drive-blob-rest.md) selects the standard byte path.
+the matched jarvis client, binary revision boundary and installed cut
+remain to be qualified.
+
+the 100 mib mcp revision also received http 400 after all 139,810,632
+wire bytes were sent. the exact preceding etag survived. the standard
+drive v3 api returned neither a metadata nor a media etag on the test
+blob, so its test attempted no conditional update. both fixtures were
+verified in trash and the test grants revoked. the reopened receipts are
+`live-rollout-max-revision-01/provider/facts.json` with sha256
+`b1bd142dc5ae31fb83dbb3bc291fc2c6a6d99249f6a6751aac39e83a91f0cdcc` and
+`live-rollout-rest-conditional-01/facts.json` with sha256
+`af7bdb07e8353b7b639a4f980943a9877b9af3cdeae3742d3ea01da90c032551`.
+keep revision gated pending a provider-enforced condition at the full
+attachment size.
+
+the first matched jarvis run passed docs and stopped before the binary pdf
+upload. a narrower check found that google returned a successful upload
+session uri with extra query fields. jarvis rejected the uri before sending
+bytes. the connector now preserves the opaque query on google's exact upload
+endpoint. both fixtures went to trash and google accepted both revocations.
+the reopened failures are `live-rollout-jarvis-rest-01/provider/facts.json`
+with sha256 `7e59878d5df663013cd3b7a96781ba01e4ba9ecfd4b0b0ccf72100266f76787d`
+and `live-rollout-jarvis-transport-01/facts.json` with sha256
+`7b297487c5d302a11a31bc03761f44d0604071c9e3d678d0f6fb89d77b1e84b3`.
+
+the next matched run verified ordinary pdf create, copy and both readers,
+an explicit native export, and exact empty-file create and download. the
+100 mib fixture used an octet-stream file. the human preview correctly
+refused that type after the matched agent read. use a valid 100 mib pdf
+to exercise both readers. the test runner revoked the grants ahead of the
+manual trash check. the exact folder was then verified in drive trash.
+evidence under `live-rollout-jarvis-rest-02/provider/` is `facts.json` with
+sha256 `3233414011de90bed4bcebb600c4a3ef6bf0290005f200ab42c35b8366718e5e`
+and `trash-ui.json` with sha256
+`c432105b05f14e87581e7bf37eded6574a32c4f19bd38a03f8c7857c209cbf57`.
+
+direct drive v2 media updates passed a current-tag 100 mib write and
+returned http 412 for the exact old tag. an in-flight stale write also
+returned 412 after a rival update. the rival's bytes, v2 tag and head
+revision survived. the diagnostic's broader v3 version check failed,
+so its overall outcome remains incomplete. [0130](../decisions/0130-drive-conditional-revision.md)
+uses the v2 tag and head revision for this contract. both folders were
+verified in trash and grants revoked. reopened evidence is
+`live-rollout-rest-v2-media-02/facts.json` with sha256
+`93507794b8fc52802d5504e8997f7863e6246d76c23136dd4a0ba1906182131b` and
+`live-rollout-rest-v2-in-flight-01/facts.json` with sha256
+`e6a26fb05fbb2c1bd7ff9ab691b3288a034e9518f0a60b2aa5d8f2f3274cfc29`.
+
+### matched connector qualification
+
+the default jarvis composition at `a93e83bd18950f78587e5c043a72422908822680`
+passed the owner-account fixture. the 100 mib pdf filed and both readers
+matched its bytes. a separate 100 mib revision used the tag returned by
+`drive.get` and verified the exact acknowledged head and bytes. a small
+revision changed the mime with name and parent preserved. a stale put
+returned the expected refused precondition and kept the newer bytes.
+search, recent, permissions, text, copy, empty blobs, native pdf export,
+docs reads, edit and suggestion passed in the same run.
+
+the fixture was verified in trash, both grants disconnected and google
+accepted revocation. the detached checkout and temporary connector probes
+were removed. named evidence under `live-rollout-jarvis-conditional-01/`
+has `provider/facts.json` sha256
+`9ea0d77743fe3fac9faf46ae42685acc538f9cb919512f20534104a0a92dbb12`
+and `retired-probes.json` sha256
+`bd87f0ead1a7adf9aea1e92ce18b3f1ce9f3f52fa878357265743b980928c9c2`.
+the package check also passed and its scratch was removed. the signed
+handset, stopped export, production restore and installed journeys remain
+open in the [cut issue](drive-files-deploy.md).
 
 ### earlier retired probes
 

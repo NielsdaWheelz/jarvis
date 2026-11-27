@@ -99,6 +99,29 @@ async def metadata(call: DriveCall, id: str) -> DriveFile:
     return item
 
 
+class DriveRevision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    etag: DriveToken | None
+    head_revision_id: DriveToken | None
+
+
+async def drive_revision(call: DriveCall, id: str) -> DriveRevision:
+    """Read the exact v2 conditional write token and binary revision identity."""
+    observed = await call("drive", "get_file_revision", {"fileId": id})
+    if observed.get("id") != id:
+        raise WorkspaceError("invalid_response")
+    try:
+        return DriveRevision.model_validate(
+            {
+                "etag": observed.get("etag"),
+                "head_revision_id": observed.get("headRevisionId"),
+            }
+        )
+    except ValueError:
+        raise WorkspaceError("invalid_response") from None
+
+
 def file_href(subject: str, id: str) -> str:
     return f"/files/{quote(subject, safe='')}/{quote(id, safe='')}"
 
@@ -299,8 +322,8 @@ async def fetch_binary(
         raise WorkspaceError("invalid_response")
     if (
         material["id"] != id
-        or material["title"] != original.name
         or material["mimeType"] != (export_type or original.mime)
+        or (export_type is not None and material["title"] != original.name)
     ):
         raise WorkspaceError("source_changed")
     if not original.native and original.size is not None and size != original.size:

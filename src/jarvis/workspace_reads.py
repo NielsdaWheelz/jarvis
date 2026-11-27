@@ -38,9 +38,10 @@ from jarvis.drive_connector import (
     DriveFile,
     DriveMaterialize,
     document,
+    drive_revision,
     fetch_binary,
     file_href,
-    file_wire,
+    metadata,
     permissions,
 )
 from jarvis.google_content import GoogleProjection
@@ -304,7 +305,9 @@ class DriveEntry(Closed):
     url: str | None
 
     @classmethod
-    def project(cls, file: DriveFile, subject: str) -> DriveEntry:
+    def project(
+        cls, file: DriveFile, subject: str, *, etag: str | None = None
+    ) -> DriveEntry:
         capability = file.capabilities
         return cls(
             subject=subject,
@@ -314,7 +317,7 @@ class DriveEntry(Closed):
             parent=file.parent,
             modified=file.modified,
             size=file.size,
-            etag=file.etag,
+            etag=etag,
             owner=file.owner,
             visibility=file.visibility,
             shared_drive=file.shared_drive,
@@ -512,7 +515,6 @@ class WorkspaceReads:
         access: Callable[[], WorkspaceReadAccess],
         subject: str | None = None,
         drive_materialize: DriveMaterialize | None = None,
-        drive_download_qualified: bool = False,
     ) -> None:
         self.client, self.account, self.grant_id, self.access = (
             client,
@@ -522,7 +524,6 @@ class WorkspaceReads:
         )
         self.subject = subject
         self._drive_materialize = drive_materialize
-        self._drive_download_qualified = drive_download_qualified
 
     async def _call(
         self,
@@ -689,8 +690,8 @@ class WorkspaceReads:
                 return await self._drive_collection(tool, value, subject, grant_id)
             if isinstance(value, DriveDownload):
                 materialize = self._drive_materialize
-                if materialize is None or not self._drive_download_qualified:
-                    raise WorkspaceError("drive_download_unqualified")
+                if materialize is None:
+                    raise WorkspaceError("drive_scratch_unavailable")
 
                 async def transfer(
                     args: dict[str, object], destination: BinaryIO, maximum: int
@@ -742,12 +743,14 @@ class WorkspaceReads:
                         observed_at=datetime.now(UTC),
                         link=file_href(subject, value.id),
                     )
-                raw = await call("drive", "get_file_metadata", file_wire(value.id))
-                file = DriveFile.observed(raw, value.id)
-                if file.trashed is True:
-                    raise WorkspaceError("not_found")
+                file = await metadata(call, value.id)
+                etag = None
+                if not file.native:
+                    revision = await drive_revision(call, file.id)
+                    if revision.head_revision_id is not None:
+                        etag = revision.etag
                 return DrivePage(
-                    items=[DriveEntry.project(file, subject)],
+                    items=[DriveEntry.project(file, subject, etag=etag)],
                     coverage=complete,
                     observed_at=datetime.now(UTC),
                     link=file_href(subject, value.id),
@@ -931,8 +934,6 @@ class WorkspaceReads:
         grant_id = self.grant_id
         if subject != self.subject or grant_id is None:
             raise WorkspaceError("grant_unavailable")
-        if not self._drive_download_qualified:
-            raise WorkspaceError("drive_download_unqualified")
 
         async def call(
             product: Product, name: str, args: dict[str, object]
@@ -1428,7 +1429,7 @@ _DRIVE_READS: tuple[tuple[str, type[Closed], str], ...] = (
     (
         "drive.get",
         DriveItem,
-        "Read exact file metadata, including an observed blob etag when provided.",
+        "Read exact file metadata and the etag for conditional blob revisions.",
     ),
     (
         "drive.permissions",

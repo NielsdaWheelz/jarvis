@@ -25,6 +25,7 @@ from pydantic import (
     model_validator,
 )
 
+from jarvis.home_refs import DRIVE_MIME_PATTERN
 from jarvis.home_refs import DriveId as DriveId
 from jarvis.mail_files import (
     MAIL_MAX_FILES,
@@ -534,7 +535,7 @@ def _drive_name(value: str) -> str:
 type DriveName = Annotated[
     str, Field(min_length=1, max_length=255), AfterValidator(_drive_name)
 ]
-type DriveMime = Annotated[str, Field(pattern=r"^[a-z0-9.+-]+/[a-z0-9.+-]+$")]
+type DriveMime = Annotated[str, Field(pattern=DRIVE_MIME_PATTERN)]
 
 
 class MailObservation(_StrictModel):

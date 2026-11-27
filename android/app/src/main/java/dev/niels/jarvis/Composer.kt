@@ -34,9 +34,11 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -54,6 +56,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -65,8 +68,8 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ChatDock(
-    drafts: Drafts, focusRequest: Int, requestedReference: DiscussionRef?,
-    closeReference: () -> Unit, send: (String) -> Unit,
+    drafts: Drafts, focusRequested: Boolean, focusAcquired: () -> Unit,
+    requestedReference: DiscussionRef?, closeReference: () -> Unit, send: (String) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val draft = drafts.draft
@@ -76,6 +79,7 @@ internal fun ChatDock(
     }
     val context = LocalContext.current
     val keyboard = LocalSoftwareKeyboardController.current
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
     val field = remember { FocusRequester() }
     val keep = remember { FocusRequester() }
     val input = remember(draft.id) { TextFieldState(draft.text) }
@@ -84,7 +88,6 @@ internal fun ChatDock(
     var confirmDiscard by remember(draft.id) { mutableStateOf(false) }
     var sendingWords by remember(drafts.sendingSince) { mutableStateOf(false) }
     var mayStop by remember(drafts.sendingSince) { mutableStateOf(false) }
-    var focusedRequest by remember { mutableStateOf(0) }
     val words = input.text.toString()
     val sending = drafts.sending
     val held = draft.held && !sending
@@ -107,11 +110,11 @@ internal fun ChatDock(
     LaunchedEffect(input, draft.id) {
         snapshotFlow { input.text.toString() }.collect { drafts.edit(draft.id, it) }
     }
-    LaunchedEffect(focusRequest) {
-        if (focusRequest != focusedRequest && focusRequest > 0) {
-            focusedRequest = focusRequest
-            field.requestFocus()
+    LaunchedEffect(focusRequested, windowFocused, requestedReference) {
+        if (focusRequested && windowFocused && requestedReference == null && field.requestFocus(FocusDirection.Enter)) {
+            withFrameNanos { }
             keyboard?.show()
+            focusAcquired()
         }
     }
     LaunchedEffect(confirmDiscard, requestedReference) {

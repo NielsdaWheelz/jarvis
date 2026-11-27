@@ -116,19 +116,20 @@ internal fun JarvisHome(
         if (entry == Route.Home) homeAddress = Routes.url(target).toString() else onResolve(target)
     }
     var chat by rememberSaveable { mutableStateOf(false) }
-    var focusDock by remember { mutableIntStateOf(0) }
+    var focusDock by remember { mutableStateOf(false) }
     var requestedReference by remember { mutableStateOf<DiscussionRef?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
     val panes = rememberSaveableStateHolder()
     val closeChat = {
         requestedReference = null
+        focusDock = false
         chat = false
     }
     BackHandler(enabled = chat, onBack = closeChat)
     LaunchedEffect(openDock) {
         if (openDock) {
             chat = true
-            focusDock++
+            focusDock = true
             dockOpened()
         }
     }
@@ -195,7 +196,7 @@ internal fun JarvisHome(
             if (ref != null && current != null && current != ref) requestedReference = ref
             else if (ref != null) drafts.reference(ref)
             chat = true
-            focusDock++
+            focusDock = true
             localError = null
         }
     }
@@ -250,7 +251,7 @@ internal fun JarvisHome(
             panes.SaveableStateProvider(if (chat) "chat" else "current") {
                 if (chat) Conversation(history, readPage, signIn, onNavigate, discuss, presence, refreshPresence,
                     dock = { pressed ->
-                        ChatDock(drafts, focusDock, requestedReference, { requestedReference = null }) { words ->
+                        ChatDock(drafts, focusDock, { focusDock = false }, requestedReference, { requestedReference = null }) { words ->
                             if (drafts.send(words, api, history)) pressed()
                         }
                     }) {

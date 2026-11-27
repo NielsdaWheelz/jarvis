@@ -312,6 +312,7 @@ internal class ChatHistory(private val shown: ChatShown) {
     private suspend fun loseAuthority(error: IOException): Boolean = receiptAuthority.withLock {
         val newLoss = !latest.authorityLost || received || rows.isNotEmpty()
         latest.refresh { throw error }
+        authorizationEpoch++
         if (newLoss) {
             rows = emptyList()
             owed = emptyList()
@@ -323,7 +324,6 @@ internal class ChatHistory(private val shown: ChatShown) {
             learned.clear()
             marked.clear()
             timings.clear()
-            authorizationEpoch++
         }
         false
     }

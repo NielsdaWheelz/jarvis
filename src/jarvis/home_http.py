@@ -71,7 +71,6 @@ from jarvis.workspace_mcp import WorkspaceApprovals
 _STATIC = Path(__file__).parent / "static" / "home"
 _PHONE_ROUTE = "/api/push/phone"
 _WORKSPACE_APPROVALS = "/api/workspace/approvals"
-_READ_SNAPSHOT = text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
 _SHELL_CSP = (
     "default-src 'self'; object-src 'none'; base-uri 'none'; "
     "frame-ancestors 'none'; form-action 'self'; img-src 'self' blob:"
@@ -96,13 +95,13 @@ class WorkspaceChoice(BaseModel):
     choice: str | None = Field(max_length=256)
 
 
-class ShownReport(BaseModel):
+class _ShownReport(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
 
     ids: list[CanonicalUUID] = Field(min_length=1, max_length=200)
 
 
-class ShownClear(BaseModel):
+class _ShownClear(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
 
     through: CanonicalUUID
@@ -281,7 +280,9 @@ def create_home_app(
 
     async def history(before: str | None = None) -> dict[str, Any]:
         async with database.connect() as conn:
-            await conn.execute(_READ_SNAPSHOT)
+            await conn.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            )
             try:
                 return await conversation(
                     conn,
@@ -295,15 +296,14 @@ def create_home_app(
 
     async def shown() -> dict[str, int]:
         async with database.connect() as conn:
-            await conn.execute(_READ_SNAPSHOT)
             return await shown_totals(conn, scope)
 
-    async def report_shown(body: ShownReport) -> Response:
+    async def report_shown(body: _ShownReport) -> Response:
         async with database.begin() as conn:
             await record_shown(conn, scope, body.ids)
         return Response(status_code=204)
 
-    async def clear(body: ShownClear) -> Response:
+    async def clear(body: _ShownClear) -> Response:
         async with database.begin() as conn:
             if not await clear_shown(conn, scope, body.through):
                 raise HTTPException(422, "clear requires a tracked message")

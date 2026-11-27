@@ -19,8 +19,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import org.json.JSONException
 
 internal class HomeVisits : ViewModel() {
     val todos = mutableMapOf<String, TodoReads>()
@@ -38,14 +40,30 @@ class MainActivity : ComponentActivity() {
         val initial = intent.data?.let(Routes::parse) ?: Route.Home
         val visits = ViewModelProvider(this)[HomeVisits::class.java]
         val notices = PhoneNotices.get(this)
-        val opening = notices.foreground(false)
+        notices.foreground(false)
         val api = HomeApi(applicationContext)
         val reports = ShownReports.get(applicationContext)
         val chat = visits.chat(api, reports, notices)
         setContent {
             LaunchedEffect(chat, notices) {
-                snapshotFlow { chat.latest.settled }.first { it }
-                notices.releaseHeld(opening)
+                if (notices.waitingAtStartup().isNotEmpty()) {
+                    try {
+                        snapshotFlow { chat.latest.settled }.first { it }
+                        val unresolved = notices.waitingAtStartup().toMutableSet()
+                        unresolved.removeAll(chat.rows.map { it.id }.toSet())
+                        var cursor = chat.before
+                        while (cursor != null && unresolved.isNotEmpty()) {
+                            val page = readChatPage(api, notices, cursor, 2_500)
+                            unresolved.removeAll(page.messages.map { it.id }.toSet())
+                            cursor = page.before
+                        }
+                    } catch (_: IOException) {
+                        // Preserve an alert when the server cannot establish whether it was shown.
+                    } catch (_: JSONException) {
+                        // Preserve an alert when the page cannot be read.
+                    }
+                }
+                notices.finishStartup()
             }
             val start = Routes.url(initial).toString()
             var trail by rememberSaveable {

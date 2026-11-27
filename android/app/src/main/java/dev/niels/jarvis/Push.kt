@@ -137,6 +137,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
     init { context.deleteSharedPreferences("chat-shown") }
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val held = context.getSharedPreferences("held-chat-notices", Context.MODE_PRIVATE)
+    private var startup = held.all.keys.toSet()
     private var foreground: Boolean? = null
     private var visibility = 0L
     private val postingReplies = mutableSetOf<String>()
@@ -154,9 +155,18 @@ internal class PhoneNotices private constructor(private val context: Context) {
     }
 
     @Synchronized
+    fun waitingAtStartup() = startup.intersect(held.all.keys)
+
+    @Synchronized
+    fun finishStartup() {
+        startup = emptySet()
+        releaseHeld(visibility)
+    }
+
+    @Synchronized
     fun releaseHeld(departure: Long) {
         if (foreground == true || departure != visibility) return
-        val waiting = held.all
+        val waiting = held.all.filterKeys { it !in startup }
         for ((id, stored) in waiting) {
             post(id, (stored as String).substringBefore(' '))
             held.edit().remove(id).apply()

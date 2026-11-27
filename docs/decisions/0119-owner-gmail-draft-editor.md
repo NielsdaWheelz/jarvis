@@ -1,5 +1,8 @@
 # adr 0119. edit and send a jarvis draft in the viewer
 
+[adr 0133](0133-viewer-approved-send.md) adds the exact send-review step and
+owns the send request and shared approval interaction at the next cut.
+
 **november 26, 2026.** jarvis writes a real gmail draft. its reply opens the draft in the requesting viewer. you read it, change recipients or files, and press **send** once. gmail owns the working copy. the conversation keeps what jarvis originally wrote. this amends [0105](0105-native-android.md), [0107](0107-google-workspace.md), [0115](0115-web-home-address.md) and the mail handoff in [0118](0118-chat-reading-and-approvals.md). implementation, provider qualification and activation have separate evidence.
 
 ## authority and scope

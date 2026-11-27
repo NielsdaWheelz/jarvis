@@ -552,6 +552,12 @@ operator browser and select the already enrolled workspace account. keep the
 auth prompt and client export private. same-subject `owner-gmail-disconnect`
 and re-enrollment preserve the epoch and existing uncertainty receipts.
 
+under [adr 0133](decisions/0133-viewer-approved-send.md), approve a send in the
+existing mail viewer. a restart expires reviews that have not been submitted.
+check the original operation receipt after a lost response. keep an uncertain
+send fenced until its outcome is known. a successful scope enrollment alone
+does not qualify autonomous draft deletion.
+
 before any restore over an existing installation, stop the assistant and run
 `jarvis owner-gmail-invalidate-restore` while the current database is still
 available. this writes the absent epoch before disconnecting the grant. restore

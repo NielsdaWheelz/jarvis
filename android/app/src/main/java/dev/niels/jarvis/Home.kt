@@ -767,11 +767,14 @@ private fun JSONObject.apparatus(deliveries: List<DiscussionRef>, editions: List
     val ordinals = mutableMapOf<String, Int>()
     for (draft in drafts.sortedBy { !it.optBoolean("editable") }) {
         val editable = draft.optBoolean("editable")
+        val requested = editable && draft.optBoolean("send_requested")
         val subject = subject(draft)
         val ordinal = if (editable && repeated.getValue(subject) > 1) {
             ((ordinals[subject] ?: 0) + 1).also { ordinals[subject] = it }
         } else null
-        add(ApparatusEntry(if (editable) "draft" else "revision", ordinal?.let { "$subject · $it" } ?: subject,
+        add(ApparatusEntry(
+            if (requested) "email" else if (editable) "draft" else "revision",
+            if (requested) "review email" else ordinal?.let { "$subject · $it" } ?: subject,
             Route.Mail(id, draft.getString("create_action_id"), historical = !editable)))
     }
     val revision = string("draft_revision_id")

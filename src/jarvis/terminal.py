@@ -85,6 +85,7 @@ class Answered(_Visible[Literal["answered"]]):
 
     text: Annotated[str, Field(min_length=1)]
     todo_result: TodoResult | None
+    send_request: CanonicalUuid | None
 
     _valid_text = field_validator("text")(_terminal_text)
 
@@ -96,6 +97,7 @@ class Partial(_Visible[Literal["partial"]]):
     limitation: Annotated[str, Field(min_length=1)]
     question: Annotated[str, Field(min_length=1)] | None
     todo_result: TodoResult | None
+    send_request: CanonicalUuid | None
 
     _valid_text = field_validator("text")(_terminal_text)
     _valid_limitation = field_validator("limitation")(_terminal_text)

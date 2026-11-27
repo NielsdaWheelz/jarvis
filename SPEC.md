@@ -11,9 +11,11 @@ audience: product, engineering, design, operations, and future coding agents
 [adr 0132](docs/decisions/0132-one-main.md) is the successor design for all
 owner-facing wakes. main has one tool and execution contract whether the input
 comes from the owner, an event, a timer or recovery. jarvis may use every
-supported operation automatically within its enrolled connections. the agent
-cannot send email or create, change or delete an event involving another
-person. it may read those events. all wakes share the gmail allowance.
+supported operation automatically within its enrolled connections. jarvis
+can ask to send a verified draft. the signed-in owner approves each exact
+send in the mail viewer under [adr 0133](docs/decisions/0133-viewer-approved-send.md).
+the agent may read events involving another person. creating, changing or
+deleting those events is prohibited. all wakes share the gmail allowance.
 special google checks become ordinary scheduled todos. workspace blocks have a private record,
 one phone notice when the owner can act, and recovery through the operation
 that encountered the block. the adr owns the detailed guarantees and limits.

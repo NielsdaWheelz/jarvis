@@ -22,6 +22,10 @@ for native routes and gmail intake remain pending. implementation evidence
 and cleanup receipts are under
 `~/.local/state/jarvis/qualification/adr0132-one-main-implementation/` on macbook.
 
+[adr 0133](decisions/0133-viewer-approved-send.md) adds owner approval for each
+exact send in the existing viewer. this changes the allowed gmail scope for a
+qualified draft operation. the draft-delete evidence still gates rollout.
+
 on november 27 independent opus 5.5 passed all four design units on spec blob
 `fb65225d0fa4021550896d361dca62d621dc6062` after closing nine initial findings,
 the 0118 presentation conflict and the batched-read resume ambiguity. the

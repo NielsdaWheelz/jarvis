@@ -8,7 +8,7 @@ from jarvis import terminal
 from jarvis.home_refs import SourceRef
 
 NATIVE_REQUEST_SCHEMA = "jarvis-native-request.v9"
-NATIVE_OUTPUT_NAME = "jarvis_home_message_v6"
+NATIVE_OUTPUT_NAME = "jarvis_home_message_v7"
 
 
 class JarvisNativeMessage(terminal.JarvisNativeMessage):

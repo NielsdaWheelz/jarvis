@@ -1738,6 +1738,8 @@ async def _draft_result_home(
     named: tuple[UUID, ...],
     stopping: tuple[UUID, ...],
     explicit: Presentation | None,
+    *,
+    send_request: str | None,
 ) -> dict[str, object] | None:
     if not named:
         return None
@@ -1772,6 +1774,7 @@ async def _draft_result_home(
         )
     ).all()
     drafts: list[dict[str, str]] = []
+    review_action = None
     web_request = False
     seen: set[UUID] = set()
     for row in rows:
@@ -1787,6 +1790,8 @@ async def _draft_result_home(
             continue
         if not isinstance(evidence, VerifiedWorkspaceDraft):
             continue
+        if send_request == str(row.id) and evidence.compose.editor is not None:
+            review_action = send_request
         drafts.append(
             {
                 "request_id": str(row.request_message_id),
@@ -1802,7 +1807,9 @@ async def _draft_result_home(
     if not drafts:
         return None
     result: dict[str, object] = {"drafts": drafts}
-    if explicit is None and len(drafts) == 1 and web_request:
+    if review_action is not None:
+        result["send_request"] = review_action
+    elif send_request is None and explicit is None and len(drafts) == 1 and web_request:
         draft = drafts[0]
         ref = DraftPresentationRef(
             request_id=draft["request_id"], create_action_id=draft["create_action_id"]
@@ -1906,6 +1913,11 @@ async def commit_product(
             if link is not None:
                 home["todo_result"] = link
         if rendered.content is not None:
+            send_request = (
+                final.response.send_request
+                if isinstance(final.response, Answered | Partial)
+                else None
+            )
             drafts = await _draft_result_home(
                 connection,
                 owner.scope_id,
@@ -1913,7 +1925,16 @@ async def commit_product(
                 tuple(statuses),
                 stopping,
                 None if isinstance(final.response, Silent) else final.response.present,
+                send_request=send_request,
             )
+            if send_request is not None and (
+                drafts is None or "send_request" not in drafts
+            ):
+                LOGGER.warning(
+                    "native send review omitted: attempt=%s action=%s",
+                    attempt["id"],
+                    send_request,
+                )
             if drafts is not None:
                 home.update(drafts)
         if stopping:
@@ -2060,6 +2081,7 @@ async def commit_product(
                 kind="question"
                 if rendered.outcome == "needs_input"
                 or (final.has_question and final.waits_for_owner)
+                or "send_request" in home
                 else "reply",
             )
         await connection.execute(

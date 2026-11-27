@@ -98,7 +98,9 @@ SELECT m.id,
        COALESCE(m.home->'artifact_links', '[]') AS artifact_links,
        COALESCE(
           (SELECT jsonb_agg(d.item || jsonb_build_object(
-              'editable', coalesce(d.epoch=CAST(:editor_epoch AS text), false)
+              'editable', coalesce(d.epoch=CAST(:editor_epoch AS text), false),
+              'send_requested', coalesce(d.epoch=CAST(:editor_epoch AS text)
+                  AND m.home->>'send_request'=d.item->>'create_action_id', false)
             ) ORDER BY d.slot) FROM ({_DRAFT_REFS}) d),
           '[]'
        ) AS drafts,

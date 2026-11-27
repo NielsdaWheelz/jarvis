@@ -1,4 +1,5 @@
 import { bindArtifacts } from "./artifacts.js";
+import { approvalForm } from "./approval-form.js";
 import { el, button, link } from "./home-dom.js";
 import { draftPreview, openEditor } from "./mail-editor.js";
 import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
@@ -860,7 +861,9 @@ function renderMessage(m, existing) {
     const peers = m.drafts.filter(other => other.editable === draft.editable &&
       (other.subject || "(no subject)") === subject);
     const label = editable && peers.length > 1 ? subject + " · " + (peers.indexOf(draft) + 1) : subject;
-    rows.push([editable ? "draft" : "revision", label, creationPath(m.id, draft)]);
+    const requested = editable && draft.send_requested === true;
+    rows.push([requested ? "email" : editable ? "draft" : "revision",
+      requested ? "review email" : label, creationPath(m.id, draft)]);
   }
   const unchecked = m.draft_revision_error === "integrity";
   const revised = m.draft_revision_id && !m.drafts.some(draft =>
@@ -1995,35 +1998,30 @@ async function workspaceApproval(ver) {
     return;
   }
   if (node.dataset.round === approval.id) return;
-  const status = el("p");
-  status.setAttribute("role", "status");
-  const answer = async (choice) => {
-    const controls = [...node.querySelectorAll("button")];
-    controls.forEach((control) => { control.disabled = true; });
-    try {
-      await request("/api/workspace/approvals/" + encodeURIComponent(approval.id), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ choice }),
-      });
-      status.textContent = "choice recorded.";
-    } catch (error) {
-      status.textContent = error.login ? "sign in to answer google." :
-        "couldn’t record that choice. checking whether the request is still open.";
-      controls.forEach((control) => { control.disabled = false; });
-    }
-    refresh();
-  };
-  const choices = approval.choices.map(({ value, label }) =>
-    button(label, () => answer(value))
-  );
-  node.replaceChildren(
-    el("p", approval.prompt),
-    el("small", "google · expires " + time(approval.expires_at)),
-    el("div"),
-    status,
-  );
-  node.querySelector("div").append(...choices, button("cancel", () => answer(null)));
+  node.replaceChildren(approvalForm({
+    label: "google approval",
+    prompt: approval.prompt,
+    note: "google · expires " + time(approval.expires_at),
+    choices: approval.choices,
+    async answer(choice, status) {
+      try {
+        const result = await request("/api/workspace/approvals/" + encodeURIComponent(approval.id), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ choice }),
+        });
+        if (!result.ok) throw new Error("approval unavailable");
+        status.textContent = "choice recorded.";
+        return true;
+      } catch (error) {
+        status.textContent = error.login ? "sign in to answer google." :
+          "couldn’t record that choice. checking whether the request is still open.";
+        return false;
+      } finally {
+        refresh();
+      }
+    },
+  }));
   node.dataset.round = approval.id;
   node.hidden = false;
 }

@@ -21,6 +21,8 @@ from jarvis.mail_editor import (
     FileParts,
     MailEditor,
     ResolveSave,
+    SendChoice,
+    SendReview,
     mail_failure,
 )
 from jarvis.mail_files import (
@@ -194,9 +196,34 @@ def build_mail_editor_router(
         except (EditorFailure, MailError) as exc:
             return failure(exc)
 
+    async def send_review(
+        message_id: UUID, create_action_id: UUID, review: SendReview
+    ) -> Response:
+        try:
+            return JSONResponse(
+                await editor.review_send(
+                    await target(message_id, create_action_id), review
+                )
+            )
+        except (EditorFailure, MailError) as exc:
+            return failure(exc)
+
+    async def approve_send(
+        message_id: UUID, create_action_id: UUID, approval_id: str, _choice: SendChoice
+    ) -> Response:
+        try:
+            status, body = await editor.approve_send(
+                await target(message_id, create_action_id), approval_id
+            )
+            return JSONResponse(body, status_code=status)
+        except (EditorFailure, MailError) as exc:
+            return failure(exc)
+
     router.add_api_route("", get, methods=["GET"])
     router.add_api_route("/files/{slot}", file, methods=["GET"])
     router.add_api_route("/operations/{identifier}", put, methods=["PUT"])
     router.add_api_route("/operations/{identifier}", lookup, methods=["GET"])
     router.add_api_route("/resolve-save", resolve_save, methods=["POST"])
+    router.add_api_route("/send-approval", send_review, methods=["POST"])
+    router.add_api_route("/send-approval/{approval_id}", approve_send, methods=["POST"])
     return router

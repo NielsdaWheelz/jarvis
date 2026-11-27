@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import logging
+import secrets
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from llm_tools import canonical_json_bytes
 from pydantic import BaseModel, ConfigDict, Field
@@ -67,7 +70,7 @@ class Upload(_Closed):
 
 
 class EditCommand(_Closed):
-    kind: Literal["save", "send"]
+    kind: Literal["save"]
     base: Digest
     to: Annotated[tuple[Mailbox, ...], Field(max_length=50)]
     cc: Annotated[tuple[Mailbox, ...], Field(max_length=50)]
@@ -80,6 +83,14 @@ class EditCommand(_Closed):
 class ResolveSave(_Closed):
     operation_id: UUID
     version: Digest
+
+
+class SendReview(_Closed):
+    version: Digest
+
+
+class SendChoice(_Closed):
+    choice: Literal["approve"]
 
 
 type FileParts = tuple[tuple[MailFile, bytes], ...]
@@ -211,6 +222,7 @@ class MailEditor:
         self.database = database
         self.google = google
         self.epoch = epoch
+        self._approval_key = secrets.token_bytes(32)
         self._accepting = False
         self._tasks: set[asyncio.Task[Reply]] = set()
         self._writers: set[UUID] = set()
@@ -329,6 +341,50 @@ class MailEditor:
             raise EditorFailure(409 if row["generation"] else 404, "operation_expired")
         return _receipt(row)
 
+    def _approval_signature(self, target: EditorTarget, value: str) -> str:
+        return hmac.digest(
+            self._approval_key,
+            canonical_json_bytes(
+                (str(target.epoch), target.google_sub, target.draft_id, value)
+            ),
+            "sha256",
+        ).hex()
+
+    async def review_send(self, target: EditorTarget, review: SendReview) -> Payload:
+        draft = await self.current(target)
+        if draft["state"] != "ready" or draft["version"] != review.version:
+            raise EditorFailure(409, "stale_version")
+        if not any(draft[field] for field in ("to", "cc", "bcc")):
+            raise EditorFailure(422, "invalid_envelope")
+        identifier = uuid4()
+        expires = int((datetime.now(UTC) + timedelta(minutes=5)).timestamp())
+        value = f"{identifier}.{review.version}.{expires}"
+        return {
+            "draft": draft,
+            "approval": {
+                "id": f"{value}.{self._approval_signature(target, value)}",
+                "operation_id": str(identifier),
+                "prompt": "send this email?",
+                "choices": [{"value": "approve", "label": "approve send"}],
+                "expires_at": datetime.fromtimestamp(expires, UTC).isoformat(),
+            },
+        }
+
+    async def approve_send(self, target: EditorTarget, token: str) -> Reply:
+        value, _, signature = token.rpartition(".")
+        if (
+            len(signature) != 64
+            or not signature.isascii()
+            or not hmac.compare_digest(
+                signature, self._approval_signature(target, value)
+            )
+        ):
+            raise EditorFailure(409, "invalid_approval")
+        operation_id, version, expires = value.split(".")
+        if datetime.now(UTC).timestamp() >= int(expires):
+            raise EditorFailure(410, "approval_expired")
+        return await self._run(target, UUID(operation_id), version, None, ())
+
     async def submit(
         self,
         target: EditorTarget,
@@ -336,9 +392,19 @@ class MailEditor:
         cmd: EditCommand,
         uploads: FileParts,
     ) -> Reply:
+        return await self._run(target, identifier, cmd.base, cmd, uploads)
+
+    async def _run(
+        self,
+        target: EditorTarget,
+        identifier: UUID,
+        base: str,
+        cmd: EditCommand | None,
+        uploads: FileParts,
+    ) -> Reply:
         grant = self._grant(target)
         task = asyncio.create_task(
-            self._submit(target, grant, identifier, cmd, uploads)
+            self._submit(target, grant, identifier, base, cmd, uploads)
         )
         self._tasks.add(task)
         task.add_done_callback(self._finished)
@@ -359,49 +425,63 @@ class MailEditor:
         target: EditorTarget,
         grant: UUID,
         identifier: UUID,
-        cmd: EditCommand,
+        base: str,
+        cmd: EditCommand | None,
         uploads: FileParts,
     ) -> Reply:
-        indices = [entry.upload for entry in cmd.files if isinstance(entry, Upload)]
-        keep = [entry.keep for entry in cmd.files if isinstance(entry, Keep)]
-        if sorted(indices) != list(range(len(uploads))) or len(set(keep)) != len(keep):
-            raise EditorFailure(422, "invalid_file")
-        digest = _digest(
-            (
-                1,
-                cmd.model_dump(mode="json"),
-                [meta.model_dump(mode="json") for meta, _ in uploads],
+        kind: Literal["save", "send"] = "send" if cmd is None else "save"
+        if cmd is None:
+            digest = _digest(("approved_send", base))
+        else:
+            indices = [entry.upload for entry in cmd.files if isinstance(entry, Upload)]
+            keep = [entry.keep for entry in cmd.files if isinstance(entry, Keep)]
+            if sorted(indices) != list(range(len(uploads))) or len(set(keep)) != len(
+                keep
+            ):
+                raise EditorFailure(422, "invalid_file")
+            digest = _digest(
+                (
+                    1,
+                    cmd.model_dump(mode="json"),
+                    [meta.model_dump(mode="json") for meta, _ in uploads],
+                )
             )
-        )
         row = await self._readrow(target)
         replay = _prior(row, identifier, digest)
         if replay is not None:
             return replay
         draft = target.draft()
         live = await self.google.read(draft, grant)
-        if cmd.base != _version(target, grant, row["generation"], live):
+        if base != _version(target, grant, row["generation"], live):
             raise EditorFailure(409, "stale_version")
         parts: list[tuple[MailFile, bytes]] = []
-        for entry in cmd.files:
-            if isinstance(entry, Upload):
-                parts.append(uploads[entry.upload])
-            else:
-                index = entry.keep - 1
-                if index >= len(live.files) or live.files[index].sha256 != entry.sha256:
-                    raise EditorFailure(409, "stale_file", slot=entry.keep)
-                parts.append((live.files[index], live.parts[index]))
+        if cmd is None:
+            parts.extend(zip(live.files, live.parts, strict=True))
+        else:
+            for entry in cmd.files:
+                if isinstance(entry, Upload):
+                    parts.append(uploads[entry.upload])
+                else:
+                    index = entry.keep - 1
+                    if (
+                        index >= len(live.files)
+                        or live.files[index].sha256 != entry.sha256
+                    ):
+                        raise EditorFailure(409, "stale_file", slot=entry.keep)
+                    parts.append((live.files[index], live.parts[index]))
         if sum(f.size_bytes for f, _ in parts) > MAIL_MAX_BYTES:
             raise EditorFailure(413, "too_large")
+        content = live if cmd is None else cmd
         prepared = await asyncio.to_thread(
             prepare,
             live,
-            to=cmd.to,
-            cc=cmd.cc,
-            bcc=cmd.bcc,
-            subject=cmd.subject,
-            body=cmd.body,
+            to=content.to,
+            cc=content.cc,
+            bcc=content.bcc,
+            subject=content.subject,
+            body=content.body,
             files=tuple(parts),
-            send=cmd.kind == "send",
+            send=kind == "send",
         )
         try:
             async with self.database.begin() as conn:
@@ -424,9 +504,9 @@ class MailEditor:
                     .values(
                         generation=generation,
                         operation_id=identifier,
-                        kind=cmd.kind,
+                        kind=kind,
                         request_digest=digest,
-                        base_revision=cmd.base,
+                        base_revision=base,
                         desired_digest=prepared.semantic_digest,
                         state="entered",
                         provider_result=None,
@@ -440,7 +520,7 @@ class MailEditor:
         self._writers.add(identifier)
         try:
             return await self._execute(
-                target, grant, identifier, generation, cmd.kind, prepared
+                target, grant, identifier, generation, kind, prepared
             )
         finally:
             self._writers.discard(identifier)

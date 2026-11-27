@@ -3,6 +3,9 @@
 Accepted ADRs are permanent records of why Jarvis is shaped this way. They are
 not implementation suggestions.
 
+[adr 0133](0133-viewer-approved-send.md) adopts one viewer approval for each
+exact email send and records the remaining autonomous draft-delete proof.
+
 [adr 0132](0132-one-main.md) specifies the successor to wake-specific plans
 and jarvis approval gates. it owns the two agent connector prohibitions,
 workspace recovery, and the matched source/client/installation cut.

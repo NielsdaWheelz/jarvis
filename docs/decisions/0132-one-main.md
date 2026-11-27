@@ -5,6 +5,10 @@ production still uses the previous contracts. the observed baseline is source
 `5be8429`, installed `6e6c8a4`, postgres schema `0028`. verify the actual
 predecessor before implementation and cutover.
 
+[adr 0133](0133-viewer-approved-send.md) amends the mail rule with an
+exact owner approval in the viewer and permits a send-capable scope for a
+qualified draft operation. the model has no executable send path.
+
 ## product contract
 
 one owner-facing assistant runs one main turn. a message, new mail, a scheduled

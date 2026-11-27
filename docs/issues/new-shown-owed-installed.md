@@ -10,14 +10,19 @@ for this first-cut trial. emulator and browser evidence qualify the source.
 during ordinary use, tap one real firebase alert and confirm that it opens the
 exact reply.
 
-the read-only check on november 26 selected the running release `22e9d2a`,
-which expects schema `0025`. the matched source expects `0027`. the
-[drive files rollout](drive-files-deploy.md) owns that predecessor cut.
+on november 27 utc, stock release `45fe785` started on schema `0027`.
+the authenticated web shell accepted a new message and showed its exact
+reply. the installed message api returned owed ids and their count, and
+rejected the stale viewer with 426. firebase accepted the reply notice.
+this records provider acceptance. the physical tap is still due.
 
-- record the installed first cut and the real notification tap.
-- verify the installed [drive files cut](drive-files-deploy.md) at `0027`.
-  land and qualify the stopped shared-receipt cut, including restore, stale
-  clients and cross-device notification sweeps. the owner reviews remaining
-  new messages before the cut resets those marks. owed labels survive it.
+- install signed android v10 on the enrolled handset and open chat once.
+  tap a real reply notification and verify that it opens that exact reply.
+  the mac had no connected handset at the installed check.
+- finish the installed [drive files checks](drive-files-deploy.md).
+  then land and qualify the stopped shared-receipt cut, including restore,
+  stale clients and cross-device notification sweeps. the owner reviews
+  remaining new messages before the cut resets those marks. owed labels
+  survive it.
 
 close after both matched cuts and their installed witnesses are recorded.

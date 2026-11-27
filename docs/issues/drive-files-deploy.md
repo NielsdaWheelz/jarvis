@@ -1,62 +1,34 @@
-# drive files production cut
+# finish installed drive verification
 
-activation is pending for [adr 0120](../decisions/0120-drive-files.md). schema `0027` replaces the old attachment reader. the cut requires a verified drive id and byte digest for each ready original. accepted pending uploads keep their staged bytes only when the stopped inventory verifies them.
+[adr 0120](../decisions/0120-drive-files.md) is installed on stock release
+`45fe785` at schema `0027`. the [0131](../decisions/0131-stock-drive-rollout.md)
+cut preserved the stock model routes and the existing run control. actual
+full-scope desktop consent preserved the agent grant, account and gmail label.
+the files viewer uses an independent read-only grant for the same account.
 
-on november 26 the owner authorized the drive move as the predecessor to
-shared chat receipts. a read-only production query found schema `0025` and
-25 ready attachments totaling 9,472,516 recorded bytes: 21 from gmail and
-four from web. no pending or unresolved retired attachment work was
-observed. each ready row needs a verified drive copy. repeat the inventory
-under the hold before migration.
+the stopped export matched 25 ready originals totaling 9,472,516 bytes.
+no source row, bucket object or spool entry needed a separate disposition.
+the importer wrote each original to the private imports folder and verified
+its bytes. both installed grant lanes independently verified all 25 digests.
+the viewer produced 23 previews and used ordinary google drive links for
+two formats outside its preview contract. the disposable grant was revoked
+and its cloud client retired.
 
-the matched wheel, archive and signed phone package rehashed locally.
-main preserves the two installed quota-recovery fixes. the active backup
-reader is still `0025`. the macbook built and qualified the matched `0027`
-reader against the release lock without accessing production backups.
-the exact reader also reopened a synthetic `0027` database dump offline
-with the expected read-only grants and rejected a mismatched lock. the
-archive, restore proof and reopened hashes are under
-`~/.local/state/jarvis/qualification/adr0125-reader-0027.8m64TgcY/`.
-the exact reader archive was copied into the private recovery kit and
-rehashed. verify it again with the actual stopped snapshot. production still holds
-the separate inactive `26f9588` candidate. its published tag
-`jarvis-native-antigravity-neon-adr0111-rc1` retains the exact tree. the
-candidate has no loaded unit, active process or hold referencing its
-directory. ordinary installer pruning can reclaim the inactive release.
+the exact stopped snapshot restored and migrated on macbook. startup exposed
+a catalog writer acl and a stale viewer probe. the named forward repair
+reverified the original migration and opened the stock services. the
+authenticated web viewer resolved an old attachment route and rendered its
+pdf. the installed api streamed matching bytes and listed the 25 imported
+entries. the installed catalog and model host access checks passed. the
+new database backup restored through both the remote and held reader.
+the retired attachment settings and cache were removed after verification.
+the private rehearsal copy was destroyed. named evidence is under
+`~/.local/state/jarvis/operations/adr0131/first-cut/` on macbook.
 
-the macbook systemd guest is ready. it passed a synthetic postgres 16.16
-and pgvector 0.8.6 restore and loopback-only ssh after reboot. the named
-evidence is under `~/.local/state/jarvis/qualification/adr0120-systemd-guest.w0FtiW05/`.
-the stopped production snapshot still needs its own restore and compatibility
-check. the deployment host derived a five-minute credential scoped to
-`ListObjectsV2` and `GetObject` on the retired bucket. cloudflare accepted a
-zero-key list request. the local credential was removed.
-reopened evidence under `~/.local/state/jarvis/qualification/adr0120-r2-session.zcIRRBqj/`
-has sha256 `5a9b97ca70a0f64eb9c7323c1d55eb12920aab0eb6ab3203d4245928f1ceea4d`.
-derive a fresh credential for the stopped export.
-
-### pre-stop ordering and host checks
-
-the installed `0025` cli has neither drive enrollment command. the
-target cli requires `0027`. the named migration checks the agent grant
-against the stopped snapshot, so changing it inside that hold would
-invalidate the rehearsal inputs. qualify the enrollment sequence before
-opening the production hold.
-
-the combined target also calls `verify-agy` before taking custody. the
-selected host has the stock-only v7 mapping and
-`kernel.apparmor_restrict_unprivileged_unconfined=0`. the target requires
-the v8 mapping and `1`. resolve the separately held [0111](../decisions/0111-native-antigravity-neon.md)
-host adoption before selecting this combined release, or qualify a release
-that carries only the approved host composition.
-
-the production google project now has the four drive/docs services enabled.
-the activation wrapper carries the private `drive-cut.json` beside its receipt
-and reuses the same verified pair on retry. offline red, green and cleanup
-evidence is in `~/.local/state/jarvis/qualification/adr0120-cut-transport-cOHjIP/`.
-
-1. use the [matched live qualification](drive-files-live.md) under [0127](../decisions/0127-drive-prototype-qualification.md). hold activation for any change to the qualified byte and revision paths until its live proof passes.
-2. stage the matched host, web shell, signed android client, and backup reader. follow the [operator runbook](../operations.md) under named stopped custody. verify and hash the private import map before applying the migration. hold on an unexplained row or an unsettled old effect.
-3. record installed old and new links, uploads, mail staging, publisher and workspace checks, and a separate database restore. repair forward after adoption. retain the old bucket through installed verification and dispose of it only under separate authority.
-
-close after installed evidence is reviewed. [deployment tracker](https://github.com/NielsdaWheelz/jarvis/issues/129) · [deferred document backup](drive-document-backup.md)
+the [matched live qualification](drive-files-live.md) covers provider writes
+and conditional byte revisions. finish installed acceptance by checking new
+upload and filing, edit readback, outgoing staging and publication through
+the normal product. the [phone witness](new-shown-owed-installed.md) remains
+part of the matched rollout. preserve unrelated inputs in the private notes
+checkout. the old bucket is offline from jarvis and has separate disposal
+authority. [deployment tracker](https://github.com/NielsdaWheelz/jarvis/issues/129)

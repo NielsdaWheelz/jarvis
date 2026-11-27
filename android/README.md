@@ -15,6 +15,7 @@ and java 21. the wrapper pins gradle and its distribution digest.
   `JARVIS_FIREBASE_PROJECT_ID` and `JARVIS_FIREBASE_SENDER_ID`. the server
   sending credential stays on the server.
 - run `./gradlew :app:assembleRelease -Pjarvis.versionCode=N -Pjarvis.versionName=VERSION`.
+  use version code 11 and version name 0.1.11 for the shared shown cut.
   before any install, run `./check-release APK TRUSTED_SHA256 INSTALLED_VERSION_CODE`.
   read the installed version code from android package diagnostics. use 0 for
   the first install. the trusted hash is the same one published at the edge.

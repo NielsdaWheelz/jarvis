@@ -43,6 +43,7 @@ ROOT = Path("/opt/jarvis")
 STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
 POSTGRES_BIN = Path("/usr/lib/postgresql/16/bin")
+SHOWN_CUT = (DRIVE_CUSTODY_SCHEMA, "0028")
 
 
 def require(condition, reason):
@@ -223,6 +224,57 @@ async def require_phone_cut(conn, facts, original):
         ),
         "converted notice provider, pending rows or grants differ from the stopped cut",
     )
+
+
+async def shown_target_facts(conn, facts, original):
+    require(
+        {k: v for k, v in facts.items() if k not in {"tables", "schema"}}
+        == {k: v for k, v in original.items() if k not in {"tables", "schema"}},
+        "shown cut changed database identity, roles, sequences, or canonical control",
+    )
+    added = {"public.alembic_version", "public.owner_shown"}
+    require(
+        {k: v for k, v in facts["tables"].items() if k not in added}
+        == {k: v for k, v in original["tables"].items() if k not in added},
+        "shown cut changed existing rows",
+    )
+    require(
+        await conn.scalar(
+            text("""
+                SELECT NOT EXISTS (
+                    SELECT FROM message m LEFT JOIN owner_shown s ON m.id = s.message_id
+                    WHERE (m.role = 'assistant') <> (s.message_id IS NOT NULL)
+                       OR s.via <> 'cutover'
+                )
+                AND (SELECT count(DISTINCT shown_at) <= 1 FROM owner_shown)
+                AND has_table_privilege('jarvis_runtime', 'owner_shown', 'SELECT')
+                AND has_table_privilege('jarvis_runtime', 'owner_shown', 'INSERT')
+                AND NOT has_table_privilege('jarvis_runtime', 'owner_shown',
+                                            'DELETE,TRUNCATE')
+                AND NOT has_any_column_privilege(
+                    'jarvis_runtime', 'owner_shown', 'UPDATE')
+                AND NOT EXISTS (
+                    SELECT FROM pg_roles WHERE rolname = 'jarvis_backup'
+                      AND (NOT has_table_privilege(oid, 'owner_shown', 'SELECT')
+                        OR has_table_privilege(oid, 'owner_shown', 'DELETE,TRUNCATE')
+                        OR has_any_column_privilege(
+                            oid, 'owner_shown', 'INSERT,UPDATE'))
+                )
+            """)
+        ),
+        "shown cut needs a complete cutover batch and the receipt grants",
+    )
+    # Each migration supplies its own transaction time. The qualified batch
+    # compares only receipt identity and kind and checks its shared time above.
+    return {
+        **facts,
+        "tables": {
+            **facts["tables"],
+            "public.owner_shown": await row_inventory(
+                conn, "(SELECT message_id, via FROM public.owner_shown)", "1"
+            ),
+        },
+    }
 
 
 async def workspace_obligations(conn, state):
@@ -596,6 +648,17 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
                 version,
             ) == ("0022", "0023"):
                 await require_phone_cut(conn, facts, manifest["original_facts"])
+            if (
+                operation == "record-rehearsal"
+                and (
+                    manifest["source"]["schema"],
+                    version,
+                )
+                == SHOWN_CUT
+            ):
+                facts = await shown_target_facts(
+                    conn, facts, manifest["original_facts"]
+                )
         proof.mkdir(mode=0o700, exist_ok=True)
         if operation == "verify-restored-source":
             require(
@@ -777,6 +840,10 @@ async def cut(operation, destination, binding, stop, qualification):
                 await require_workspace_target(conn, facts, manifest["original_facts"])
             if (source["schema"], target["schema"]) == ("0022", "0023"):
                 await require_phone_cut(conn, facts, manifest["original_facts"])
+            if (source["schema"], target["schema"]) == SHOWN_CUT:
+                facts = await shown_target_facts(
+                    conn, facts, manifest["original_facts"]
+                )
             require(
                 await conn.scalar(text("SELECT version_num FROM alembic_version"))
                 == target["schema"]

@@ -398,9 +398,10 @@ always in the chat projection, controls and workspace refreshes included.
 a failed projection after commit holds the send. a missing projection for a
 known id returns 503. a receipt lookup reserves 404 for an absent submission.
 both routes use the same projection and encoding as the exact message read.
-errors, limits, the origin check and the `cited-sources-v1` contract header do
-not change. the field is additive: no contract bump, no stopped cut, no
-compatibility code. the three callers that read only `id` keep working.
+errors, limits and the origin check stay the same. 0125's shared shown cut
+owns the `shown-v1` header and schema `0028`. the daybook adds one field to
+the receipt without another contract or schema change. callers that read only
+`id` still work with the current header.
 
 successful web font binaries under `/static/home/fonts/` use
 `private, max-age=31536000, immutable`. each filename includes the first
@@ -440,7 +441,7 @@ parallel. the units merge when green and reviewed. assets and their consuming cs
 | d · faces | `src/jarvis/static/home/fonts/`; `android/app/src/main/res/font/literata*`; `android/app/src/main/res/raw/literata_ofl.txt` | subset upstream Literata roman and italic, both axes, to Latin, Latin-1, Latin Extended-A and general punctuation, with every layout feature kept (`pyftsubset --layout-features='*'`; the default drops small caps and figure styles). woff2 for web at 125 kB or less each, ttf for android, web names include a content hash. the licenses sit beside their faces. the cormorant files and their css references ship together. record the upstream tag, the command and each sha256 in this adr. |
 | a · receipt | `src/jarvis/home_http.py`: `put`, `submission`, the cache line in `private` | return the receipt above, read through `visible_message` after `submit` returns. serve fonts immutable. |
 | b · web | `src/jarvis/static/home/`: `index.html`, `home.css`, `home.js`; in `presence.js` only the export of its `HH:MM` formatter; in `chat-attention.js` only the previous-article lookup, the boundary's place before a head, and the sampler's pause during the advance; the composer sentence in `SPEC.md` | two passes by one owner. first the page: tokens, faces, preload, stamp, heads, apparatus, proposal, reader, 0125 marks, selected. then the foot: composer dom, states, keys, drop, abort, discard, `accepted(receipt)`, the page advance. composer code stays in `home.js`; no new script. |
-| c · android | `android/app/src/main/java/dev/niels/jarvis/`: `Home.kt`, `ChatShown.kt`, `ShareActivity.kt`, `Drafts.kt`, `Presence.kt`, `MessageMarkdown.kt`, `HomeApi.kt`, `MainActivity.kt`, new `Paper.kt` (scheme, faces, conversation styles) and `Composer.kt` (the dock); the manifest | everything under android above. the signed candidate is version code 11, after the preceding cut’s signed v10. |
+| c · android | `android/app/src/main/java/dev/niels/jarvis/`: `Home.kt`, `ChatShown.kt`, `ShareActivity.kt`, `Drafts.kt`, `Presence.kt`, `MessageMarkdown.kt`, `HomeApi.kt`, `MainActivity.kt`, new `Paper.kt` (scheme, faces, conversation styles) and `Composer.kt` (the dock); the manifest | everything under android above. the signed candidate is version code 12, after the shared shown cut's v11. |
 | e · documents | pointers in the amended adrs, the decisions index, the implementation plan, `docs/issues/daybook-installed.md` | written by the lead when b merges; the installed issue owns rollout and the handset. |
 
 first placement on web waits for both Literata faces, for at most 1.5 s. if a
@@ -547,7 +548,7 @@ before each merge.
 9. no spinner in the conversation or share screen; a divider's pixel is `--line`.
 10. the deleted destinations and buttons are gone; `refresh` remains.
 
-**installed.** after the next web release and signed v11 app update, one send
+**installed.** after the next web release and signed v12 app update, one send
 through crossing and handoff on each client, on the s22+ with talkback. the
 installed issue records the release identities.
 
@@ -599,8 +600,8 @@ installed issue records the release identities.
   messages still open from alerts, the ledge and owner-reply links.
 - **merge when green.** the next install witnesses 0125, 0126 and this
   together. a regression found there needs a bisect to assign.
-- **the signed candidate takes v11.** the preceding signed v10 was already
-  staged and is installed on the s22+. the controlled candidate uses the same
+- **the signed candidate takes v12.** the first shown cut used v10. the shared
+  shown cut reserves v11. the controlled daybook candidate uses the same
   sources with the test's loopback origin.
 
 ## differences from the study

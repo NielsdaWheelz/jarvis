@@ -2,7 +2,7 @@
 
 the [daybook](0127-the-daybook.md#the-page) sets the position and type of the new and owed marks, and puts the android dock beside the transcript.
 
-**accepted design · november 26, 2026 · first cut implemented in source.** the owner cannot tell which of jarvis' messages he has seen. web and android will mark what is new, open where he left off, and say in words what jarvis is waiting on. this amends chat presentation in [0087](0087-private-web-home.md), [0105](0105-native-android.md), [0118](0118-chat-reading-and-approvals.md) and [0122](0122-chat-sidebar-and-phone-alerts.md). the second cut adds one table. a working [specimen](https://claude.ai/artifact/8TUX4PyFsNugUXq9YfW4K7) shows the marks and movement; where it differs from this text, this text governs.
+**accepted design · november 26, 2026 · both cuts implemented in source.** the owner cannot tell which of jarvis' messages he has seen. web and android will mark what is new, open where he left off, and say in words what jarvis is waiting on. this amends chat presentation in [0087](0087-private-web-home.md), [0105](0105-native-android.md), [0118](0118-chat-reading-and-approvals.md) and [0122](0122-chat-sidebar-and-phone-alerts.md). the second cut adds one table. a working [specimen](https://claude.ai/artifact/8TUX4PyFsNugUXq9YfW4K7) shows the marks and movement; where it differs from this text, this text governs.
 
 ## what is wrong today
 

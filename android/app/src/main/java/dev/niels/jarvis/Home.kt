@@ -160,9 +160,7 @@ internal fun JarvisHome(
                 }
                 Lifecycle.Event.ON_PAUSE -> {
                     history.attend(false)
-                    history.finishClear()
-                    history.flushBeforeLeaving()
-                    notices.foreground(false)
+                    history.leave(pausing = true)
                     resumed = false
                 }
                 else -> Unit
@@ -172,30 +170,20 @@ internal fun JarvisHome(
         onDispose { lifecycle.removeObserver(listener) }
     }
     DisposableEffect(resumed, chat) {
-        notices.foreground(resumed && chat)
+        if (resumed && chat) notices.foreground(true)
         onDispose {
-            if (resumed && chat) {
-                history.flushBeforeLeaving()
-                notices.foreground(false)
+            if (resumed && chat && lifecycle.currentState == Lifecycle.State.RESUMED) {
+                history.leave(pausing = false)
             }
         }
     }
     LaunchedEffect(resumed, focused) { history.attend(resumed && focused) }
     LaunchedEffect(presence, history.visit) { if (history.visit > 0) presence.requestChat() }
-    val reporting = history.reportPending
-    LaunchedEffect(reporting) {
-        if (reporting) {
-            do {
-                delay(1_000)
-                history.flushObserved()
-            } while (history.reportPending)
-        }
-    }
     val pending = history.pendingClear
-    LaunchedEffect(pending) {
+    LaunchedEffect(pending?.through) {
         if (pending != null) {
             delay((pending.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0))
-            history.finishClear()
+            history.commitClear { presence.requestChat() }
         }
     }
 
@@ -484,18 +472,13 @@ private fun Conversation(
     val newBelow = below.size
     LaunchedEffect(pendingJump, keys) {
         val target = pendingJump ?: return@LaunchedEffect
-        val position = indexes[target]
-        if (position != null) {
-            pinned = false
-            moving = true
-            try { list.scrollToItem(position, -inset) } finally { moving = false }
-            pendingJump = null
-        } else {
-            val cursor = history.before
-            history.earlier(readPage)
-            if (history.before == cursor) pendingJump = null
-        }
+        val position = indexes[target] ?: return@LaunchedEffect
+        pinned = false
+        moving = true
+        try { list.scrollToItem(position, -inset) } finally { moving = false }
+        pendingJump = null
     }
+    var seekingOlder by remember { mutableStateOf(false) }
     val jump: (String) -> Unit = { id ->
         val position = indexes[id]
         if (position == null) navigate(Route.Message(id))
@@ -592,7 +575,7 @@ private fun Conversation(
             }
         }
         if (loaded && messages.isEmpty() && !showTail) Text("no messages here", Modifier.padding(20.dp), style = ChatMurmur)
-        val pending = history.pendingClear
+        val pending = history.pendingClear?.takeUnless { it.sending }
         if (pending != null || newAbove + newBelow > 0 || history.owed.isNotEmpty()) {
             HorizontalDivider()
             FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -604,10 +587,21 @@ private fun Conversation(
                         newBelow == 0 -> "$newAbove new above"
                         else -> "${newAbove + newBelow} new, above and below"
                     }
-                    TextButton(onClick = {
+                    TextButton(enabled = !seekingOlder, onClick = {
                         val target = below.firstOrNull()?.id ?: above.lastOrNull()?.id
                         if (target != null) jump(target)
-                        else pendingJump = history.nearestOlder?.id
+                        else scope.launch {
+                            seekingOlder = true
+                            try {
+                                while (history.before != null && pendingJump == null) {
+                                    val cursor = history.before
+                                    pendingJump = history.earlier(readPage)
+                                    if (history.before == cursor) break
+                                }
+                            } finally {
+                                seekingOlder = false
+                            }
+                        }
                     }) { Text("◇ $text", style = ChatMurmur) }
                 }
                 if (history.owed.isNotEmpty()) {
@@ -653,7 +647,9 @@ private fun MessageDetail(
     Read(path to sending, reload, signIn, {
         val epoch = history.authorizationEpoch
         try {
-            val row = api.read(path)
+            val row = api.read(path)?.also {
+                if (it.optString("id") != route.id) throw IOException("invalid message response")
+            }
             if (!confirmReceipt() || epoch != history.authorizationEpoch) throw ChatPageDeferred()
             row
         } catch (lost: SignInRequired) {
@@ -671,7 +667,8 @@ private fun MessageDetail(
         val row = remember(message) { ChatMessage(message) }
         val viewport = remember { ChatViewport() }
         val headingInset = with(LocalDensity.current) { 64.dp.roundToPx() }
-        viewport.Observe(history, with(LocalDensity.current) { ChatBodySize.toPx() * 1.5f }, history.isNew(row))
+        viewport.Observe(history, with(LocalDensity.current) { ChatBodySize.toPx() * 1.5f },
+            history.canObserve(row, detached = true), detached = true)
         Column(
             Modifier.fillMaxSize().onGloballyPositioned { viewport.viewport = it }.verticalScroll(scroll).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -709,7 +706,7 @@ private fun ChatCard(
     val dry = if (fresh) snap() else tween<Color>(700, easing = CubicBezierEasing(0.22f, 0.61f, 0.36f, 1f))
     val fill by animateColorAsState(if (fresh || !carried) ink else Color.Transparent, dry, label = "lozenge fill")
     val stroke by animateColorAsState(if (fresh || !carried) ink else muted, dry, label = "lozenge border")
-    val direct = { history.record(listOf(row)) }
+    val direct = { history.record(listOf(row), detached = selected) }
     Column(Modifier.fillMaxWidth().onGloballyPositioned { viewport.cards[row.id] = row to it }.semantics {
         if (selected) this.selected = true
     }.drawBehind {

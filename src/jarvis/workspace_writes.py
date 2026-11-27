@@ -29,6 +29,7 @@ from jarvis.drive_connector import (
     document,
     document_revision,
     document_tabs,
+    drive_revision,
     fetch_binary,
     file_href,
     metadata,
@@ -43,6 +44,7 @@ from jarvis.gmail_drafts import (
     workspace_raw,
     workspace_reply_parent,
 )
+from jarvis.home_refs import DRIVE_STRONG_ETAG_PATTERN
 from jarvis.mail_files import MailFileFailure, MailFiles, NewMailFile, ObservedMailPart
 from jarvis.read_tools import ATTACHMENT_MAX_BYTES
 from jarvis.workspace_links import workspace_link
@@ -1207,8 +1209,13 @@ def _drive_receipt(
         elif isinstance(effect, FrozenDriveRevise):
             id, title = effect.id, effect.expected.name
             revision = provider_id(result, "id")
-            if "fileEtag" in result:
-                etag = provider_id(result, "fileEtag")
+            etag = result.get("fileEtag")
+            if (
+                not isinstance(etag, str)
+                or not re.fullmatch(DRIVE_STRONG_ETAG_PATTERN, etag)
+                or etag == effect.etag
+            ):
+                raise ValueError("invalid drive revision acknowledgement")
         else:
             id, title = provider_id(result, "id"), effect.name
             if isinstance(effect, FrozenDriveCopy) and id == effect.id:
@@ -1237,6 +1244,22 @@ def _drive_receipt(
         raise WorkspaceError("uncertain") from None
 
 
+async def _require_drive_tag(io: _Exchange, id: str, etag: str) -> None:
+    observed = await drive_revision(io.call, id)
+    if observed.etag is None or observed.head_revision_id is None:
+        raise WorkspaceError("file_revision_unavailable")
+    if observed.etag != etag:
+        raise WorkspaceError("file_revision_changed")
+
+
+async def _verify_drive_head(io: _Exchange, receipt: DriveWriteReceipt) -> None:
+    if receipt.etag is None or receipt.revision is None:
+        raise WorkspaceError("file_revision_unavailable")
+    current = await drive_revision(io.call, receipt.file_id)
+    if (current.etag, current.head_revision_id) != (receipt.etag, receipt.revision):
+        raise WorkspaceError("file_changed")
+
+
 async def _drive_readback(
     io: _Exchange, effect: FrozenDriveEffect, receipt: DriveWriteReceipt
 ) -> Obj:
@@ -1260,12 +1283,10 @@ async def _drive_readback(
         current.name != expected.name
         or current.parent != expected.parent
         or current.mime != expected.media_type
-        or (
-            isinstance(effect, FrozenDriveRevise)
-            and (receipt.etag is None or current.etag != receipt.etag)
-        )
     ):
         raise WorkspaceError("file_changed")
+    if isinstance(effect, FrozenDriveRevise):
+        await _verify_drive_head(io, receipt)
     if expected.sha256 is not None:
         if current.mime == _DOC:
             text = _document_text(await document(io.call, receipt.file_id))
@@ -1276,7 +1297,9 @@ async def _drive_readback(
             expected.sha256,
         ):
             raise WorkspaceError("file_bytes_differ")
-    return {"title": current.name, "etag": current.etag}
+    if isinstance(effect, FrozenDriveRevise):
+        await _verify_drive_head(io, receipt)
+    return {"title": current.name}
 
 
 class WorkspaceWrites:
@@ -1287,16 +1310,12 @@ class WorkspaceWrites:
         *,
         discard_qualified: bool = False,
         drive_sources: DriveSources | None = None,
-        drive_download_qualified: bool = False,
-        drive_revise_qualified: bool = False,
         editor_stamp: Callable[[UUID], DraftEditorStamp | None] | None = None,
     ):
         self._client = client
         self._files = mail_files
         self._discard_qualified = discard_qualified
         self._drive_sources = drive_sources
-        self._drive_download_qualified = drive_download_qualified
-        self._drive_revise_qualified = drive_revise_qualified
         self._editor_stamp = editor_stamp
 
     async def prepare(
@@ -1560,8 +1579,6 @@ class WorkspaceWrites:
                 text = _document_text(await document(io.call, copy.id))
                 digest = _digest(text.removesuffix("\n").encode())
             elif not original.native:
-                if not self._drive_download_qualified:
-                    raise WorkspaceError("drive_download_unqualified")
                 size, digest = await _drive_bytes(io, copy.id)
             if (await metadata(io.call, copy.id)).etag != original.etag:
                 raise WorkspaceError("source_changed")
@@ -1584,12 +1601,11 @@ class WorkspaceWrites:
             name, parent = request.name, request.parent
             target = parent
         elif tool == "drive.revise":
-            if not self._drive_revise_qualified:
-                raise WorkspaceError("drive_revise_unqualified")
             request = DriveRevise.model_validate(arguments)
             current = await metadata(io.call, request.id)
-            if current.etag != request.etag or current.native:
-                raise WorkspaceError("file_revision_changed")
+            if current.native:
+                raise WorkspaceError("native_edit_requires_docs")
+            await _require_drive_tag(io, request.id, request.etag)
             name, parent = current.name, current.parent
             target = request.id
         else:
@@ -1621,8 +1637,6 @@ class WorkspaceWrites:
                 mime, size, digest = file.media_type, file.size, file.sha256
         if mime.startswith(NATIVE_MIME) and isinstance(request, DriveRevise):
             raise WorkspaceError("native_edit_requires_docs")
-        if not mime.startswith(NATIVE_MIME) and not self._drive_download_qualified:
-            raise WorkspaceError("drive_download_unqualified")
         expected = DriveExpected(
             name=name, parent=parent, media_type=mime, size=size, sha256=digest
         )
@@ -1655,6 +1669,15 @@ class WorkspaceWrites:
                     doc = await document(io.call, effect.id)
                     if document_revision(doc, effect.id) != effect.revision:
                         raise WorkspaceError("document_changed")
+                elif isinstance(effect, FrozenDriveRevise):
+                    current = await metadata(io.call, effect.id)
+                    if (
+                        current.native
+                        or current.name != effect.expected.name
+                        or current.parent != effect.expected.parent
+                    ):
+                        raise WorkspaceError("file_revision_changed")
+                    await _require_drive_tag(io, effect.id, effect.etag)
                 observed = await audience(io.call, effect.audience.target, io.account)
                 if observed.fingerprint != effect.audience.fingerprint or (
                     observed.state != effect.audience.state
@@ -1663,10 +1686,7 @@ class WorkspaceWrites:
                         "drive_audience_changed",
                         {"audience": observed.model_dump(mode="json")},
                     )
-                if isinstance(effect, FrozenDriveRevise):
-                    if (await metadata(io.call, effect.id)).etag != effect.etag:
-                        raise WorkspaceError("file_revision_changed")
-                elif isinstance(effect, FrozenDriveCopy):
+                if isinstance(effect, FrozenDriveCopy):
                     if (await metadata(io.call, effect.id)).etag != effect.source_etag:
                         raise WorkspaceError("source_changed")
                 if rounds == io.read_resumptions:
@@ -1700,10 +1720,6 @@ class WorkspaceWrites:
                 operation, outcome = "create_file", "created"
                 args = {"parentId": effect.parent, "title": effect.name}
             else:
-                if not self._drive_revise_qualified:
-                    raise WorkspaceError(
-                        "drive_revise_unqualified", known_no_effect=True
-                    )
                 operation, outcome = "upload_file_revision", "revised"
                 args = {"fileId": effect.id, "etag": effect.etag}
             source = effect.source.value

@@ -168,6 +168,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0127](0127-drive-prototype-qualification.md) | qualify drive on the owner's account | accepted. keep changes in a fresh synthetic fixture and defer the data-use review. |
 | [0128](0128-docs-rest.md) | use the standard docs api | accepted. direct owner-account proof covers revisions, edits and suggestions. |
 | [0129](0129-drive-blob-rest.md) | transfer drive blobs through the standard drive api | direct owner-account proof passed at 100 mib. matched runtime qualification remains open. |
+| [0130](0130-drive-conditional-revision.md) | condition drive revisions on the exact file tag | direct 100 mib write and in-flight rejection evidence. matched runtime qualification remains open. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 the two decisions numbered 0114 likewise retain their distinct titles and paths.

@@ -564,6 +564,13 @@ the [drive files cut](decisions/0120-drive-files.md) uses a separate read-only e
 
 after the named release hold gives you the stopped snapshot, use the macbook restore. run `deploy/drive-export` against that read-only predecessor with a list-and-read credential for only the retired bucket, the stopped spool and the chosen private folder. record exact held, orphan and retained object dispositions. the export issues no deletes. if the export reports a terminal uncertain action, add its approved `retired_actions` entry to the inventory with `id` and `disposition` equal to `verified_under_original_contract` or `owner_accepted_unknown`. approve and hash the resulting inventory, then run `deploy/drive-import` with the disposable `drive.file` grant, the export and the approved digest. reopen both reader lanes on the verified ids and close the operator grant. the frozen import map permits retry of the same id only.
 
+the operator can derive a short-lived credential on the deployment host
+from the installed bucket's parent token with exactly `ListObjectsV2` and
+`GetObject`. keep the parent secret on that host. give `drive-export` a
+private json file containing `access_key_id`, `secret_access_key` and
+`session_token` for the derived credential. remove the file after export.
+[r2 temporary credentials](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/)
+
 stage the bounded native file scratch mount at `/var/cache/jarvis/files` with the selected contained host. the target unit clears the retired bucket variables before starting jarvis. after activation remove their old entries with the stopped private provisioning command. stage the approved result as `PROOF_DIR/drive-cut.json`. run `deploy/prepare-cutover verify-restored-source SNAPSHOT_DIR PROOF_DIR` followed by `deploy/prepare-cutover migrate-restored-drive SNAPSHOT_DIR PROOF_DIR --map-sha256 DIGEST`. finish the normal `record-rehearsal` step and stage the map next to `qualification.json`. `activate-release --qualification` transfers both together. the installed cut compares the map hash, stopped subject, carried spool bytes and target database inventory. keep the predecessor bucket offline from jarvis until its exact separate disposal. record legacy file byte retirement and the database restore independently.
 
 for an independent stopped repair, execute the documented service-user command under `sudo -n /opt/jarvis/current/deploy/with-independent-maintenance COMMAND [ARG ...]` on the deployment host. wrap the whole foreground service invocation, including `systemd-run --wait` when used. this holds the shared release lock, checks for a published change and preserves the command’s own writer keys, runtime identity and environment.

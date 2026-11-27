@@ -547,12 +547,17 @@ class WorkspaceHost:
             download_metadata = (
                 tool == "drive.download" and operation == "get_file_metadata"
             )
+            revision_metadata = tool == "drive.get" and operation == "get_file_revision"
             requested = {"fileId": target["fileId"]} if download_metadata else target
             if (
                 public != tool
                 or selectors != arguments
                 or product != tool.partition(".")[0]
-                or (operation != operation_name and not download_metadata)
+                or (
+                    operation != operation_name
+                    and not (download_metadata or revision_metadata)
+                )
+                or (revision_metadata and wire != target)
                 or wire.get("pageToken") != token
                 or any(wire.get(key) != value for key, value in requested.items())
                 or wire.get("includeTrash") is True

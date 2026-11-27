@@ -111,6 +111,29 @@ with sha256 `7e59878d5df663013cd3b7a96781ba01e4ba9ecfd4b0b0ccf72100266f76787d`
 and `live-rollout-jarvis-transport-01/facts.json` with sha256
 `7b297487c5d302a11a31bc03761f44d0604071c9e3d678d0f6fb89d77b1e84b3`.
 
+the next matched run verified ordinary pdf create, copy and both readers,
+an explicit native export, and exact empty-file create and download. the
+100 mib fixture used an octet-stream file. the human preview correctly
+refused that type after the matched agent read. use a valid 100 mib pdf
+to exercise both readers. the test runner revoked the grants ahead of the
+manual trash check. the exact folder was then verified in drive trash.
+evidence under `live-rollout-jarvis-rest-02/provider/` is `facts.json` with
+sha256 `3233414011de90bed4bcebb600c4a3ef6bf0290005f200ab42c35b8366718e5e`
+and `trash-ui.json` with sha256
+`c432105b05f14e87581e7bf37eded6574a32c4f19bd38a03f8c7857c209cbf57`.
+
+direct drive v2 media updates passed a current-tag 100 mib write and
+returned http 412 for the exact old tag. an in-flight stale write also
+returned 412 after a rival update. the rival's bytes, v2 tag and head
+revision survived. the diagnostic's broader v3 version check failed,
+so its overall outcome remains incomplete. [0130](../decisions/0130-drive-conditional-revision.md)
+uses the v2 tag and head revision for this contract. both folders were
+verified in trash and grants revoked. reopened evidence is
+`live-rollout-rest-v2-media-02/facts.json` with sha256
+`93507794b8fc52802d5504e8997f7863e6246d76c23136dd4a0ba1906182131b` and
+`live-rollout-rest-v2-in-flight-01/facts.json` with sha256
+`e6a26fb05fbb2c1bd7ff9ab691b3288a034e9518f0a60b2aa5d8f2f3274cfc29`.
+
 ### earlier retired probes
 
 both disposable folders were confirmed in trash. google accepted project

@@ -26,8 +26,12 @@ the macbook systemd guest is ready. it passed a synthetic postgres 16.16
 and pgvector 0.8.6 restore and loopback-only ssh after reboot. the named
 evidence is under `~/.local/state/jarvis/qualification/adr0120-systemd-guest.w0FtiW05/`.
 the stopped production snapshot still needs its own restore and compatibility
-check. locate or provision the separate list-and-read credential for the
-retired attachment bucket before taking the hold.
+check. the deployment host derived a five-minute credential scoped to
+`ListObjectsV2` and `GetObject` on the retired bucket. cloudflare accepted a
+list request that returned zero keys. the local credential was removed.
+reopened evidence under `~/.local/state/jarvis/qualification/adr0120-r2-session.zcIRRBqj/`
+has sha256 `5a9b97ca70a0f64eb9c7323c1d55eb12920aab0eb6ab3203d4245928f1ceea4d`.
+derive a fresh credential for the stopped export.
 
 the production google project now has the four drive/docs services enabled.
 the activation wrapper carries the private `drive-cut.json` beside its receipt

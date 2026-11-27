@@ -32,6 +32,7 @@ class FilePageRef(FileRef):
 
 DRIVE_ID_PATTERN = r"^[A-Za-z0-9_-]{1,255}$"
 DRIVE_MIME_PATTERN = r"^[a-z0-9.+-]+/[a-z0-9.+-]+$"
+DRIVE_STRONG_ETAG_PATTERN = r'^"[\x21\x23-\x7e\x80-\xff]*"$'
 type DriveId = Annotated[str, Field(pattern=DRIVE_ID_PATTERN)]
 
 

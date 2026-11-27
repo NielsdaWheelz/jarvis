@@ -62,7 +62,7 @@ internal class HomeApi(context: Context) {
         }
         var bearer = access.currentBearer() ?: throw SignInRequired()
         var response = execute(request.header("Authorization", "Bearer $bearer").build(), timeoutMillis)
-        val report = method == "POST" && path in setOf("/api/shown", "/api/shown/clear")
+        val report = method == "POST" && (path == "/api/shown" || path == "/api/shown/clear")
         if (retryAuthentication && response.code == 401 && (method == "GET" || method == "HEAD" || report)) {
             response.close()
             access.rejectedBearer(bearer)
@@ -101,7 +101,7 @@ internal class HomeApi(context: Context) {
         }
     }
 
-    suspend fun writeShown(path: String, data: JSONObject) {
+    suspend fun writeShown(path: String, data: JSONObject) = withContext(Dispatchers.IO) {
         request(path, "POST", data.toString().toRequestBody("application/json".toMediaType()), timeoutMillis = 3_000)
             .use { response ->
                 when (response.code) {

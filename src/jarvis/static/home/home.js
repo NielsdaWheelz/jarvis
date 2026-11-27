@@ -678,7 +678,10 @@ $("composer").onsubmit = async (event) => {
       options.body = descriptor;
     }
     await attention.flush();
-    if (loginRequired) return;
+    if (loginRequired) {
+      caption("checking whether your message arrived…");
+      return;
+    }
     const response = await request("/api/messages/" + id, options);
     if (response.ok) receipt = validReceipt(await response.json());
     else if (response.status === 409) {
@@ -1020,7 +1023,8 @@ async function messages(ver, paired) {
   let latestId;
   function keepReadState(error) {
     reread ||= allPages || !foundOldest;
-    if (ver !== routeVersion || document.hidden || error.upgrade || !pages.length) return;
+    if (ver !== routeVersion || !currentProjection(version) || draft.uncertain ||
+        error.upgrade || !pages.length) return;
     for (const page of pages) attention.page(page, page.sequence, true);
     attention.update();
   }

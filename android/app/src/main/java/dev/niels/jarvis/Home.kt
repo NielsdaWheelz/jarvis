@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -80,6 +81,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -595,7 +597,7 @@ private fun Conversation(
             HorizontalDivider()
             FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 if (pending != null) {
-                    TextButton(onClick = history::undo) { Text("${pending.count} cleared · undo") }
+                    TextButton(onClick = history::undo) { Text("${pending.count} cleared · undo", style = ChatMurmur) }
                 } else if (newAbove + newBelow > 0) {
                     val text = when {
                         newAbove == 0 -> "$newBelow new below"
@@ -606,7 +608,7 @@ private fun Conversation(
                         val target = below.firstOrNull()?.id ?: above.lastOrNull()?.id
                         if (target != null) jump(target)
                         else pendingJump = history.nearestOlder?.id
-                    }) { Text("◇ $text") }
+                    }) { Text("◇ $text", style = ChatMurmur) }
                 }
                 if (history.owed.isNotEmpty()) {
                     val count = history.owed.size
@@ -615,7 +617,7 @@ private fun Conversation(
                         val candidate = candidates[(candidates.indexOf(owedCycle) + 1) % candidates.size]
                         owedCycle = candidate
                         jump(candidate)
-                    }) { Text(if (count == 1) "1 needs a reply" else "$count need a reply", color = rubric()) }
+                    }) { Text(if (count == 1) "1 needs a reply" else "$count need a reply", color = rubric(), style = ChatCaps) }
                 }
             }
         }
@@ -791,7 +793,12 @@ private fun JSONObject.apparatus(deliveries: List<DiscussionRef>, editions: List
 
 @Composable
 private fun Apparatus(rows: List<ApparatusEntry>, navigate: (Route) -> Unit) {
+    if (rows.isEmpty()) return
     val colors = MaterialTheme.colorScheme
+    val measure = rememberTextMeasurer()
+    val width = with(LocalDensity.current) {
+        rows.maxOf { measure.measure(it.kind, ChatCaps, softWrap = false).size.width }.toDp()
+    }
     var previous: String? = null
     for (entry in rows) {
         val first = entry.kind != previous
@@ -801,8 +808,9 @@ private fun Apparatus(rows: List<ApparatusEntry>, navigate: (Route) -> Unit) {
         Row(if (entry.route == null) row else row.clickable(role = Role.Button) { navigate(entry.route) }
             .semantics { contentDescription = name }, horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text(if (first) entry.kind else "", Modifier.weight(.24f), color = colors.onSurfaceVariant, style = ChatCaps)
-            Column(Modifier.weight(.76f).then(if (entry.route == null) Modifier else Modifier.clearAndSetSemantics {})) {
+            Text(if (first) entry.kind else "", Modifier.width(width), color = colors.onSurfaceVariant, style = ChatCaps,
+                softWrap = false)
+            Column(Modifier.weight(1f).then(if (entry.route == null) Modifier else Modifier.clearAndSetSemantics {})) {
                 Text(entry.text, style = ChatApparatus.copy(
                     textDecoration = if (entry.route != null) TextDecoration.Underline else null,
                 ))

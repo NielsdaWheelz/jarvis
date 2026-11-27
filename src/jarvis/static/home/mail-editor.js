@@ -424,7 +424,11 @@ export function openEditor(panel, path, original, digest, request) {
       }
       notice("loading the exact email for review…");
       const result = await mailRequest(sendApproval, post({ version: live.version }));
-      if (closed || document.hidden) return;
+      if (closed) return;
+      if (document.hidden) {
+        notice("review the email again before sending.");
+        return;
+      }
       if (result.state) {
         await held(result);
         return;
@@ -445,11 +449,9 @@ export function openEditor(panel, path, original, digest, request) {
           if (closed || approval !== decision) return true;
           approval = null;
           choices.replaceChildren();
+          controls();
           if (choice === "approve") await start("send", decision);
-          else {
-            controls();
-            send.focus();
-          }
+          else send.focus();
           return true;
         },
       });
@@ -693,7 +695,7 @@ export function openEditor(panel, path, original, digest, request) {
     blocked = false;
     controls();
     // A definite rejection leaves edits intact. Explicit retry also covers going offline.
-    if (live && dirty()) checkAgain("save changes", () => start("save"));
+    if (live && generation !== confirmed) checkAgain("save changes", () => start("save"));
   }
   async function perform(kind, decision) {
     const prior = [...files],
@@ -797,7 +799,7 @@ export function openEditor(panel, path, original, digest, request) {
     if (closed || blocked || reading || sending || picking || (kind === "save" && inFlight)) return;
     stopTimer();
     if (!navigator.onLine) {
-      notice("changes only on this device");
+      notice(kind === "send" ? "connect, then review the email again." : "changes only on this device");
       return;
     }
     try {

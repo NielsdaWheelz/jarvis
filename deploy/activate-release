@@ -287,8 +287,9 @@ fi
 
 source_commit="$("$custody" source "$change")"
 source_release="/opt/jarvis/releases/$source_commit"
+source_package_schema="$(schema_of "$source_release")"
 if [[ "$phase" == unknown ]]; then
-  source_schema="$(schema_of "$source_release")"
+  source_schema="$source_package_schema"
 else
   source_schema="$("$custody" source-schema "$change")"
 fi
@@ -514,7 +515,8 @@ read -r _ target_output target_digest <<<"$target_native_contract"
 if [[ "$source_output" == "$target_output" && "$source_digest" != "$target_digest" ]]; then
   refuse "held $change. native output name aliases a different schema"
 fi
-if [[ "$source_schema" == "$target_schema" && "$source_native_contract" != "$target_native_contract" ]]; then
+# An already migrated repair is bound to the original cross-schema proof.
+if [[ "$source_package_schema" == "$target_schema" && "$source_native_contract" != "$target_native_contract" ]]; then
   native_inventory="$held/native-inventory.json"
   if [[ "$phase" == held && ! -f "$native_inventory" ]]; then
     stopped_native_check "$source_release" 0 "$source_release/.venv/bin/jarvis" cutover-native

@@ -303,6 +303,10 @@ if [[ "$phase" == unknown && "$repair_of" != none ]]; then
     [[ "$source_commit" == "${prior[0]}" && "$source_schema" == "${prior[1]}" && "$observed" == "${prior[3]}" ]] ||
       refuse "held database and selected code require the exact predecessor migration receipt"
     previous_release="/opt/jarvis/releases/${prior[2]}"
+    previous_native_contract="$(native_contract_of "$previous_release")"
+    repair_native_contract="$(native_contract_of "$release")"
+    [[ "$repair_native_contract" == "$previous_native_contract" ]] ||
+      refuse "repair native contract differs from the qualified target"
     systemd-run --quiet --wait --pipe --collect --property=Type=oneshot \
       "--property=WorkingDirectory=$previous_release" \
       --property=EnvironmentFile=/etc/jarvis/database-runtime.env \

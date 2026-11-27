@@ -88,7 +88,7 @@ internal fun ChatDock(
     val words = input.text.toString()
     val sending = drafts.sending
     val held = draft.held && !sending
-    val ready = !sending && (!held || drafts.receiptChecked) && drafts.copying == 0 && draft.canSend(words)
+    val ready = !sending && (!held || drafts.receiptCheck == ReceiptCheck.Missing) && drafts.copying == 0 && draft.canSend(words)
     val style = chatBody(owner = true)
     val strokeY = with(LocalDensity.current) { (style.fontSize.toPx() * 1.5f) / 2 }
     val problem = drafts.problem ?: "message or files are too large.".takeIf {
@@ -224,7 +224,7 @@ internal fun ChatDock(
                 }
             }
             held -> {
-                Text(if (drafts.receiptChecked) ReceiptUnknown else "checking whether your message arrived…",
+                Text(if (drafts.receiptCheck == ReceiptCheck.Checking) "checking whether your message arrived…" else ReceiptUnknown,
                     color = colors.onSurfaceVariant, style = ChatMurmur)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ChatWord("retry", ::submit, enabled = ready)

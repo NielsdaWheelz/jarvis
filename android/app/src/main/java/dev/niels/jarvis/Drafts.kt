@@ -52,6 +52,7 @@ private val Json = "application/json".toMediaType()
 private val Octets = "application/octet-stream".toMediaType()
 internal const val SettleEarlier = "settle the earlier message first."
 internal const val ReceiptUnknown = "no receipt yet. retry is safe: it cannot arrive twice."
+internal enum class ReceiptCheck { Checking, Unavailable, Missing }
 
 internal data class DraftFile(
     val slot: Int,
@@ -87,7 +88,7 @@ internal class Drafts private constructor(private val context: Context) {
         private set
     var copying by mutableIntStateOf(0)
         private set
-    var receiptChecked by mutableStateOf(false)
+    var receiptCheck by mutableStateOf(ReceiptCheck.Checking)
         private set
     var problem by mutableStateOf<String?>(null)
         private set
@@ -273,11 +274,11 @@ internal class Drafts private constructor(private val context: Context) {
 
     fun send(words: String, api: HomeApi, history: ChatHistory): Boolean {
         val initial = draft ?: return false
-        if (sending || (initial.held && !receiptChecked) || copying > 0 ||
+        if (sending || (initial.held && receiptCheck != ReceiptCheck.Missing) || copying > 0 ||
             !initial.canSend(if (initial.held) initial.text else words)
         ) return false
         sendingSince = SystemClock.elapsedRealtime()
-        receiptChecked = false
+        receiptCheck = ReceiptCheck.Checking
         problem = null
         val epoch = history.authorizationEpoch
         transferJob = process.launch(start = CoroutineStart.LAZY) {
@@ -355,7 +356,7 @@ internal class Drafts private constructor(private val context: Context) {
         val receipt = try {
             api.receipt(waiting.id)
         } catch (e: IOException) {
-            if (draft?.id == waiting.id && !sending) receiptChecked = true
+            if (draft?.id == waiting.id && !sending) receiptCheck = ReceiptCheck.Unavailable
             throw e
         }
         writes.withLock {
@@ -363,7 +364,7 @@ internal class Drafts private constructor(private val context: Context) {
             if (draft?.id != waiting.id) return draft?.held == false
             if (receipt != null) cross(receipt, history, epoch)
             else {
-                receiptChecked = true
+                receiptCheck = ReceiptCheck.Missing
                 true
             }
         }
@@ -398,6 +399,7 @@ internal class Drafts private constructor(private val context: Context) {
                     sendingSince = null
                     history.accept(receipt.message)
                 }
+                history.notifyReceipt()
             }
         }
 

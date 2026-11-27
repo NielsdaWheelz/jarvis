@@ -175,8 +175,9 @@ internal class ChatHistory(private val shown: ChatShown) {
     fun accept(row: ChatMessage) {
         rows = mergeRows(rows, listOf(row))
         crossing++
-        onReceipt?.invoke()
     }
+
+    fun notifyReceipt() { onReceipt?.invoke() }
 
     suspend fun admitReceipt(epoch: Int, settle: suspend () -> Unit): Boolean = receiptAuthority.withLock {
         if (epoch != authorizationEpoch) return false

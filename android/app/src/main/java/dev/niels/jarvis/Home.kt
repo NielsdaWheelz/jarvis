@@ -711,8 +711,8 @@ private fun ChatCard(
     Column(Modifier.fillMaxWidth().onGloballyPositioned { viewport.cards[row.id] = row to it }.semantics {
         if (selected) this.selected = true
     }.drawBehind {
-        if (selected) drawLine(selection, Offset(15.dp.toPx() + size.width, 0f),
-            Offset(15.dp.toPx() + size.width, size.height), 2.dp.toPx())
+        if (selected) drawLine(selection, Offset(-23.dp.toPx(), 0f),
+            Offset(-23.dp.toPx(), size.height), 2.dp.toPx())
         if (row.owner) drawLine(muted, Offset(-18.dp.toPx(), firstLine), Offset(-9.dp.toPx(), firstLine), 1.5.dp.toPx())
         if (!row.owner && carried) {
             val radius = 5.dp.toPx()

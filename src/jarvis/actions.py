@@ -1852,6 +1852,7 @@ def _verify_workspace_receipt(stored: StoredAction, value: object) -> WorkspaceR
                 isinstance(effect, FrozenDriveRevise | FrozenDocsUpdate)
                 and receipt.file_id != effect.id
             )
+            or (isinstance(effect, FrozenDocsUpdate) and receipt.mode != effect.mode)
         ):
             raise ValueError("drive receipt differs from the frozen operation")
     else:
@@ -1897,6 +1898,8 @@ def _same_workspace_ack(ack: object, latest: object) -> bool:
         "calendar_id",
         "subject",
         "file_id",
+        "mode",
+        "suggestion_ids",
         "verified_replacement_action_id",
     )
     return all(original.get(key) == observed.get(key) for key in stable) and all(

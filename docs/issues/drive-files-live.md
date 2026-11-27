@@ -34,9 +34,24 @@ the native doc and returned valid file metadata. its docs server returned
 a developer-preview tool error for the same created doc with
 `commentsIncluded: false` and with that option omitted. google's setup
 lists docs as generally available, while its preview application excludes
-personal gmail addresses. clearance requires an actual read and verified
-revision-controlled edit on the intended account with the pinned client.
-the remaining live cases have yet to pass.
+personal gmail addresses. [0128](../decisions/0128-docs-rest.md) replaces
+that path with the standard docs api.
+
+the direct api and the typed jarvis adapter both passed on the intended
+account. the adapter verified tab and revision reads, an ordinary edit,
+stale rejection and the exact saved suggestion without a change to base
+text. the integrated check then verified pdf create and copy and stopped
+on a folder-search assertion before it reached recent, downloads or blob
+revision. the failed search assertion does not identify which returned
+page property differed. the wider provider check remains open.
+
+the integrated fixture was verified in trash and google accepted revocation.
+both test clients and the local exports were removed. the revised disposable
+runner records the search page's coverage, count and fixture membership
+before asserting. the reopened live receipt and hash are under
+`~/.local/state/jarvis/qualification/adr0120-integrated-provider/live-owner-01/`.
+the macbook package checks passed. the connector red/green and final uncertain-server-error check are in
+`~/.local/state/jarvis/qualification/adr0120-docs-wire-ESg9WY/`.
 
 both disposable folders were confirmed in trash. google accepted project
 revocation, both cloud clients and local exports were removed, and the

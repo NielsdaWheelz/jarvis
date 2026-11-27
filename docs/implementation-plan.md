@@ -322,8 +322,8 @@ first cut, no schema:
    dedicated physical sessions for the first cut. stage the packaged shell,
    service and same-signer android update together. check one real firebase
    tap during ordinary use. phone and laptop can disagree until the second cut.
-6. let the owner use it for at least a week. change the definition of shown
-   here, where it costs nothing, if marks linger or dry wrongly.
+6. record the installed smoke. on november 26 the owner waived the week of
+   device-local use before permanent receipts.
 
 second cut, stopped:
 

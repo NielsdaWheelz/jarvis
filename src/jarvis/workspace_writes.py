@@ -28,6 +28,7 @@ from jarvis.drive_connector import (
     audience,
     document,
     document_revision,
+    document_tabs,
     fetch_binary,
     file_href,
     metadata,
@@ -1035,39 +1036,59 @@ def _document_text(doc: Obj) -> str:
             if key in row
         )
 
-    if "tabs" in doc:
-        return content(doc["tabs"])
-    if "body" in doc:
-        return content(doc["body"])
-    raise WorkspaceError("document_structure_unavailable")
+    return content(doc["tabs"])
+
+
+def _acknowledged_suggestions(
+    result: Obj, request_count: int
+) -> tuple[str, ...] | None:
+    try:
+        replies = _array(result.get("suggestionResponses", []))
+        if replies and len(replies) != request_count:
+            return None
+        ids = tuple(
+            dict.fromkeys(
+                provider_id({"id": value}, "id")
+                for reply in replies
+                for value in _array(_obj(reply).get("createdSuggestionIds", []))
+            )
+        )
+    except (TypeError, *_PARSE_ERRORS):
+        return None
+    return ids if len(json.dumps(ids).encode()) <= 16_384 else None
+
+
+def _document_suggestions(doc: Obj) -> set[str]:
+    present: set[str] = set()
+    pending = [doc["tabs"]]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, list):
+            pending.extend(cast(list[object], item))
+        elif isinstance(item, dict):
+            for key, value in cast(Obj, item).items():
+                if key in {"suggestedInsertionIds", "suggestedDeletionIds"}:
+                    present.update(id for id in _array(value) if isinstance(id, str))
+                elif key in {
+                    "suggestedTextStyleChanges",
+                    "suggestedParagraphStyleChanges",
+                    "suggestedBulletChanges",
+                }:
+                    present.update(_obj(value))
+                else:
+                    pending.append(value)
+    return present
 
 
 def _document_locations(doc: Obj, update: DocsUpdate) -> None:
-    tabs: dict[str | None, set[str]] = {}
-
-    def load(item: Obj, tab: str | None) -> None:
-        if "body" not in item:
-            raise WorkspaceError("document_structure_unavailable")
-        names: set[str] = set()
-        for key in ("headers", "footers", "footnotes"):
-            names.update(_obj(item.get(key, {})))
-        tabs[tab] = names
-
-    def walk(items: object) -> None:
-        for item in _array(items):
-            row = _obj(item)
-            tab = _obj(row["tabProperties"])["tabId"]
-            if not isinstance(tab, str) or not tab or tab in tabs:
-                raise WorkspaceError("document_structure_unavailable")
-            load(_obj(row["documentTab"]), tab)
-            walk(row.get("childTabs", []))
-
-    if "tabs" in doc:
-        walk(doc["tabs"])
-        if not tabs:
-            raise WorkspaceError("document_structure_unavailable")
-    else:
-        load(doc, None)
+    tabs = {
+        tab: {
+            name
+            for key in ("headers", "footers", "footnotes")
+            for name in _obj(data.get(key, {}))
+        }
+        for tab, data in document_tabs(doc).items()
+    }
     first = next(iter(tabs))
 
     def check(value: object) -> None:
@@ -1092,7 +1113,7 @@ def _document_locations(doc: Obj, update: DocsUpdate) -> None:
                     if key in row
                 ]
                 if (
-                    (tab is not None and not isinstance(tab, str))
+                    not isinstance(tab, str)
                     or tab not in tabs
                     or not isinstance(segment, str)
                     or (segment and segment not in tabs[tab])
@@ -1125,11 +1146,18 @@ async def _drive_readback(
     io: _Exchange, effect: FrozenDriveEffect, receipt: DriveWriteReceipt
 ) -> Obj:
     if isinstance(effect, FrozenDocsUpdate):
+        if receipt.revision is None:
+            raise WorkspaceError("revision_unavailable")
         current = await document(io.call, effect.id)
         if document_revision(current, effect.id) != receipt.revision:
             raise WorkspaceError("document_changed")
         if receipt.warnings:
             raise WorkspaceError("document_update_warned")
+        if effect.mode == "suggest" and (
+            not receipt.suggestion_ids
+            or not _document_suggestions(current).issuperset(receipt.suggestion_ids)
+        ):
+            raise WorkspaceError("document_suggestions_unverified")
         return {}
     current = await metadata(io.call, receipt.file_id)
     expected = effect.expected
@@ -1166,7 +1194,6 @@ class WorkspaceWrites:
         drive_sources: DriveSources | None = None,
         drive_download_qualified: bool = False,
         drive_revise_qualified: bool = False,
-        docs_update_qualified: bool = False,
         editor_stamp: Callable[[UUID], DraftEditorStamp | None] | None = None,
     ):
         self._client = client
@@ -1175,7 +1202,6 @@ class WorkspaceWrites:
         self._drive_sources = drive_sources
         self._drive_download_qualified = drive_download_qualified
         self._drive_revise_qualified = drive_revise_qualified
-        self._docs_update_qualified = docs_update_qualified
         self._editor_stamp = editor_stamp
 
     async def prepare(
@@ -1433,8 +1459,6 @@ class WorkspaceWrites:
         subject: str,
     ) -> FrozenDriveEffect:
         if tool == "docs.update":
-            if not self._docs_update_qualified:
-                raise WorkspaceError("docs_update_unqualified")
             update = DocsUpdate.model_validate(arguments)
             observed = await document(io.call, update.id)
             if document_revision(observed, update.id) != update.revision:
@@ -1544,6 +1568,10 @@ class WorkspaceWrites:
         async def fresh() -> None:
             while True:
                 rounds = io.read_resumptions
+                if isinstance(effect, FrozenDocsUpdate):
+                    doc = await document(io.call, effect.id)
+                    if document_revision(doc, effect.id) != effect.revision:
+                        raise WorkspaceError("document_changed")
                 observed = await audience(io.call, effect.audience.target, io.account)
                 if observed.fingerprint != effect.audience.fingerprint or (
                     observed.state != effect.audience.state
@@ -1552,11 +1580,7 @@ class WorkspaceWrites:
                         "drive_audience_changed",
                         {"audience": observed.model_dump(mode="json")},
                     )
-                if isinstance(effect, FrozenDocsUpdate):
-                    doc = await document(io.call, effect.id)
-                    if document_revision(doc, effect.id) != effect.revision:
-                        raise WorkspaceError("document_changed")
-                elif isinstance(effect, FrozenDriveRevise):
+                if isinstance(effect, FrozenDriveRevise):
                     if (await metadata(io.call, effect.id)).etag != effect.etag:
                         raise WorkspaceError("file_revision_changed")
                 elif isinstance(effect, FrozenDriveCopy):
@@ -1569,9 +1593,7 @@ class WorkspaceWrites:
         product: Product = "drive"
         outcome: Literal["created", "copied", "revised", "updated"]
         if isinstance(effect, FrozenDocsUpdate):
-            if not self._docs_update_qualified:
-                raise WorkspaceError("docs_update_unqualified", known_no_effect=True)
-            product, operation, outcome = "docs", "update_doc", "updated"
+            product, operation, outcome = "docs", "batch_update_document", "updated"
             args: Obj = {
                 "documentId": effect.id,
                 "requests": [
@@ -1657,16 +1679,36 @@ class WorkspaceWrites:
         try:
             warnings: tuple[str, ...] = ()
             revision, etag = None, None
+            mode = None
+            suggestions: tuple[str, ...] = ()
             if isinstance(effect, FrozenDocsUpdate):
-                control = _obj(result["writeControl"])
-                revision = provider_id(control, "requiredRevisionId")
-                replies = _array(result.get("replies", []))
+                if result.get("documentId") != effect.id:
+                    raise ValueError("docs acknowledgement names another document")
+                control = _obj(result.get("writeControl", {}))
+                if "requiredRevisionId" in control:
+                    revision = provider_id(control, "requiredRevisionId")
+                replies = _array(result["replies"])
+                if len(replies) != len(effect.requests):
+                    raise ValueError("docs acknowledgement does not match the batch")
                 warnings = tuple(
                     item
                     for reply in replies
                     for item in (_obj(reply).get("warning"), _obj(reply).get("error"))
                     if isinstance(item, str) and len(item.encode()) <= 512
                 )[:20]
+                mode = effect.mode
+                acknowledged = _acknowledged_suggestions(result, len(effect.requests))
+                suggestions = acknowledged or ()
+                returned_mode = control.get("writeMode")
+                if (
+                    acknowledged is None
+                    or result.get("commentUpdateState") == "ALL_FAILED_UNKNOWN_REASON"
+                ):
+                    warnings = ("document_suggestions_unverified", *warnings[:19])
+                elif (returned_mode is not None and returned_mode != mode.upper()) or (
+                    mode == "edit" and suggestions
+                ):
+                    warnings = ("document_write_mode_unverified", *warnings[:19])
                 id, title = effect.id, None
             elif isinstance(effect, FrozenDriveRevise):
                 id, title = effect.id, effect.expected.name
@@ -1694,6 +1736,8 @@ class WorkspaceWrites:
                 revision=revision,
                 etag=etag,
                 warnings=warnings,
+                mode=mode,
+                suggestion_ids=suggestions,
             )
         except (TypeError, *_PARSE_ERRORS):
             raise WorkspaceError("uncertain") from None
@@ -1721,6 +1765,7 @@ class WorkspaceWrites:
                 isinstance(effect, FrozenDriveRevise | FrozenDocsUpdate)
                 and receipt.file_id != effect.id
             )
+            or (isinstance(effect, FrozenDocsUpdate) and receipt.mode != effect.mode)
         ):
             raise WorkspaceError("invalid_receipt")
         with workspace_attempts(

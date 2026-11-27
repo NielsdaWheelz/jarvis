@@ -218,14 +218,47 @@ async def audience(call: DriveCall, target: str, account: str) -> DriveAudience:
 
 
 async def document(call: DriveCall, id: str) -> Obj:
-    raw = await call("docs", "read_doc", {"documentId": id, "commentsIncluded": False})
-    content = raw.get("content")
-    if not isinstance(content, dict):
-        raise WorkspaceError("document_structure_unavailable")
-    body = cast(Obj, content)
-    if body.get("documentId") not in {None, id}:
+    body = await call("docs", "get_document", {"documentId": id})
+    if body.get("documentId") != id:
         raise WorkspaceError("source_changed")
+    document_tabs(body)
     return body
+
+
+def document_tabs(document: Obj) -> dict[str, Obj]:
+    raw = document.get("tabs")
+    if not isinstance(raw, list) or not raw:
+        raise WorkspaceError("document_structure_unavailable")
+    tabs: dict[str, Obj] = {}
+    pending = list(reversed(cast(list[object], raw)))
+    while pending:
+        item = pending.pop()
+        if not isinstance(item, dict):
+            raise WorkspaceError("document_structure_unavailable")
+        tab = cast(Obj, item)
+        properties = tab.get("tabProperties")
+        content = tab.get("documentTab")
+        children = tab.get("childTabs", [])
+        if (
+            not isinstance(properties, dict)
+            or not isinstance(content, dict)
+            or not isinstance(children, list)
+        ):
+            raise WorkspaceError("document_structure_unavailable")
+        id = cast(Obj, properties).get("tabId")
+        data = cast(Obj, content)
+        body = data.get("body")
+        if (
+            not isinstance(id, str)
+            or not id
+            or id in tabs
+            or not isinstance(body, dict)
+            or not isinstance(cast(Obj, body).get("content"), list)
+        ):
+            raise WorkspaceError("document_structure_unavailable")
+        tabs[id] = data
+        pending.extend(reversed(cast(list[object], children)))
+    return tabs
 
 
 def document_revision(document: Obj, id: str) -> str:

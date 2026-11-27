@@ -38,23 +38,46 @@ if [[ "${1:-}" != --on-host ]]; then
   tree="$(git -C "$repo_dir" rev-parse --verify "$commit^{tree}")"
   lock="$(git -C "$repo_dir" show "$commit:uv.lock" | shasum -a 256 | awk '{print $1}')"
   incoming=none
+  drive_cut=none
   if [[ "$reader_image" != none ]]; then
     local_proof="$(mktemp "${TMPDIR:-/tmp}/jarvis-reader.XXXXXX")"
     trap 'rm -f -- "$local_proof"' EXIT
     "$repo_dir/deploy/qualified-reader" "$reader_image" >"$local_proof"
   fi
   if [[ "$qualification" != none ]]; then
-    python3 - "$qualification" <<'PYCODE'
+    drive_cut="$(python3 - "$qualification" <<'PYCODE'
+import json
 import os
 import stat
 import sys
+from pathlib import Path
 
-entry = os.lstat(sys.argv[1])
-if not stat.S_ISREG(entry.st_mode) or entry.st_uid != os.getuid() or entry.st_mode & 0o077:
-    raise SystemExit("select an owner-private rehearsal receipt")
-if entry.st_size > 2 * 1024 * 1024:
+def private_file(path, label):
+    try:
+        entry = path.lstat()
+    except OSError:
+        raise SystemExit(f"select an owner-private {label}") from None
+    if not stat.S_ISREG(entry.st_mode) or entry.st_uid != os.getuid() or entry.st_mode & 0o077:
+        raise SystemExit(f"select an owner-private {label}")
+    return entry
+
+receipt = Path(sys.argv[1])
+if private_file(receipt, "rehearsal receipt").st_size > 2 * 1024 * 1024:
     raise SystemExit("rehearsal receipt exceeds its maximum size")
+try:
+    document = json.loads(receipt.read_bytes())
+except (OSError, ValueError):
+    raise SystemExit("rehearsal receipt is not readable JSON") from None
+if not isinstance(document, dict):
+    raise SystemExit("rehearsal receipt must be a JSON object")
+if "drive_map_sha256" in document:
+    drive_cut = receipt.with_name("drive-cut.json")
+    private_file(drive_cut, "drive-cut.json beside the rehearsal receipt")
+    print(drive_cut.absolute())
+else:
+    print("none")
 PYCODE
+)"
   fi
   if [[ "$codex_mapping" != none ]]; then
     [[ -f "$codex_mapping" && ! -L "$codex_mapping" ]] || exit 64
@@ -70,6 +93,9 @@ PYCODE
     [[ "$incoming" =~ ^/tmp/jarvis-qualification\.[a-zA-Z0-9]+$ ]]
     if [[ "$qualification" != none ]]; then
       scp -q -o BatchMode=yes -o ForwardAgent=no "$qualification" "dev-server-deploy:$incoming/rehearsal.json"
+    fi
+    if [[ "$drive_cut" != none ]]; then
+      scp -q -o BatchMode=yes -o ForwardAgent=no "$drive_cut" "dev-server-deploy:$incoming/drive-cut.json"
     fi
     if [[ "$reader_image" != none ]]; then
       scp -q -o BatchMode=yes -o ForwardAgent=no "$local_proof" "dev-server-deploy:$incoming/reader.json"
@@ -100,7 +126,7 @@ if [[ "$6" != none ]]; then
   [[ "$6" =~ ^/tmp/jarvis-qualification\.[a-zA-Z0-9]+$ ]]
   mkdir -p -m 0700 /var/lib/jarvis-cutover
   incoming="$(mktemp -d /var/lib/jarvis-cutover/.qualification-$4.XXXXXX)"
-  for name in rehearsal.json reader.json codex-host.json agent-client.json; do
+  for name in rehearsal.json drive-cut.json reader.json codex-host.json agent-client.json; do
     if [[ -e "$6/$name" || -L "$6/$name" ]]; then
       [[ -f "$6/$name" && ! -L "$6/$name" ]]
       install -m 0600 -- "$6/$name" "$incoming/$name"
@@ -128,6 +154,7 @@ release="/opt/jarvis/releases/$commit"
 source "$release/deploy/release-functions"
 custody="$release/deploy/cutover-hold"
 rehearsal=none
+incoming_drive_cut=none
 incoming_reader=none
 incoming_mapping=none
 incoming_agent_client=none
@@ -135,6 +162,7 @@ if [[ "$incoming" != none ]]; then
   [[ "$incoming" =~ ^/var/lib/jarvis-cutover/\.qualification-[0-9a-f-]+\.[a-zA-Z0-9]+$ ]]
   trap 'rm -rf -- "$incoming"' EXIT
   if [[ -f "$incoming/rehearsal.json" ]]; then rehearsal="$incoming/rehearsal.json"; fi
+  if [[ -f "$incoming/drive-cut.json" ]]; then incoming_drive_cut="$incoming/drive-cut.json"; fi
   if [[ -f "$incoming/reader.json" ]]; then incoming_reader="$incoming/reader.json"; fi
   if [[ -f "$incoming/codex-host.json" ]]; then incoming_mapping="$incoming/codex-host.json"; fi
   if [[ -f "$incoming/agent-client.json" ]]; then incoming_agent_client="$incoming/agent-client.json"; fi
@@ -248,6 +276,10 @@ if [[ "$phase" == committed || "$phase" == not-applied ]]; then
   if [[ "$incoming_mapping" != none ]]; then retry+=(--mapping "$incoming_mapping"); fi
   if [[ "$incoming_agent_client" != none ]]; then retry+=(--agent-client "$incoming_agent_client"); fi
   "$custody" verify-release-retry "$change" "$commit" "$repair_of" "${retry[@]}"
+  if [[ "$incoming_drive_cut" != none ]]; then
+    cmp -s "$incoming_drive_cut" "/var/lib/jarvis-cutover/$phase-$change/drive-cut.json" ||
+      refuse "change ID already binds another drive-cut.json"
+  fi
   "$custody" start "$change"
   if [[ "$phase" == committed ]]; then prune_releases; else exit 1; fi
   exit
@@ -428,7 +460,12 @@ if ! cmp -s "$mapping" "$mapping_source"; then
   preflight_release="$source_release"
 fi
 if [[ "$source_schema" != "$target_schema" ]]; then
-  qualification="/var/lib/jarvis-cutover/held/qualification-$change.json"
+  qualification="$held/qualification-$change.json"
+  drive_cut="$held/drive-cut.json"
+  if [[ "$incoming_drive_cut" != none && -f "$drive_cut" ]]; then
+    cmp -s "$incoming_drive_cut" "$drive_cut" ||
+      refuse "held $change already binds another drive-cut.json"
+  fi
   if [[ "$phase" == held ]]; then
     migration snapshot
     if [[ "$rehearsal" != none ]]; then
@@ -437,6 +474,10 @@ if [[ "$source_schema" != "$target_schema" ]]; then
           refuse "held $change already binds another qualification receipt"
       else
         migration verify-rehearsal "$rehearsal"
+        # The receipt publishes the pair. A retry reuses any map already written.
+        if [[ "$incoming_drive_cut" != none && ! -f "$drive_cut" ]]; then
+          persist "$incoming_drive_cut" "$drive_cut"
+        fi
         persist "$rehearsal" "$qualification"
       fi
     fi

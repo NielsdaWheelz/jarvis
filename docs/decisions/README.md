@@ -165,6 +165,8 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0124](0124-citations-and-viewer-delivery.md) | citations and work in the viewer | retained mail/calendar evidence, expanded chat tables and portable reports. |
 | [0125](0125-new-shown-and-owed.md) | new, shown and owed in chat | accepted. device-local rehearsal precedes shared receipts. |
 | [0126](0126-presence.md) | show when jarvis is working | implemented. additive presence read, web and android mark. installed acceptance open. |
+| [0127](0127-drive-prototype-qualification.md) | qualify drive on the owner's account | accepted. keep changes in a fresh synthetic fixture and defer the data-use review. |
+| [0128](0128-docs-rest.md) | use the standard docs api | accepted. direct owner-account proof covers revisions, edits and suggestions. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
 the two decisions numbered 0114 likewise retain their distinct titles and paths.

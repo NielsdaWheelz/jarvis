@@ -670,19 +670,19 @@ type DocsText = Annotated[str, Field(max_length=32_768)]
 class DocsLocation(_StrictModel):
     index: DocsPosition
     segmentId: str | None = None
-    tabId: DriveId | None = None
+    tabId: DriveToken | None = None
 
 
 class DocsEndLocation(_StrictModel):
     segmentId: str | None = None
-    tabId: DriveId | None = None
+    tabId: DriveToken | None = None
 
 
 class DocsRange(_StrictModel):
     startIndex: DocsPosition
     endIndex: DocsPosition
     segmentId: str | None = None
-    tabId: DriveId | None = None
+    tabId: DriveToken | None = None
 
     @model_validator(mode="after")
     def ordered(self) -> Self:
@@ -717,7 +717,7 @@ class DocsContains(_StrictModel):
 
 
 class DocsTabs(_StrictModel):
-    tabIds: Annotated[tuple[DriveId, ...], Field(min_length=1, max_length=64)]
+    tabIds: Annotated[tuple[DriveToken, ...], Field(min_length=1, max_length=64)]
 
 
 class DocsReplaceAll(_StrictModel):
@@ -990,3 +990,5 @@ class DriveWriteReceipt(_Receipt):
     revision: DriveToken | None = None
     etag: DriveToken | None = None
     warnings: tuple[str, ...] = ()
+    mode: Literal["edit", "suggest"] | None = None
+    suggestion_ids: tuple[DriveToken, ...] = ()

@@ -72,7 +72,7 @@ _READ_CALLS: dict[str, tuple[str, dict[str, str]]] = {
         "download_file_content",
         {"fileId": "id", "exportMimeType": "export_type"},
     ),
-    "docs.read": ("read_doc", {"documentId": "id"}),
+    "docs.read": ("get_document", {"documentId": "id"}),
 }
 WORKSPACE_READ_IDS = frozenset(map(ToolId, _READ_CALLS))
 _access = ContextVar[WorkspaceReadAccess | None]("workspace_read", default=None)

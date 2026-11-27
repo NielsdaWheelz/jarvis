@@ -144,7 +144,7 @@ receipts are never updated or deleted. the runtime has no grant to do either. me
 
 the first cut ships every behavior above with no schema. the service adds only `owed` and `owed_total`, which older clients ignore. each client owns one small module holding the shown set behind three operations: is this new, record these, clear. on web the store is `localStorage`; on android, private preferences. both hold a start time and at most 2,000 ids. a message is new when it is tracked, dated after the start time and absent from the set. when the set is full, drop the oldest ids and advance the start time to the newest dropped message's time. clear advances the start time to the time of its `through` message, which also covers new messages that were never loaded. phone and laptop therefore disagree until the second cut, which replaces the inside of that module with the service contract. for exact local totals, clients count tracked rows back through the device’s start time using the existing page cursor. the three-page opening limit applies to the transcript; older pages scanned for counts do not extend it. the limitation is stated to the owner at rollout.
 
-this is a rehearsal of the gate. receipts are permanent and there is no test suite, so the owner lives with the definition of shown for a week before it writes to the database. what the rehearsal yields is a tuned definition, not data: its local sets are discarded.
+the device-local cut rehearses the shown rule before receipts become permanent. on november 26 the owner waived the week of use. proceed after the installed first-cut smoke and verified drive custody at `0027`, with the controlled second-cut checks below. the owner accepts proceeding without tuning the rule through a week of use. the local sets are discarded at the shared cut.
 
 ## invariants
 
@@ -231,8 +231,7 @@ named receipts and artifact hashes are under
 `~/.local/state/jarvis/qualification/adr0125-implementation/`.
 the [installed follow-up](../issues/new-shown-owed-installed.md) owns the
 first-cut rollout, the owner’s dedicated-check waiver, the real firebase tap
-and the owner trial. the stopped shared-receipt cut follows that trial and
-installed drive custody.
+and the owner trial. the stopped shared-receipt cut follows the installed smoke and drive custody.
 
 ## not in this decision
 

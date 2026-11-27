@@ -28,6 +28,7 @@ import httpx
 
 from jarvis._secrets import contains_secret
 from jarvis._thread_io import joined_thread
+from jarvis.home_refs import DRIVE_ID_PATTERN
 from jarvis.read_tools import ATTACHMENT_MAX_BYTES
 
 Product = Literal["gmail", "calendar", "drive", "docs"]
@@ -43,7 +44,6 @@ _ORIGINS: dict[Product, str] = {
     "gmail": "https://gmailmcp.googleapis.com/mcp/v1",
     "calendar": "https://calendarmcp.googleapis.com/mcp/v1",
     "drive": "https://drivemcp.googleapis.com/mcp/v1",
-    "docs": "https://docsmcp.googleapis.com/mcp/v1",
 }
 _SCOPE_PREFIX = "https://www.googleapis.com/auth/"
 _GMAIL = {
@@ -82,7 +82,7 @@ _TOOL_SCOPES: dict[Product, dict[str, str]] = {
         ),
         "drive",
     ),
-    "docs": dict.fromkeys(("read_doc", "update_doc"), "drive"),
+    "docs": dict.fromkeys(("get_document", "batch_update_document"), "drive"),
 }
 DRIVE_SCOPE = _SCOPE_PREFIX + "drive"
 GMAIL_SCOPES = frozenset(_SCOPE_PREFIX + scope for scope in _GMAIL.values())
@@ -105,13 +105,13 @@ _WRITES = frozenset(
         "create_file",
         "copy_file",
         "upload_file_revision",
-        "update_doc",
+        "batch_update_document",
     }
 )
 # November 24 public discovery. Pin wire structure and effect annotations,
 # excluding descriptive prose. Schema changes disable only the affected tool.
 _SCHEMA_PINS = {
-    # November 26 public Drive and Docs discovery.
+    # November 26 public Drive discovery.
     "copy_file": "U49wDUMGv6ZikBRF1J3lJbSJZYyFCS5VybFdFYrw25E=",
     "create_file": "YGTrKZmNfnD9l1qOX+84GThM2AXjzuLhSBx8eNBexpU=",
     "download_file_content": "2P0v0m+mloEnDjI4XR5zZv5KP7o2dVnZrnxxkFoo3Fc=",
@@ -121,8 +121,6 @@ _SCHEMA_PINS = {
     "read_file_content": "2pkL+TJV5TmTAvFS17eYXqdYtpiQS22pvwa7A4h4vug=",
     "search_files": "7xfRKME8rSGEBzZXUYzVEzDBXLa9Fiyvl/UZaXzJ6io=",
     "upload_file_revision": "hmcPs0zNJfTTfu2jvGuKMzrw/nnQkEj2rI3bYCAJf4M=",
-    "read_doc": "Itbut49iAcXBQUyewc7xru8KROv3xH68uLBKgywfswE=",
-    "update_doc": "P3/pGTP2F2GoQSayyH0uoAI3Spez2yMeZYtXkgWmrQs=",
     "create_draft": "qi/0Oj43f0JOEDc5erwM//wekiIomOwlET+h+H7JMNY=",
     "create_event": "YREPOYlfk8StMYhNPHI38xDz1DXt6SJR9WhgeP8Ee84=",
     "delete_event": "xJgwRu9dI5nVBWBy6fXnwMoJT8Gtlb0JstM6tdkFh40=",
@@ -881,7 +879,7 @@ def _provider_error(
 
 
 class WorkspaceMcpClient:
-    """Only the typed host dispatchers may call this allowlisted transport."""
+    """Only typed host dispatchers may call Workspace MCP and Docs REST."""
 
     def __init__(
         self,
@@ -906,7 +904,7 @@ class WorkspaceMcpClient:
     def invalidate(self, grant_id: UUID) -> None:
         self._invalid.add(grant_id)
         self.approvals.invalidate(grant_id)
-        self._invalidate_products(grant_id, frozenset(_ORIGINS))
+        self._invalidate_products(grant_id, frozenset(_TOOL_SCOPES))
 
     def invalidate_drive(self, grant_id: UUID) -> None:
         self._drive_generation[grant_id] = self._drive_generation.get(grant_id, 0) + 1
@@ -966,25 +964,49 @@ class WorkspaceMcpClient:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "Accept": "application/json, text/event-stream",
             "Accept-Encoding": "identity",
-            "Mcp-Protocol-Version": PROTOCOL_VERSION,
-            "Mcp-Method": method,
         }
-        if isinstance(name, str):
-            headers["Mcp-Name"] = name
-        capabilities: Obj = {"elicitation": {"form": {}}}
-        params = params | {
-            "_meta": {
-                "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION,
-                "io.modelcontextprotocol/clientInfo": {
-                    "name": "jarvis",
-                    "version": "1",
-                },
-                "io.modelcontextprotocol/clientCapabilities": capabilities,
+        verb = "POST"
+        query: dict[str, str] | None = None
+        request: Obj | None
+        if product == "docs":
+            args = dict(_obj(params["arguments"]))
+            document_id = args.pop("documentId")
+            url = f"https://docs.googleapis.com/v1/documents/{document_id}"
+            headers["Accept"] = "application/json"
+            if write:
+                url += ":batchUpdate"
+                request = args
+            else:
+                verb = "GET"
+                query = {
+                    "includeTabsContent": "true",
+                    "suggestionsViewMode": "SUGGESTIONS_INLINE",
+                }
+                request = None
+        else:
+            url = _ORIGINS[product]
+            headers.update(
+                {
+                    "Accept": "application/json, text/event-stream",
+                    "Mcp-Protocol-Version": PROTOCOL_VERSION,
+                    "Mcp-Method": method,
+                }
+            )
+            if isinstance(name, str):
+                headers["Mcp-Name"] = name
+            capabilities: Obj = {"elicitation": {"form": {}}}
+            params = params | {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION,
+                    "io.modelcontextprotocol/clientInfo": {
+                        "name": "jarvis",
+                        "version": "1",
+                    },
+                    "io.modelcontextprotocol/clientCapabilities": capabilities,
+                }
             }
-        }
-        request = {"jsonrpc": "2.0", "id": id, "method": method, "params": params}
+            request = {"jsonrpc": "2.0", "id": id, "method": method, "params": params}
         content: AsyncIterator[bytes] | None = None
         transfer_bytes = cap if download is not None else 0
         if upload is not None:
@@ -1038,8 +1060,9 @@ class WorkspaceMcpClient:
                     seconds, before_send, on_transmission=transmitting
                 ),
                 self._http.stream(
-                    "POST",
-                    _ORIGINS[product],
+                    verb,
+                    url,
+                    params=query,
                     headers=headers,
                     json=request if upload is None else None,
                     content=content,
@@ -1051,6 +1074,8 @@ class WorkspaceMcpClient:
                 retry = workspace_retry_at(response.headers.get("Retry-After"))
                 if status == 401:
                     raise _Unauthorized
+                if product == "docs" and status >= 500:
+                    raise WorkspaceError("uncertain" if write else "temporary")
                 if not 200 <= status < 300 and (
                     response.headers.get("content-type", "").partition(";")[0].lower()
                     != "application/json"
@@ -1121,12 +1146,18 @@ class WorkspaceMcpClient:
                         raise ValueError("truncated reply")
                     if not 200 <= status < 300:
                         error_envelope = _decode(body)
-                        if "jsonrpc" in error_envelope:
+                        if product != "docs" and "jsonrpc" in error_envelope:
                             error_envelope = _wire_result(body, mime, id)
                         detail = _obj(error_envelope.get("error", {}))
+                        if product == "docs" and detail.get("code") != status:
+                            raise WorkspaceError("uncertain" if write else "temporary")
                         if status == 429 and not write:
                             raise WorkspaceError("rate_limited", retry_at=retry)
                         raise _provider_error(detail, product, write, retry)
+                    if product == "docs":
+                        if mime != "application/json":
+                            raise ValueError("expected a Docs JSON response")
+                        return _decode(body)
                     packet = _wire_result(body, mime, id)
                 if "error" in packet:
                     raise _provider_error(_obj(packet["error"]), product, write, retry)
@@ -1296,9 +1327,26 @@ class WorkspaceMcpClient:
             if DRIVE_SCOPE not in credential.scopes:
                 raise WorkspaceError("scope_missing")
             self._check(grant_id, generation)
-        await self.discover(product, grant_id=grant_id)
-        self._check(grant_id, generation)
-        spec = self._catalog[(product, grant_id)].get(tool)
+        if product == "docs":
+            keys = (
+                {"documentId", "requests", "writeControl"} if write else {"documentId"}
+            )
+            document_id = arguments.get("documentId")
+            if (
+                set(arguments) != keys
+                or not isinstance(document_id, str)
+                or re.fullmatch(DRIVE_ID_PATTERN, document_id) is None
+            ):
+                raise WorkspaceError("unsupported")
+        else:
+            await self.discover(product, grant_id=grant_id)
+            self._check(grant_id, generation)
+            spec = self._catalog[(product, grant_id)].get(tool)
+            if spec is None or (
+                not arguments.keys() <= _obj(spec.get("properties", {})).keys()
+                or not set(_strings(spec.get("required", []))) <= arguments.keys()
+            ):
+                raise WorkspaceError("unsupported")
         if upload is not None and (
             product != "drive"
             or tool not in {"create_file", "upload_file_revision"}
@@ -1315,12 +1363,7 @@ class WorkspaceMcpClient:
             or not 0 <= download[1] <= ATTACHMENT_MAX_BYTES
         ):
             raise WorkspaceError("unsupported")
-        if spec is None or (tool == "download_file_content") != (download is not None):
-            raise WorkspaceError("unsupported")
-        if (
-            not arguments.keys() <= _obj(spec.get("properties", {})).keys()
-            or not set(_strings(spec.get("required", []))) <= arguments.keys()
-        ):
+        if (tool == "download_file_content") != (download is not None):
             raise WorkspaceError("unsupported")
         # Freeze caller-owned arguments before the first provider submission.
         encoded = json.dumps(
@@ -1394,6 +1437,9 @@ class WorkspaceMcpClient:
                     rejected = credential.access_token
                     continue
                 rejected = None
+                if product == "docs" and write:
+                    # Acknowledgements go straight to custody. Readback is fenced.
+                    return result
                 if product in {"drive", "docs"}:
                     try:
                         current = await self._credential(grant_id, None)
@@ -1407,6 +1453,8 @@ class WorkspaceMcpClient:
                             else:
                                 raise WorkspaceError("uncertain") from None
                         raise
+                if product == "docs":
+                    return result
                 if result.get("resultType") == "complete":
                     try:
                         return _obj(result["structuredContent"])

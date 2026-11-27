@@ -14,5 +14,6 @@ classes through the private edge. close when these observations are recorded.
 the isolated candidate at `350ffb2` passed the service, browser and emulator
 replays. the staged apk and wheel are under
 `~/.local/state/jarvis/qualification/daybook-signed-v12-350ffb2/`. installed
-acceptance awaits the authorized cut. schema `0028` and the shared shown
-release's custody checks precede daybook activation.
+acceptance awaits the authorized cut. the preceding cut records stock
+`3f9989d` on schema `0028` and signed v11 on the s22+. daybook uses that
+schema and viewer contract. [shared shown installed evidence](../decisions/0125-new-shown-and-owed.md#installed-acceptance)

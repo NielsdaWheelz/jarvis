@@ -276,10 +276,9 @@ remains open.
 ## new, shown and owed in chat
 
 [adr 0125](decisions/0125-new-shown-and-owed.md) records the accepted design.
-the first cut is implemented in source with device-local state and a read-only
-owed projection. the second is a stopped schema cut. the
-[installed follow-up](issues/new-shown-owed-installed.md) owns the remaining
-acceptance evidence.
+both cuts are installed. schema `0028` shares display receipts across the
+web and android. the [installed acceptance](decisions/0125-new-shown-and-owed.md#installed-acceptance)
+records the matched release and recovery check.
 
 serialize both against the actual merges of
 [0118](decisions/0118-chat-reading-and-approvals.md),

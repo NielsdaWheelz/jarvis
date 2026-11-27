@@ -2,7 +2,7 @@
 
 the [daybook](0127-the-daybook.md#the-page) sets the position and type of the new and owed marks, and puts the android dock beside the transcript.
 
-**accepted design · november 26, 2026 · both cuts implemented in source.** the owner cannot tell which of jarvis' messages he has seen. web and android will mark what is new, open where he left off, and say in words what jarvis is waiting on. this amends chat presentation in [0087](0087-private-web-home.md), [0105](0105-native-android.md), [0118](0118-chat-reading-and-approvals.md) and [0122](0122-chat-sidebar-and-phone-alerts.md). the second cut adds one table. a working [specimen](https://claude.ai/artifact/8TUX4PyFsNugUXq9YfW4K7) shows the marks and movement; where it differs from this text, this text governs.
+**accepted design · november 26, 2026 · both cuts installed.** the owner cannot tell which of jarvis' messages he has seen. web and android will mark what is new, open where he left off, and say in words what jarvis is waiting on. this amends chat presentation in [0087](0087-private-web-home.md), [0105](0105-native-android.md), [0118](0118-chat-reading-and-approvals.md) and [0122](0122-chat-sidebar-and-phone-alerts.md). the second cut adds one table. a working [specimen](https://claude.ai/artifact/8TUX4PyFsNugUXq9YfW4K7) shows the marks and movement; where it differs from this text, this text governs.
 
 ## what is wrong today
 
@@ -231,9 +231,46 @@ predecessor’s trusted release certificate.
 
 named receipts and artifact hashes are under
 `~/.local/state/jarvis/qualification/adr0125-implementation/`.
-the [installed follow-up](../issues/new-shown-owed-installed.md) owns the
-first-cut rollout, the owner’s dedicated-check waiver, the real firebase tap
-and the owner trial. the stopped shared-receipt cut follows the installed smoke and drive custody.
+
+## installed acceptance
+
+on november 27 utc, stock release `45fe785` opened the first cut on schema
+`0027`. web accepted a new message, showed its exact reply, and kept a filing
+proposal in the owed set until the owner approved it. signed android v10
+upgraded the enrolled s22+. the owner tapped the live firebase alert and
+the handset opened that exact reply. the owner waived the week of use and
+dedicated physical sessions for this first cut. the [drive cut](0131-stock-drive-rollout.md)
+verified the imported originals and produced a restorable `0027` backup.
+the exact phone witness is in the private `first-cut/phone-v10/` evidence
+directory on macbook.
+
+the shared candidate passed actual http, postgres, chromium and webkit
+checks. the signed s22+ against the isolated database verified samsung
+talkback dwell, a laptop-read reply alert clearing, the owed question staying,
+and three retained pages refreshing after laptop clear. a newly held alert
+survived an in-flight read and posted on pause. exact global totals use the
+database's receipt set. a cold android start can read older pages for unresolved
+held alerts while the opening transcript stays capped at three pages.
+
+the owner confirmed reviewing the remaining local marks before stopped
+change `a696ef4b-1c58-4b84-b326-309af365f6af`. the exact stopped preimage
+restored and migrated on macbook. stock release `3f9989d` then started on
+schema `0028` with owner control `resume 42`. it created 346 cutover receipts
+in one batch and rejected the old viewer with 426. the installed web shell
+matched the release. android v11 upgraded the same enrolled s22+ and
+retained the verified link association. a live owner submission produced
+an exact reply and firebase accepted its alert. the web listed that reply
+as new until the signed phone displayed it. the stored receipt was
+`observed`, and the web kept the reply while removing its new mark.
+
+the backup `20261127T052238356647Z-0510833bf22d42a6a47c57442f02a9ed` restored from the
+remote and held copies on macbook. both restores verified the full inventory
+including all 347 receipts. the new held copy replaced the prior generation.
+
+the source change is [pull request 141](https://github.com/NielsdaWheelz/jarvis/pull/141).
+the private mac evidence is under
+`~/.local/state/jarvis/operations/adr0131/shared-cut/`. the probes, temporary
+phone app and private stopped rehearsal copy were removed.
 
 ## not in this decision
 

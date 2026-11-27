@@ -53,6 +53,30 @@ before asserting. the reopened live receipt and hash are under
 the macbook package checks passed. the connector red/green and final uncertain-server-error check are in
 `~/.local/state/jarvis/qualification/adr0120-docs-wire-ESg9WY/`.
 
+### integrated drive result
+
+the next two runs followed the folder cursor and found the expected pdf.
+both found the exact recently viewed sample and verified the agent and human
+pdf downloads. the second run also verified a normal blob revision. a
+separate check used jarvis's streamed write envelope with a stale etag.
+google returned an error and kept the rival etag and exact bytes. the error
+carried no structured google status, so jarvis recorded an uncertain effect.
+the fixture was verified in trash and google accepted revocation. the
+reopened `live-rollout-stale-02/facts.json` has sha256
+`c4c9ee5117a0b29e806af6c88be74b2bab841553f24df363459899e5d25481fc`.
+
+the third integrated run verified the native pdf export and stopped during the 100 mib
+create before a validated acknowledgement. the exact synthetic file was
+absent from the folder when checked. this leaves the result uncertain and
+does not establish a provider size limit. record the upload status separately
+from the acknowledgement and byte-verifying readback on the next run. the
+folder was verified in trash, both grants were disconnected, and google
+accepted revocation. the reopened `live-rollout-03/facts.json` under
+`~/.local/state/jarvis/qualification/adr0120-integrated-provider/` has sha256
+`e62e272cb3e6be27718f5a505f33c721fba6545ee3d7dda569d1233013008ea5`.
+
+### earlier retired probes
+
 both disposable folders were confirmed in trash. google accepted project
 revocation, both cloud clients and local exports were removed, and the
 recovery inventories were retired. reopened facts and hashes are in the

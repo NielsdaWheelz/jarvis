@@ -12,8 +12,14 @@ export function instant(at) {
   return new Date(at).toISOString().slice(0, 19) + fraction;
 }
 
+export function precedingArticle(node) {
+  let before = node.previousElementSibling;
+  while (before && !before.matches("article")) before = before.previousElementSibling;
+  return before;
+}
+
 export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, formatTime,
-  stopAttending, newVisit, place, jump, earlier, request, recheck, failure, preservePosition }) {
+  stopAttending, newVisit, place, jump, earlier, request, recheck, failure, preservePosition, advancing }) {
   const [newButton, owedButton, undo] = ledge.querySelectorAll("button");
   const separator = el("div", undefined, "new-boundary");
   separator.id = "chat-boundary";
@@ -297,7 +303,8 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
 
     if (boundary) {
       const start = document.getElementById("msg-" + boundary.id);
-      if (start && separator.nextSibling !== start) list.insertBefore(separator, start);
+      const first = start?.previousElementSibling?.matches(".day-head") ? start.previousElementSibling : start;
+      if (first && separator.nextSibling !== first) list.insertBefore(separator, first);
       separator.classList.toggle("dry", total === 0);
       clear.setAttribute("aria-disabled", String(total === 0 || Boolean(pendingClear)));
     }
@@ -349,6 +356,10 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
   // time across a layout or visibility change.
   function sample() {
     const now = performance.now();
+    if (advancing()) {
+      previous = now;
+      return false;
+    }
     const active = attending();
     if (!active && wasAttending) {
       absentSince = Math.min(now, lastInput + ATTENDING);
@@ -405,7 +416,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     preservePosition(paint);
   }
   setInterval(() => {
-    if (document.hidden) return;
+    if (document.hidden || advancing()) return;
     if (sample() || performance.now() >= nextPaint) preservePosition(paint);
   }, 100);
   const input = (event) => {
@@ -524,7 +535,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       separator.remove();
       boundary = null;
       if (!node) return;
-      const before = node.previousElementSibling;
+      const before = precedingArticle(node);
       const text = before ? "new since " + formatTime(before.dataset.at) : "new";
       separator.dataset.order = node.dataset.order;
       boundary = { id:node.dataset.messageId };

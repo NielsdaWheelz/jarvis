@@ -1,5 +1,7 @@
 # adr 0087. the private jarvis home
 
+the [daybook](0127-the-daybook.md#the-receipt) adds the stored message to send receipts and caches successful content-addressed chat fonts.
+
 next release design against `ae487ca`, postgres `0016` and
 [adr 0086](0086-native-recovery-and-memory-availability.md). this contract owns
 behavior and acceptance. the [roadmap](../implementation-plan.md) owns delivery order.

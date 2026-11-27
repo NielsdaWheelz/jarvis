@@ -8,9 +8,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.DragInteraction
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
@@ -23,13 +23,18 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -43,7 +48,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,11 +64,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -72,6 +80,9 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -81,7 +92,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONException
@@ -91,13 +101,14 @@ import org.json.JSONObject
 internal fun JarvisHome(
     entry: Route, onNavigate: (Route) -> Unit, onResolve: (Route) -> Unit,
     todoReads: () -> TodoReads, history: ChatHistory, notices: PhoneNotices, onBack: (() -> Unit)?,
-    api: HomeApi, authRevision: Int, presence: Presence,
+    api: HomeApi, authRevision: Int, presence: Presence, drafts: Drafts,
+    readPage: suspend (String?) -> ChatPage,
+    confirmReceipt: suspend () -> Boolean,
+    openDock: Boolean, dockOpened: () -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as Activity
     val access = remember { Access.get(context) }
-    val drafts = remember { Drafts.get(context) }
-    val scope = rememberCoroutineScope()
     // Keep the home visit even when it resolves to the same address as a direct link.
     var homeAddress by rememberSaveable { mutableStateOf<String?>(null) }
     val route = if (entry == Route.Home) homeAddress?.let { Routes.parse(Uri.parse(it)) } ?: entry else entry
@@ -105,29 +116,42 @@ internal fun JarvisHome(
         if (entry == Route.Home) homeAddress = Routes.url(target).toString() else onResolve(target)
     }
     var chat by rememberSaveable { mutableStateOf(false) }
-    var showDrafts by rememberSaveable { mutableStateOf(false) }
-    var draftId by rememberSaveable { mutableStateOf<String?>(null) }
-    var creating by remember { mutableStateOf(false) }
+    var focusDock by remember { mutableStateOf(false) }
+    var requestedReference by remember { mutableStateOf<DiscussionRef?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
     val panes = rememberSaveableStateHolder()
-    val closeOverlay = {
-        if (showDrafts) showDrafts = false else chat = false
+    val closeChat = {
+        requestedReference = null
+        focusDock = false
+        chat = false
     }
-    BackHandler(enabled = draftId == null && (showDrafts || chat), onBack = closeOverlay)
+    BackHandler(enabled = chat, onBack = closeChat)
+    LaunchedEffect(openDock) {
+        if (openDock) {
+            chat = true
+            focusDock = true
+            dockOpened()
+        }
+    }
     var refresh by remember { mutableIntStateOf(0) }
     val reload = refresh to authRevision
-    var sent by rememberSaveable { mutableStateOf<String?>(null) }
     var revealPresence by remember(presence.mark) { mutableStateOf(false) }
     val refreshPresence = { presence.requestChat(reload = true) }
     val signIn = { access.signIn(activity) }
-    val setupHome = entry == Route.Home && route != Route.Home && !chat && !showDrafts && draftId == null
+    val setupHome = entry == Route.Home && route != Route.Home && !chat
     val phone = remember { PhoneAlerts.get(context) }
     LaunchedEffect(reload, setupHome) { phone.refresh(setupHome) }
     val lifecycle = (activity as androidx.lifecycle.LifecycleOwner).lifecycle
     var resumed by remember { mutableStateOf(lifecycle.currentState == Lifecycle.State.RESUMED) }
     val focused = LocalWindowInfo.current.isWindowFocused
-    val visibleChat = chat && !showDrafts && draftId == null
-    LaunchedEffect(presence, visibleChat) { if (visibleChat) presence.requestChat() }
+    val haptic = LocalHapticFeedback.current
+    val entryHandoff = remember(presence) { presence.handoff }
+    LaunchedEffect(presence, chat) { if (chat) presence.requestChat() }
+    LaunchedEffect(presence.handoff) {
+        if (presence.handoff != null && presence.handoff != entryHandoff && resumed && chat) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
     DisposableEffect(lifecycle) {
         val listener = LifecycleEventObserver { _, event ->
             when (event) {
@@ -146,10 +170,10 @@ internal fun JarvisHome(
         lifecycle.addObserver(listener)
         onDispose { lifecycle.removeObserver(listener) }
     }
-    DisposableEffect(resumed, visibleChat) {
-        if (resumed && visibleChat) notices.foreground(true)
+    DisposableEffect(resumed, chat) {
+        if (resumed && chat) notices.foreground(true)
         onDispose {
-            if (resumed && visibleChat && lifecycle.currentState == Lifecycle.State.RESUMED) {
+            if (resumed && chat && lifecycle.currentState == Lifecycle.State.RESUMED) {
                 history.leave(pausing = false)
             }
         }
@@ -163,170 +187,94 @@ internal fun JarvisHome(
             history.commitClear { presence.requestChat() }
         }
     }
-    val readPage: suspend (String?) -> ChatPage = { before -> readChatPage(api, notices, before) }
 
-    val newDraft: (DiscussionRef?) -> Unit = { ref ->
-        if (!creating) {
-            creating = true
-            scope.launch {
-                try {
-                    draftId = drafts.create(UUID.randomUUID().toString(), ref).id
-                    showDrafts = false
-                    localError = null
-                } catch (_: IOException) {
-                    localError = "could not save a draft on this phone"
-                } finally {
-                    creating = false
-                }
-            }
+    val discuss: (DiscussionRef?) -> Unit = { ref ->
+        if (drafts.locked) {
+            localError = SettleEarlier
+        } else {
+            val current = drafts.draft?.ref
+            if (ref != null && current != null && current != ref) requestedReference = ref
+            else if (ref != null) drafts.reference(ref)
+            chat = true
+            focusDock = true
+            localError = null
         }
     }
     JarvisPaper {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
-            val currentDraft = draftId
-            if (currentDraft != null) {
-                DraftComposer(currentDraft, onReturn = { draftId = null }) { messageId ->
-                    draftId = null
-                    chat = true
-                    showDrafts = false
-                    sent = messageId
-                    presence.accepted()
-                }
-            } else {
-                FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PresenceWordmark(
-                        presence, route == Route.Home && !chat && !showDrafts,
-                        openHome = {
-                            if (entry != Route.Home) onNavigate(Route.Home) else closeOverlay()
-                        },
-                        activate = {
-                            when (presence.mark) {
-                                PresenceMark.OWED -> {
-                                    val owed = presence.nextOwed(if (chat) Route.Home else route)
-                                    if (owed != null) onNavigate(owed) else {
-                                        showDrafts = false
-                                        chat = true
-                                    }
-                                }
-                                PresenceMark.OWNER -> revealPresence = !revealPresence
-                                else -> refreshPresence()
+            FlowRow(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                PresenceWordmark(
+                    presence, route == Route.Home && !chat,
+                    openHome = {
+                        if (entry != Route.Home) onNavigate(Route.Home) else closeChat()
+                    },
+                    activate = {
+                        when (presence.mark) {
+                            PresenceMark.OWED -> {
+                                val owed = presence.nextOwed(if (chat) Route.Home else route)
+                                if (owed != null) onNavigate(owed) else chat = true
                             }
-                        },
-                        reveal = { revealPresence = it },
-                    )
-                    val back = if (chat || showDrafts) closeOverlay else onBack
-                    back?.let { TextButton(onClick = it) { Text("back") } }
-                    val destinations = listOf(
-                        "todos" to Route.Todos,
-                        "artifacts" to Route.Artifacts,
-                        "files" to Route.Files,
-                    )
-                    val section = when (route) {
-                        is Route.Todo -> Route.Todos
-                        is Route.Artifact -> Route.Artifacts
-                        is Route.File, is Route.DriveFile -> Route.Files
-                        else -> route
-                    }
-                    for ((label, target) in destinations) {
-                        val selectedSection = section == target && !chat && !showDrafts
-                        TextButton(
-                            onClick = {
-                                if (entry != target) onNavigate(target)
-                                else {
-                                    chat = false
-                                    showDrafts = false
-                                }
-                            },
-                            modifier = Modifier.semantics { selected = selectedSection },
-                        ) { Text(label, style = if (selectedSection) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge) }
-                    }
-                    if (!chat || showDrafts) TextButton(onClick = {
-                        showDrafts = false
-                        chat = true
-                    }, modifier = Modifier.semantics {
-                        contentDescription = if (history.newTotal == 0) "open chat" else "open chat, ${history.newTotal} new"
-                    }) { Text(if (history.newTotal == 0) "chat" else "chat · ◇ ${history.newTotal}") }
-                    if (!showDrafts) TextButton(onClick = { showDrafts = true }) { Text("drafts") }
-                    if (!showDrafts) TextButton(onClick = {
-                        refresh++
-                        refreshPresence()
-                    }) { Text("refresh") }
-                }
-                PresenceDivider(presence, revealPresence)
-                if (setupHome) PhoneSetupAction(phone, signIn)
-                localError?.let { BodyStatus(it) }
-                val pane = when {
-                    showDrafts -> "drafts"
-                    chat -> "chat"
-                    else -> "current"
-                }
-                if (pane == "current" && route is Route.Message) {
-                    WorkspaceApprovalPanel(api, authRevision)
-                }
-                panes.SaveableStateProvider(pane) {
-                    when {
-                        showDrafts -> DraftList(drafts, { draftId = it }, { newDraft(null) })
-                        chat -> Conversation(history, readPage, signIn, onNavigate, newDraft, presence, sent,
-                            refreshPresence, { sent = null }) {
-                            WorkspaceApprovalPanel(api, authRevision)
+                            PresenceMark.OWNER -> revealPresence = !revealPresence
+                            else -> refreshPresence()
                         }
-                        else -> when (route) {
-                            Route.Home -> Read("home", reload, signIn, api::selectedHome) { selected ->
-                                LaunchedEffect(selected) { resolve(selected?.route() ?: Route.Todos) }
-                                Pane { BodyStatus("opening home") }
-                            }
-                            Route.Todos, is Route.Todo -> TodoViewer((route as? Route.Todo)?.id, todoReads(), api, reload, signIn, onNavigate, newDraft)
-                            is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, newDraft, history) {
-                                chat = true
-                            }
-                            is Route.Source -> SourcePane(route, api, refresh, authRevision, onNavigate, onBack)
-                            is Route.Table -> TablePane(route, api, reload, signIn, onNavigate, onBack)
-                            Route.Files -> DriveList(null, api, reload, signIn, onNavigate, newDraft)
-                            is Route.File -> OriginPane(route, api, reload, signIn, onResolve)
-                            is Route.DriveFile -> FilePane(route, api, reload, signIn, onNavigate, newDraft)
-                            is Route.Mail -> Pane {
-                                TextButton(onClick = { onNavigate(route) }) { Text("open in browser") }
-                                TextButton(onClick = { onNavigate(Route.Message(route.messageId)) }) { Text("open message") }
-                            }
-                            Route.Artifacts -> ArtifactShelf(api, reload, signIn, onNavigate)
-                            is Route.Artifact -> ArtifactPane(route, api, reload, signIn, activity, resolve, onNavigate, newDraft)
-                        }
-                    }
+                    },
+                    reveal = { revealPresence = it },
+                )
+                val back = if (chat) closeChat else onBack
+                back?.let { TextButton(onClick = it) { Text("back") } }
+                val destinations = listOf("todos" to Route.Todos, "artifacts" to Route.Artifacts, "files" to Route.Files)
+                val section = when (route) {
+                    is Route.Todo -> Route.Todos
+                    is Route.Artifact -> Route.Artifacts
+                    is Route.File, is Route.DriveFile -> Route.Files
+                    else -> route
                 }
+                for ((label, target) in destinations) {
+                    val selectedSection = section == target && !chat
+                    TextButton(
+                        onClick = { if (entry != target) onNavigate(target) else closeChat() },
+                        modifier = Modifier.semantics { selected = selectedSection },
+                    ) { Text(label, style = if (selectedSection) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge) }
+                }
+                if (!chat) TextButton(onClick = { chat = true }, modifier = Modifier.semantics {
+                    contentDescription = if (history.newTotal == 0) "open chat" else "open chat, ${history.newTotal} new"
+                }) { Text(if (history.newTotal == 0) "chat" else "chat · ◇ ${history.newTotal}") }
+                TextButton(onClick = {
+                    refresh++
+                    refreshPresence()
+                }) { Text("refresh") }
             }
-        }
-    }
-}
-
-@Composable
-private fun DraftList(drafts: Drafts, open: (String) -> Unit, newDraft: () -> Unit) {
-    val revision by drafts.revision.collectAsState()
-    var items by remember { mutableStateOf<List<Draft>>(emptyList()) }
-    var error by remember { mutableStateOf(false) }
-    LaunchedEffect(revision) {
-        try {
-            items = drafts.list()
-            error = false
-        } catch (_: IOException) {
-            error = true
-        }
-    }
-    LazyColumn(contentPadding = PaddingValues(20.dp)) {
-        item { Heading("saved drafts") }
-        item { TextButton(onClick = newDraft) { Text("new message") } }
-        if (error) item { BodyStatus("could not read drafts saved on this phone") }
-        if (items.isEmpty() && !error) item { Text("no drafts saved on this phone") }
-        items(items, key = { it.id }) { draft ->
-            TextButton(onClick = { open(draft.id) }, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth()) {
-                    Text(draft.text.lineSequence().firstOrNull { it.isNotBlank() }?.take(120)
-                        ?: draft.files.firstOrNull()?.name ?: draft.ref?.label ?: "untitled draft")
-                    Text(when (draft.state) {
-                        DraftState.Editing -> "saved on this phone"
-                        DraftState.Frozen -> "send unconfirmed"
-                        DraftState.Conflict -> "submission conflict"
-                        DraftState.Received -> "received"
-                    }, style = MaterialTheme.typography.labelMedium)
+            PresenceDivider(presence, revealPresence)
+            if (setupHome) PhoneSetupAction(phone, signIn)
+            localError?.let { BodyStatus(it) }
+            if (!chat && route is Route.Message) WorkspaceApprovalPanel(api, authRevision)
+            panes.SaveableStateProvider(if (chat) "chat" else "current") {
+                if (chat) Conversation(history, readPage, signIn, onNavigate, discuss, presence, refreshPresence,
+                    dock = { pressed ->
+                        ChatDock(drafts, focusDock, { focusDock = false }, requestedReference, { requestedReference = null }) { words ->
+                            if (drafts.send(words, api, history)) pressed()
+                        }
+                    }) {
+                    WorkspaceApprovalPanel(api, authRevision)
+                } else when (route) {
+                    Route.Home -> Read("home", reload, signIn, api::selectedHome) { selected ->
+                        LaunchedEffect(selected) { resolve(selected?.route() ?: Route.Todos) }
+                        Pane { BodyStatus("opening home") }
+                    }
+                    Route.Todos, is Route.Todo -> TodoViewer((route as? Route.Todo)?.id, todoReads(), api, reload, signIn, onNavigate, discuss)
+                    is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, discuss, history,
+                        drafts.sending, confirmReceipt) { chat = true }
+                    is Route.Source -> SourcePane(route, api, refresh, authRevision, onNavigate, onBack)
+                    is Route.Table -> TablePane(route, api, reload, signIn, onNavigate, onBack)
+                    Route.Files -> DriveList(null, api, reload, signIn, onNavigate, discuss)
+                    is Route.File -> OriginPane(route, api, reload, signIn, onResolve)
+                    is Route.DriveFile -> FilePane(route, api, reload, signIn, onNavigate, discuss)
+                    is Route.Mail -> Pane {
+                        TextButton(onClick = { onNavigate(route) }) { Text("open in browser") }
+                        TextButton(onClick = { onNavigate(Route.Message(route.messageId)) }) { Text("open message") }
+                    }
+                    Route.Artifacts -> ArtifactShelf(api, reload, signIn, onNavigate)
+                    is Route.Artifact -> ArtifactPane(route, api, reload, signIn, activity, resolve, onNavigate, discuss)
                 }
             }
         }
@@ -341,8 +289,8 @@ private sealed interface ConversationEnd {
 @Composable
 private fun Conversation(
     history: ChatHistory, readPage: suspend (String?) -> ChatPage, signIn: () -> Unit,
-    navigate: (Route) -> Unit, discuss: (DiscussionRef?) -> Unit, presence: Presence, sent: String?,
-    refresh: () -> Unit, onSentVisible: () -> Unit, approvals: @Composable () -> Unit,
+    navigate: (Route) -> Unit, discuss: (DiscussionRef?) -> Unit, presence: Presence,
+    refresh: () -> Unit, dock: @Composable (() -> Unit) -> Unit, approvals: @Composable () -> Unit,
 ) {
     val list = rememberLazyListState()
     val viewport = remember { ChatViewport() }
@@ -359,12 +307,22 @@ private fun Conversation(
     val transition = rememberPresenceTransition(end, "reply handoff")
     val showTail = final == null && (tail != null || transition.currentState is ConversationEnd.Waiting)
     val reduced = !android.animation.ValueAnimator.areAnimatorsEnabled()
-    val loaded = history.latest.received
+    val loaded = history.latest.received || messages.isNotEmpty()
     val through = messages.lastOrNull { it.tracked }?.stamp
+    val zone = ZoneId.systemDefault()
+    val heads = mutableMapOf<String, LocalDate>()
     val keys = buildList {
         if (history.before != null) add("earlier")
+        var previousDay: LocalDate? = null
         for (message in messages) {
             if (message.id == boundary) add("boundary")
+            val day = message.stamp.at.atZone(zone).toLocalDate()
+            if (day != previousDay) {
+                val head = "day-$day"
+                heads[head] = day
+                add(head)
+                previousDay = day
+            }
             add(message.id)
         }
         if (showTail) add("tail")
@@ -379,11 +337,16 @@ private fun Conversation(
     var restored by remember(history.authorizationEpoch) { mutableStateOf(false) }
     var restoreSearchFailed by remember(history.authorizationEpoch) { mutableStateOf(false) }
     var moving by remember { mutableStateOf(false) }
+    var press by remember { mutableIntStateOf(0) }
+    var appliedPress by remember { mutableIntStateOf(0) }
+    var appliedCrossing by rememberSaveable { mutableIntStateOf(history.crossing) }
+    var height by remember { mutableIntStateOf(0) }
+    var placedHeight by remember { mutableIntStateOf(0) }
     var owedCycle by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingJump by remember { mutableStateOf<String?>(null) }
     var announcement by remember { mutableStateOf("") }
     var announcedAt by remember { mutableStateOf<Long?>(null) }
-    val line = with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.lineHeight.toPx() }
+    val line = with(LocalDensity.current) { ChatBodySize.toPx() * 1.5f }
     val inset = (line * 4.5f).toInt()
 
     suspend fun bottom() {
@@ -393,7 +356,7 @@ private fun Conversation(
 
     val fetchingAnchor = !restored && !restoreSearchFailed &&
         anchor?.let { it !in indexes } == true && history.before != null
-    LaunchedEffect(keys, history.placedVisit, sent, fetchingAnchor, loaded, tail?.words, history.authorizationEpoch) {
+    LaunchedEffect(keys, history.placedVisit, history.crossing, press, height, fetchingAnchor, loaded, tail?.words, history.authorizationEpoch) {
         if (!loaded) {
             restored = false
             return@LaunchedEffect
@@ -412,12 +375,7 @@ private fun Conversation(
         moving = true
         try {
             when {
-                sent != null && sent in byId -> {
-                    bottom()
-                    pinned = true
-                    held = null
-                    onSentVisible()
-                }
+                pinned && (press != appliedPress || history.crossing != appliedCrossing) -> bottom()
                 !restored && oldAnchor != null -> list.scrollToItem(oldAnchor, offset)
                 !restored || (pinned && appliedVisit != history.placedVisit) -> {
                     val oldest = messages.firstOrNull()?.id
@@ -430,6 +388,7 @@ private fun Conversation(
                     if (index == null) bottom() else list.scrollToItem(index, -inset)
                     held = null
                 }
+                pinned && height != placedHeight -> bottom()
                 pinned && history.attending && oldHead >= 0 && arrivals.isNotEmpty() -> {
                     val layout = list.layoutInfo
                     val first = layout.visibleItemsInfo.firstNotNullOfOrNull { item ->
@@ -462,6 +421,9 @@ private fun Conversation(
             restored = true
             previousHead = messages.lastOrNull()?.id
             appliedVisit = history.placedVisit
+            appliedPress = press
+            appliedCrossing = history.crossing
+            placedHeight = height
         } finally {
             moving = false
         }
@@ -499,10 +461,6 @@ private fun Conversation(
         }
     }
 
-    if (loaded && fetchingAnchor) {
-        Pane { BodyStatus("opening conversation") }
-        return
-    }
     val entering = final?.id?.takeIf { transition.currentState is ConversationEnd.Waiting }
     viewport.Observe(history, line, loaded && restored && history.newTotal > history.newAbove, entering)
     val visible = list.layoutInfo.visibleItemsInfo
@@ -532,18 +490,27 @@ private fun Conversation(
         }
     }
 
+    val top: (String) -> Int = { id ->
+        val previous = keys.getOrNull(indexes.getValue(id) - 1)
+        when {
+            previous == null -> 0
+            previous in heads || previous == "boundary" -> 6
+            byId[id]?.owner == true -> 30
+            byId[previous]?.owner == true -> 6
+            else -> 24
+        }
+    }
+    val density = LocalDensity.current
     val showMessage: @Composable (ChatMessage) -> Unit = { message ->
         ChatCard(
             message, history, viewport,
             hiddenTop = {
                 val layout = list.layoutInfo
                 val item = layout.visibleItemsInfo.firstOrNull { it.key == message.id }
-                if (item == null) 0f else (layout.viewportStartOffset - item.offset).toFloat()
+                if (item == null) 0f else (layout.viewportStartOffset - item.offset) - with(density) { top(message.id).dp.toPx() }
             },
             navigate = navigate, discuss = discuss, deliveries = deliveries.getValue(message.id), editions = editions,
         )
-        TextButton(onClick = { navigate(Route.Message(message.id)) }) { Text("open exact message") }
-        HorizontalDivider()
     }
     val showEnd: @Composable () -> Unit = {
         transition.AnimatedContent(
@@ -565,43 +532,56 @@ private fun Conversation(
     }
 
     Column(Modifier.fillMaxSize()) {
-        history.latest.status(signIn, retry = refresh)
+        history.latest.status(signIn, retry = refresh, opening = "opening conversation")
         history.writeProblem?.let { BodyStatus(it) }
-        if (!loaded) return@Column
-        LazyColumn(
+        if (!loaded || fetchingAnchor) {
+            Box(Modifier.weight(1f)) {
+                if (fetchingAnchor) Text("opening conversation", Modifier.padding(24.dp), style = ChatMurmur)
+            }
+        } else LazyColumn(
             state = list,
-            modifier = Modifier.weight(1f).onGloballyPositioned { viewport.viewport = it },
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.weight(1f).onGloballyPositioned { viewport.viewport = it }
+                .onSizeChanged { height = it.height },
+            contentPadding = PaddingValues(start = 24.dp, end = 16.dp, bottom = 12.dp),
         ) {
             items(keys, key = { it }) { id ->
                 when (id) {
-                    "earlier" -> TextButton(onClick = { scope.launch { history.earlier(readPage) } }) { Text("earlier messages") }
+                    "earlier" -> ChatWord("earlier messages", { scope.launch { history.earlier(readPage) } })
                     "boundary" -> {
                         val preceding = messages.getOrNull(messages.indexOfFirst { it.id == boundary } - 1)
-                        val label = preceding?.let { "new since ${formattedTime(it.stamp.at.toString())}" } ?: "new messages"
+                        val label = preceding?.let { "new since ${shortTime(it.stamp.at)}" } ?: "new messages"
                         val color = if (history.newTotal > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             HorizontalDivider(Modifier.weight(1f), color = color)
-                            Text(label, Modifier.padding(start = 8.dp).semantics { heading() }, style = MaterialTheme.typography.labelMedium, color = color)
-                            TextButton(
-                                enabled = through != null && history.pendingClear == null && history.newTotal > 0,
-                                onClick = { if (through != null) history.clear(through) },
-                            ) { Text("clear") }
+                            Text(label, Modifier.padding(start = 8.dp).semantics { heading() }, style = ChatMurmur, color = color)
+                            ChatWord("clear", { if (through != null) history.clear(through) },
+                                enabled = through != null && history.pendingClear == null && history.newTotal > 0)
                         }
                     }
-                    "tail", final?.id -> showEnd()
-                    else -> byId[id]?.let { message -> Column { showMessage(message) } }
+                    "tail", final?.id -> Box(Modifier.padding(top = top(id).dp)) { showEnd() }
+                    else -> {
+                        val day = heads[id]
+                        if (day != null) {
+                            val words = day.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH)).lowercase(Locale.ROOT)
+                            val title = if (day.year == LocalDate.now(zone).year) words else "$words ${day.year}"
+                            Text(title, Modifier.padding(top = if (indexes.getValue(id) == 0) 0.dp else 48.dp)
+                                .semantics { heading() }, style = ChatMurmur.copy(
+                                    fontStyle = FontStyle.Normal, fontSize = 22.sp,
+                                ))
+                        } else byId[id]?.let { message ->
+                            Box(Modifier.padding(top = top(id).dp)) { showMessage(message) }
+                        }
+                    }
                 }
             }
         }
-        if (messages.isEmpty() && !showTail) Text("no messages here", Modifier.padding(20.dp))
+        if (loaded && messages.isEmpty() && !showTail) Text("no messages here", Modifier.padding(20.dp), style = ChatMurmur)
         val pending = history.pendingClear?.takeUnless { it.sending }
         if (pending != null || newAbove + newBelow > 0 || history.owed.isNotEmpty()) {
             HorizontalDivider()
             FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 if (pending != null) {
-                    TextButton(onClick = history::undo) { Text("${pending.count} cleared · undo") }
+                    TextButton(onClick = history::undo) { Text("${pending.count} cleared · undo", style = ChatMurmur) }
                 } else if (newAbove + newBelow > 0) {
                     val text = when {
                         newAbove == 0 -> "$newBelow new below"
@@ -623,7 +603,7 @@ private fun Conversation(
                                 seekingOlder = false
                             }
                         }
-                    }) { Text("◇ $text") }
+                    }) { Text("◇ $text", style = ChatMurmur) }
                 }
                 if (history.owed.isNotEmpty()) {
                     val count = history.owed.size
@@ -632,7 +612,7 @@ private fun Conversation(
                         val candidate = candidates[(candidates.indexOf(owedCycle) + 1) % candidates.size]
                         owedCycle = candidate
                         jump(candidate)
-                    }) { Text(if (count == 1) "1 needs a reply" else "$count need a reply", color = rubric()) }
+                    }) { Text(if (count == 1) "1 needs a reply" else "$count need a reply", color = rubric(), style = ChatCaps) }
                 }
             }
         }
@@ -643,7 +623,12 @@ private fun Conversation(
             })
         }
         approvals()
-        TextButton(onClick = { discuss(null) }, modifier = Modifier.padding(start = 12.dp)) { Text("new message") }
+        dock {
+            pinned = true
+            held = null
+            pendingJump = null
+            press++
+        }
     }
 }
 
@@ -651,6 +636,7 @@ private fun Conversation(
 private fun MessageDetail(
     route: Route.Message, api: HomeApi, reload: Pair<Int, Int>, signIn: () -> Unit,
     navigate: (Route) -> Unit, discuss: (DiscussionRef?) -> Unit, history: ChatHistory,
+    sending: Boolean, confirmReceipt: suspend () -> Boolean,
     conversation: () -> Unit,
 ) {
     val scroll = rememberScrollState()
@@ -659,9 +645,20 @@ private fun MessageDetail(
         return
     }
     val path = "/api/messages/${route.id}"
-    Read(path, reload, signIn, {
-        api.read(path)?.also {
-            if (it.optString("id") != route.id) throw IOException("invalid message response")
+    Read(path to sending, reload, signIn, {
+        val epoch = history.authorizationEpoch
+        try {
+            val row = api.read(path)?.also {
+                if (it.optString("id") != route.id) throw IOException("invalid message response")
+            }
+            if (!confirmReceipt() || epoch != history.authorizationEpoch) throw ChatPageDeferred()
+            row
+        } catch (lost: SignInRequired) {
+            history.rejectAccess(lost)
+            throw lost
+        } catch (stale: ViewerUpdateRequired) {
+            history.rejectAccess(stale)
+            throw stale
         }
     }, signInLabel = "sign in to open this reply") { message ->
         if (message == null) {
@@ -671,7 +668,7 @@ private fun MessageDetail(
         val row = remember(message) { ChatMessage(message) }
         val viewport = remember { ChatViewport() }
         val headingInset = with(LocalDensity.current) { 64.dp.roundToPx() }
-        viewport.Observe(history, with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.lineHeight.toPx() },
+        viewport.Observe(history, with(LocalDensity.current) { ChatBodySize.toPx() * 1.5f },
             history.canObserve(row, detached = true), detached = true)
         Column(
             Modifier.fillMaxSize().onGloballyPositioned { viewport.viewport = it }.verticalScroll(scroll).padding(24.dp),
@@ -688,9 +685,6 @@ private fun MessageDetail(
 }
 
 @Composable
-private fun rubric() = if (isSystemInDarkTheme()) Color(0xFFEE9A83) else Color(0xFFA33B25)
-
-@Composable
 private fun ChatCard(
     row: ChatMessage, history: ChatHistory, viewport: ChatViewport, selected: Boolean = false,
     hiddenTop: () -> Float, navigate: (Route) -> Unit, discuss: (DiscussionRef?) -> Unit,
@@ -705,6 +699,7 @@ private fun ChatCard(
         }
     }
     DisposableEffect(row.id, viewport) { onDispose { viewport.cards.remove(row.id) } }
+    val firstLine = with(LocalDensity.current) { 12.sp.toPx() * 1.4f + ChatBodySize.toPx() * .75f + 2.dp.toPx() }
     val ink = MaterialTheme.colorScheme.onSurface
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val selection = MaterialTheme.colorScheme.primary
@@ -716,11 +711,13 @@ private fun ChatCard(
     Column(Modifier.fillMaxWidth().onGloballyPositioned { viewport.cards[row.id] = row to it }.semantics {
         if (selected) this.selected = true
     }.drawBehind {
-        if (selected) drawLine(selection, Offset(-4.dp.toPx(), 0f), Offset(-4.dp.toPx(), size.height), 1.5.dp.toPx())
-        if (carried) {
+        if (selected) drawLine(selection, Offset(-23.dp.toPx(), 0f),
+            Offset(-23.dp.toPx(), size.height), 2.dp.toPx())
+        if (row.owner) drawLine(muted, Offset(-18.dp.toPx(), firstLine), Offset(-9.dp.toPx(), firstLine), 1.5.dp.toPx())
+        if (!row.owner && carried) {
             val radius = 5.dp.toPx()
-            val x = -(if (selected) 16.dp else 13.dp).toPx()
-            val y = maxOf(7.dp.toPx(), hiddenTop() + 16.dp.toPx())
+            val x = -13.dp.toPx()
+            val y = maxOf(firstLine, hiddenTop() + 16.dp.toPx())
                 .coerceAtMost((size.height - radius).coerceAtLeast(radius))
             val diamond = Path().apply {
                 moveTo(x, y - radius)
@@ -741,77 +738,128 @@ private fun ChatCard(
 }
 
 private fun JSONObject.deliveries(): List<DiscussionRef> {
-    val links = objects("artifact_links").mapNotNull { DiscussionRef.parse(it) as? DiscussionRef.Artifact }
+    val links = objects("artifact_links").mapNotNull(DiscussionRef::parse)
     val presented = DiscussionRef.parse(optJSONObject("present")?.optJSONObject("ref"))
     return (links + listOfNotNull(presented)).distinct()
+}
+
+private data class ApparatusEntry(val kind: String, val text: String, val route: Route? = null, val note: String? = null)
+
+private fun JSONObject.apparatus(deliveries: List<DiscussionRef>, editions: List<DiscussionRef.Artifact>): List<ApparatusEntry> = buildList {
+    val id = getString("id")
+    val reference = DiscussionRef.parse(optJSONObject("ref"))
+    if (reference != null) add(ApparatusEntry("about", reference.label, reference.route()))
+    val files = objects("files")
+    for (file in files) {
+        val note = when {
+            file.optBoolean("unavailable") -> "file unavailable"
+            file.string("state") == "filed" -> "filed"
+            else -> originStatus(file)
+        }
+        add(ApparatusEntry("file", file.string("name") ?: "unnamed file", Route.File(file.getString("id"), null), note))
+    }
+    val drafts = objects("drafts")
+    fun subject(row: JSONObject) = row.string("subject").orEmpty().ifBlank { "(no subject)" }
+    val repeated = drafts.filter { it.optBoolean("editable") }.groupingBy(::subject).eachCount()
+    val ordinals = mutableMapOf<String, Int>()
+    for (draft in drafts.sortedBy { !it.optBoolean("editable") }) {
+        val editable = draft.optBoolean("editable")
+        val subject = subject(draft)
+        val ordinal = if (editable && repeated.getValue(subject) > 1) {
+            ((ordinals[subject] ?: 0) + 1).also { ordinals[subject] = it }
+        } else null
+        add(ApparatusEntry(if (editable) "draft" else "revision", ordinal?.let { "$subject · $it" } ?: subject,
+            Route.Mail(id, draft.getString("create_action_id"), historical = !editable)))
+    }
+    val revision = string("draft_revision_id")
+    val badRevision = string("draft_revision_error") == "integrity"
+    if (revision != null && drafts.none { it.opt("editable") != true && it.string("create_action_id") == revision }) {
+        add(ApparatusEntry("revision", "draft revision", Route.Mail(id, revision, historical = true),
+            "failed integrity checks".takeIf { badRevision }))
+    } else if (badRevision) add(ApparatusEntry("revision", "draft revision", note = "failed integrity checks"))
+    for (ref in deliveries) {
+        if (ref == reference || (ref is DiscussionRef.File && ref.page == null && files.any { it.string("id") == ref.id })) continue
+        add(when (ref) {
+            is DiscussionRef.Artifact -> ApparatusEntry("artifact", ref.labelAmong(editions), ref.route())
+            is DiscussionRef.File -> ApparatusEntry("file", "original file", ref.route(), ref.page?.let { "page $it" })
+            is DiscussionRef.DriveFile -> ApparatusEntry("file", "drive file", ref.route(), ref.page?.let { "page $it" })
+            is DiscussionRef.Todo -> ApparatusEntry("todo", ref.label, ref.route())
+            is DiscussionRef.Proposal -> continue
+        })
+    }
+}
+
+@Composable
+private fun Apparatus(rows: List<ApparatusEntry>, navigate: (Route) -> Unit) {
+    if (rows.isEmpty()) return
+    val colors = MaterialTheme.colorScheme
+    val measure = rememberTextMeasurer()
+    val width = with(LocalDensity.current) {
+        rows.maxOf { measure.measure(it.kind, ChatCaps, softWrap = false).size.width }.toDp()
+    }
+    var previous: String? = null
+    for (entry in rows) {
+        val first = entry.kind != previous
+        previous = entry.kind
+        val name = listOfNotNull(entry.kind, entry.text, entry.note).joinToString(" · ")
+        val row = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        Row(if (entry.route == null) row else row.clickable(role = Role.Button) { navigate(entry.route) }
+            .semantics { contentDescription = name }, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(if (first) entry.kind else "", Modifier.width(width), color = colors.onSurfaceVariant, style = ChatCaps,
+                softWrap = false)
+            Column(Modifier.weight(1f).then(if (entry.route == null) Modifier else Modifier.clearAndSetSemantics {})) {
+                Text(entry.text, style = ChatApparatus.copy(
+                    textDecoration = if (entry.route != null) TextDecoration.Underline else null,
+                ))
+                entry.note?.let { Text(it, style = ChatMurmur, color = colors.onSurfaceVariant) }
+            }
+        }
+    }
 }
 
 @Composable
 private fun MessageEntry(
     message: JSONObject, navigate: (Route) -> Unit, discuss: (DiscussionRef?) -> Unit,
-    deliveries: List<DiscussionRef> = message.deliveries(),
-    editions: List<DiscussionRef.Artifact> = deliveries.filterIsInstance<DiscussionRef.Artifact>(),
+    deliveries: List<DiscussionRef>, editions: List<DiscussionRef.Artifact>,
     owed: Boolean, fresh: Boolean, onExternal: () -> Unit,
 ) {
     val id = message.getString("id")
-    val speaker = if (message.getString("role") == "owner") "you" else "jarvis"
-    val stamp = "$speaker · ${formattedTime(message.string("at"))}"
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(stamp, Modifier.clearAndSetSemantics {
-            contentDescription = if (fresh) "new · $stamp" else stamp
-        }, style = MaterialTheme.typography.labelMedium)
-        if (owed) Text("needs a reply", color = rubric(), fontSize = 12.sp)
-    }
+    MessageStamp(if (message.getString("role") == "owner") "you" else "jarvis", shortTime(Instant.parse(message.getString("at"))),
+        owed, fresh)
+    Spacer(Modifier.height(2.dp))
     MessageMarkdown(message, navigate, onExternal)
-    for (file in message.objects("files")) {
-        val status = if (file.optBoolean("unavailable")) "file unavailable" else originStatus(file)
-        TextButton(onClick = { navigate(Route.File(file.getString("id"), null)) }) {
-            Text("${file.string("name") ?: "original file"} · $status")
-        }
-    }
-    DiscussionRef.parse(message.optJSONObject("ref"))?.let { ref ->
-        TextButton(onClick = { navigate(ref.route()) }) { Text("discussed · ${ref.label}") }
-    }
+    val rows = remember(message, deliveries, editions) { message.apparatus(deliveries, editions) }
+    Apparatus(rows, navigate)
     for (proposal in message.objects("proposals")) {
-        HorizontalDivider()
-        Section(proposal.getString("title"))
-        val revision = proposal.string("draft_revision_id")
-        Text(proposal.getString("detail"))
-        BodyStatus(proposal.string("status_label") ?: proposal.getString("status").replace('_', ' '))
-        if (revision != null) {
-            TextButton(onClick = { navigate(Route.Mail(id, revision, historical = true)) }) {
-                Text("open draft revision")
+        val status = proposal.getString("status")
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp, start = 18.dp)) {
+            if (owed && status == "awaiting_approval") {
+                Text("¶", Modifier.offset(x = (-18).dp).clearAndSetSemantics {}, color = rubric(), style = ChatMurmur)
+            }
+            Column {
+                Text(proposal.getString("title"), style = chatBody())
+                Text(proposal.getString("detail"), style = ChatApparatus)
+                Apparatus(buildList {
+                    proposal.string("draft_revision_id")?.let {
+                        add(ApparatusEntry("revision", "draft revision", Route.Mail(id, it, historical = true)))
+                    }
+                    proposal.string("owner_message_id")?.let {
+                        add(ApparatusEntry("you", if (proposal.string("decision") == "approve") "approved" else "denied", Route.Message(it)))
+                    }
+                }, navigate)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    ChatWord("reply", { discuss(DiscussionRef.Proposal(id, proposal.getString("action_id"))) },
+                        label = "reply to ${proposal.getString("title")}", style = chatBody(owner = true).copy(
+                            textDecoration = TextDecoration.Underline,
+                        ))
+                    Text(proposal.string("status_label") ?: status.replace('_', ' '),
+                        Modifier.weight(1f).padding(start = 12.dp), style = ChatCaps.copy(textAlign = androidx.compose.ui.text.style.TextAlign.End),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
-        proposal.string("owner_message_id")?.let { owner ->
-            TextButton(onClick = { navigate(Route.Message(owner)) }) { Text("owner reply · ${proposal.getString("decision")}") }
-        }
-        TextButton(onClick = { discuss(DiscussionRef.Proposal(id, proposal.getString("action_id"))) }) {
-            Text("reply to ${proposal.getString("title")}")
-        }
-    }
-    val drafts = message.objects("drafts")
-    message.string("draft_revision_id")?.takeUnless { revision ->
-        drafts.any { it.opt("editable") != true && it.string("create_action_id") == revision }
-    }?.let { revision ->
-        TextButton(onClick = { navigate(Route.Mail(id, revision, historical = true)) }) { Text("open draft revision") }
-    }
-    if (message.string("draft_revision_error") == "integrity") {
-        BodyStatus("exact revision failed integrity checks")
-    }
-    drafts.forEachIndexed { index, created ->
-        val action = created.getString("create_action_id")
-        val subject = created.string("subject").orEmpty().ifBlank { "(no subject)" }
-        val repeated = drafts.count { it.string("subject") == created.string("subject") } > 1
-        val ordinal = drafts.take(index + 1).count { it.string("subject") == created.string("subject") }
-        val name = if (repeated) "$subject · $ordinal" else subject
-        val historical = created.opt("editable") != true
-        val label = if (historical) "open draft revision" else "open draft"
-        TextButton(onClick = { navigate(Route.Mail(id, action, historical)) }) { Text("$label · $name") }
-    }
-    for (ref in deliveries) {
-        val label = if (ref is DiscussionRef.Artifact) ref.labelAmong(editions) else ref.label
-        TextButton(onClick = { navigate(ref.route()) }) { Text("open $label") }
     }
 }
 
@@ -845,6 +893,8 @@ internal class ReadState<T> {
             data = read()
             checked = Instant.now()
             null
+        } catch (_: ChatPageDeferred) {
+            return false
         } catch (update: ViewerUpdateRequired) {
             data = null
             checked = null
@@ -867,7 +917,7 @@ internal class ReadState<T> {
     }
 
     @Composable
-    fun status(signIn: () -> Unit, signInLabel: String = "sign in to continue", retry: (() -> Unit)? = null) {
+    fun status(signIn: () -> Unit, signInLabel: String = "sign in to continue", retry: (() -> Unit)? = null, opening: String? = null) {
         val problem = error
         if (problem != null) {
             val message = if (problem == "sign in") signInLabel else problem
@@ -876,7 +926,10 @@ internal class ReadState<T> {
                 if (problem == "sign in") TextButton(onClick = signIn) { Text("sign in") }
                 else if (problem != UpdateViewerMessage) TextButton(onClick = { if (retry != null) retry() else attempt++ }) { Text("retry") }
             }
-        } else if (!received) CircularProgressIndicator(Modifier.padding(20.dp))
+        } else if (!received) {
+            if (opening == null) CircularProgressIndicator(Modifier.padding(20.dp))
+            else Text(opening, Modifier.padding(20.dp), style = ChatMurmur)
+        }
     }
 }
 

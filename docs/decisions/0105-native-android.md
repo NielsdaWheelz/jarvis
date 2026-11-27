@@ -1,5 +1,7 @@
 # adr 0105. native android and discord retirement
 
+the [daybook](0127-the-daybook.md#android) governs the single inline draft, share delivery, and the conversation's presentation.
+
 **implementation authorized · installed acceptance open · november 23, 2026 pacific.** one owner, one active phone, one service. the owner selected a private apk, the same todo home and chat proposals as desktop, explicitly linked results and in-jarvis reading of verified gmail draft revisions. use a dedicated firebase project with opaque notice/message ids and a generic alert kind. the connected s22+ reported `SM-S906W`, android 16/api 36 and enabled google play services.
 
 this amends [0087](0087-private-web-home.md) for access/alerts and [0097](0097-todo-home.md) for todo **detail**. [0091](0091-source-backed-reports.md) owns cited answers, [0096](0096-calendar-on-demand.md) owns silence, [0101](0101-outgoing-mail-attachments.md) owns mail authority. the implementation base is installed `ea2b825` / `0022`. it includes the installed 0101/0103 lineage and main’s `7a864e0` chat-order fix. the android cut uses `0023`.

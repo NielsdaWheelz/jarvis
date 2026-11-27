@@ -1,5 +1,7 @@
 # adr 0122. give the sidebar to chat and simplify phone alerts
 
+the [daybook](0127-the-daybook.md#the-page) gives the chat rail a 1.5rem reading gutter.
+
 **implemented · november 26, 2026 · installed acceptance pending**
 
 the installed web shell at `22e9d2a` has a workspace title above chat, todos

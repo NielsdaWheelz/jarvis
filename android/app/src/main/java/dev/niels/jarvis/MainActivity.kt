@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -17,6 +18,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import java.io.IOException
@@ -33,10 +36,11 @@ internal class HomeVisits : ViewModel() {
 }
 
 class MainActivity : ComponentActivity() {
-    private val destination = MutableStateFlow<Uri?>(null)
+    private val destination = MutableStateFlow<Intent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val initial = intent.data?.let(Routes::parse) ?: Route.Home
         val visits = ViewModelProvider(this)[HomeVisits::class.java]
         val notices = PhoneNotices.get(this)
@@ -53,7 +57,7 @@ class MainActivity : ComponentActivity() {
                         unresolved.removeAll(chat.rows.map { it.id }.toSet())
                         var cursor = chat.before
                         while (cursor != null && unresolved.isNotEmpty()) {
-                            val page = readChatPage(api, notices, cursor, 2_500)
+                            val page = readChatPage(api, notices, cursor, 2_500) { true }
                             unresolved.removeAll(page.messages.map { it.id }.toSet())
                             cursor = page.before
                         }
@@ -75,8 +79,40 @@ class MainActivity : ComponentActivity() {
             val holder = rememberSaveableStateHolder()
             val incoming by destination.collectAsState()
             val access = remember { Access.get(this@MainActivity) }
+            val drafts = remember { Drafts.get(this@MainActivity) }
             val authRevision by access.revision.collectAsState()
-            val presence = rememberPresence(api, authRevision, chat, notices)
+            val presence = remember(authRevision) { Presence { drafts.locked } }
+            val haptic = LocalHapticFeedback.current
+            DisposableEffect(chat, presence, haptic) {
+                val stop = chat.observeReceipt {
+                    presence.accepted()
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                }
+                onDispose(stop)
+            }
+            val confirmReceipt: suspend () -> Boolean = remember(api, drafts, chat) {
+                { drafts.checkReceipt(api, chat) }
+            }
+            val readPage: suspend (String?, Long?) -> ChatPage = remember(api, notices, drafts) {
+                { before, timeout ->
+                    readChatPage(api, notices, before, timeout, confirmReceipt)
+                }
+            }
+            ObservePresence(api, presence, chat, readPage)
+            LaunchedEffect(drafts.draft?.held, drafts.sending, authRevision) {
+                if (drafts.draft?.held == true && !drafts.sending) {
+                    try {
+                        confirmReceipt()
+                    } catch (lost: SignInRequired) {
+                        chat.rejectAccess(lost)
+                    } catch (stale: ViewerUpdateRequired) {
+                        chat.rejectAccess(stale)
+                    } catch (_: IOException) {
+                        // The held draft remains actionable while the receipt is unavailable.
+                    }
+                }
+            }
+            var openDock by rememberSaveable { mutableStateOf(intent.getBooleanExtra("chat", false)) }
 
             // a repeated address is a new visit. back restores the actual origin.
             val depth = trail.lastIndex
@@ -114,8 +150,9 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(incoming) {
-                incoming?.let { uri ->
-                    Routes.parse(uri)?.let(::navigate)
+                incoming?.let { request ->
+                    request.data?.let(Routes::parse)?.let(::navigate)
+                    if (request.getBooleanExtra("chat", false)) openDock = true
                     destination.value = null
                 }
             }
@@ -128,6 +165,9 @@ class MainActivity : ComponentActivity() {
                     history = chat, notices = notices,
                     onBack = if (trail.size > 1) ::back else null,
                     api = api, authRevision = authRevision, presence = presence,
+                    drafts = drafts, readPage = { readPage(it, null) },
+                    confirmReceipt = confirmReceipt,
+                    openDock = openDock, dockOpened = { openDock = false },
                 )
             }
         }
@@ -135,6 +175,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        destination.value = intent.data
+        destination.value = intent
     }
 }

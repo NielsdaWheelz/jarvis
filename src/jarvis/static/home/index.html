@@ -7,6 +7,8 @@
     <title>jarvis</title>
     <link rel="stylesheet" href="/static/home/home.css" />
     <link id="chat-icon" rel="icon" href="/static/home/chat-rest.svg" />
+    <link rel="preload" href="/static/home/fonts/literata-3.103-roman-1ab05c52.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/static/home/fonts/literata-3.103-italic-01e71417.woff2" as="font" type="font/woff2" crossorigin />
     <script type="module" src="/static/home/home.js"></script>
   </head>
   <body>
@@ -55,14 +57,18 @@
       <p id="message-unavailable" class="secondary" role="status" hidden>this message is no longer available.</p>
       <section id="chat" class="panel" aria-label="chat">
         <button id="older" hidden>earlier messages</button>
-        <div id="messages"></div>
-        <article id="presence-tail" hidden>
-          <div class="stamp"><strong>jarvis</strong><time></time></div>
-          <div class="presence-caption">
-            <span class="presence-point" aria-hidden="true"></span>
-            <span class="presence-words"></span>
+        <div id="chat-sheet">
+          <div id="chat-page">
+            <div id="messages"></div>
+            <article id="presence-tail" hidden>
+              <div class="stamp"><strong class="sr-only">jarvis</strong><time></time></div>
+              <div class="presence-caption">
+                <span class="presence-point" aria-hidden="true"></span>
+                <span class="presence-words"></span>
+              </div>
+            </article>
           </div>
-        </article>
+        </div>
       </section>
       <div id="chat-ledge" hidden>
         <button type="button" hidden><span class="chat-lozenge" aria-hidden="true"></span><span></span></button>
@@ -74,22 +80,28 @@
       <form id="composer">
         <div id="context" hidden>
           <span id="ref-label"></span>
-          <button id="remove-ref" type="button">remove reference</button>
+          <button id="remove-ref" type="button" aria-label="remove reference">×</button>
         </div>
         <div id="draft-choice" hidden></div>
-        <label class="sr-only" for="message">message jarvis</label>
-        <textarea id="message" rows="2" placeholder="message jarvis…"></textarea>
         <div id="file-list"></div>
+        <label class="sr-only" for="message">message jarvis</label>
+        <div id="writing">
+          <textarea id="message" rows="1" placeholder="to jarvis"></textarea>
+        </div>
         <div id="file-problem" role="status"></div>
-        <div id="uncertain-help" hidden>
-          the earlier message may still arrive.
-          <a href="/" target="_blank" rel="noopener">open an empty draft</a>
+        <div id="compose-actions">
+          <label class="attach" id="attach">attach<input id="files" type="file" multiple aria-label="attach" /></label>
+          <span id="receipt" role="status"></span>
+          <button id="send" type="submit" aria-label="send">send</button>
+          <button id="stop-waiting" type="button" hidden>stop waiting</button>
+          <button id="retry-send" type="submit" hidden>retry</button>
+          <button id="discard" type="button" hidden>discard</button>
         </div>
-        <div class="compose-actions">
-          <label class="attach">attach<input id="files" type="file" multiple /></label>
-          <button id="send" type="submit">send</button>
+        <div id="discard-choice" hidden>
+          <span>discard these words? a send that did arrive stays in the conversation.</span>
+          <button id="keep" type="button">keep</button>
+          <button id="confirm-discard" type="button">discard</button>
         </div>
-        <div id="receipt" role="status"></div>
       </form>
     </aside>
     <div id="presence-announcement" class="sr-only" role="status"></div>

@@ -64,7 +64,13 @@ delivers notification links. the adr supersedes conflicting client, readiness,
 delivery and presentation rules below. the web cut introduced schema `0017`.
 [production cut and owner acceptance](docs/decisions/0087-private-web-home.md#production-cut-2026-11-19-utc)
 
-in the web chat composer, enter sends the message and shift-enter inserts a newline.
+[the daybook](docs/decisions/0127-the-daybook.md) sets the web and android
+conversation as a dated page. both show the service's stored row at a send
+receipt. android has one draft beside the record. shared text stays an
+attachment.
+
+in the web chat composer, enter sends when the primary pointer is fine.
+shift-enter inserts a newline. ctrl-enter and cmd-enter send with any pointer.
 the input method handles enter during text composition.
 
 the [web reply decision](docs/decisions/0091-source-backed-reports.md) removes

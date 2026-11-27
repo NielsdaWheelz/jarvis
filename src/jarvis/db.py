@@ -33,8 +33,6 @@ from universal_memory.policy import (
 )
 from universal_memory.schema import MEMORY_TABLES
 
-from jarvis.drive_cut import DRIVE_CUSTODY_SCHEMA
-
 ASSISTANT_MEMORY_READS = 1
 SERVICE_MEMORY_READS = READ_POOL_SIZE - ASSISTANT_MEMORY_READS
 
@@ -46,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = DRIVE_CUSTODY_SCHEMA
+APPLICATION_SCHEMA_REVISION = "0028"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -164,6 +162,22 @@ Index(
         & message.c.processing_parked_at.is_(None)
     ),
 )
+owner_shown = Table(
+    "owner_shown",
+    metadata,
+    Column(
+        "message_id", UUID(as_uuid=True), ForeignKey("message.id"), primary_key=True
+    ),
+    Column(
+        "shown_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    ),
+    Column("via", Text, nullable=False),
+    CheckConstraint("via IN ('observed', 'cleared', 'cutover')", name="via"),
+)
+
 memory_log = Table(
     "memory_log",
     metadata,

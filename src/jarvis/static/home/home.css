@@ -255,7 +255,7 @@ a {
   letter-spacing: .06em;
 }
 #chat-page [data-role="owner"]::before,
-#composer::before {
+#writing::before {
   content: "";
   position: absolute;
   inline-size: .6rem;
@@ -385,69 +385,127 @@ a {
 #connection button {
   margin-left: 0.5rem;
 }
-#composer {
-  border-top: 1px solid var(--line);
-  padding: 1rem 1.2rem max(1rem, env(safe-area-inset-bottom));
-}
-#message {
-  width: 100%;
-  resize: vertical;
-  min-height: 3.6rem;
-  max-height: 28vh;
-  background: transparent;
+#sidebar button:not(.presence-mark), #sidebar .attach {
   border: 0;
-  padding: 0.25rem;
-}
-.compose-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0.4rem 0;
-}
-.attach {
-  font-size: 0.9rem;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
   color: var(--muted);
-  padding: 0.35rem 0.3rem;
 }
-#send {
-  background: var(--ink);
-  color: var(--rail);
-  border-color: transparent;
+#sidebar :is(button:not(.presence-mark), .attach):not(:disabled):hover { color: var(--ink); }
+#sidebar button:disabled { opacity: 1; }
+#sidebar #send:not(:disabled), #sidebar .proposal-foot button { color: var(--ink); }
+#sidebar #chat-ledge .owed:not([aria-disabled="true"]) { color: var(--rubric); }
+#sidebar #chat-ledge button { padding-block: .25rem; }
+
+#composer {
+  position: relative;
+  border-top: 1px solid var(--line);
+  padding: .55rem var(--end) max(.45rem, env(safe-area-inset-bottom)) var(--gutter);
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  flex: 0 0 auto;
+  transition: border-color 120ms, box-shadow 120ms;
 }
-#context,
-#file-list {
-  font-size: 0.85rem;
+#composer:has(#message:focus) {
+  border-top-color: var(--ink);
+  box-shadow: inset 0 1px var(--ink);
+}
+#composer[data-held]:has(#message:focus) {
+  border-top-color: var(--muted);
+  box-shadow: inset 0 1px var(--muted);
+}
+#writing { position: relative; }
+#writing::before { inset-inline-start: -1.125rem; inset-block-start: .75rem; }
+#message {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font: italic var(--body-weight) 1rem/1.5rem var(--text);
+  min-height: 1lh;
+  max-height: min(12lh, 38dvh);
   overflow-wrap: anywhere;
 }
-#composer.dragging {
-  outline: 2px dashed var(--accent);
-  outline-offset: -3px;
+#message::placeholder {
+  color: var(--muted);
+  font: italic 1.14rem/1.5rem var(--display);
 }
-#file-list {
-  max-height: 25vh;
-  overflow-y: auto;
+#composer[data-sending] #message {
+  color: color-mix(in srgb, var(--ink) 58%, var(--rail));
+  caret-color: transparent;
 }
+#compose-actions, #discard-choice, #context {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 1.65rem;
+}
+#attach { margin-inline-end: auto; }
+#receipt {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  color: var(--muted);
+  font: italic 1.06rem/1.15 var(--display);
+}
+.dragging { background: color-mix(in srgb, var(--accent) 8%, var(--rail)) !important; }
+.dragging #receipt { font-size: 0; }
+.dragging #receipt::after { content: "drop to attach"; font-size: 1.06rem; }
+#discard-choice span, #ref-label { flex: 1 1 auto; }
+#context, #file-list, #file-problem, #draft-choice, #discard-choice {
+  font-size: .875rem;
+  overflow-wrap: anywhere;
+}
+#file-list { max-height: 25dvh; overflow-y: auto; }
 .draft-file {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding-block: 0.15rem;
+  gap: .45rem;
+  min-height: 2.75rem;
 }
-.draft-file span {
-  flex: 1;
+.draft-file small, .draft-thumbnail { color: var(--muted); }
+.draft-name {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.draft-file canvas {
-  width: 2.5rem;
-  height: 2.5rem;
-  object-fit: contain;
+.draft-thumbnail {
+  inline-size: 2.5rem;
+  flex: 0 0 2.5rem;
+  display: grid;
+  place-items: center;
+  block-size: 2.5rem;
+  font-variant-caps: all-small-caps;
 }
-#file-problem,
-#uncertain-help {
-  font-size: 0.85rem;
+.draft-thumbnail canvas { max-width: 100%; max-height: 2.5rem; object-fit: contain; }
+#draft-choice button { margin-inline: .4rem; }
+#workspace-approval {
+  border-block-start: 1px solid var(--line);
+  padding: .45rem var(--end) .5rem var(--gutter);
+  font-size: .875rem;
 }
-#context button {
-  margin: 0.2rem;
+#workspace-approval p { margin-block: 0 .3rem; }
+#workspace-approval small { color: var(--muted); font: italic 1.06rem/1.25 var(--display); }
+#workspace-approval button { margin-inline-end: .75rem; }
+@media (hover: none) and (pointer: coarse) {
+  #sidebar button:not(.presence-mark), #sidebar .attach {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+  #sidebar .attach { display: inline-grid; place-items: center; }
+}
+@media (pointer: fine) {
+  #send::after { content: " ↵"; color: var(--muted); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #composer { transition: none; }
 }
 @media (max-width: 720px) {
   .bar {
@@ -873,6 +931,7 @@ article:has(.owed-label:not([hidden])) .proposal[data-status="awaiting_approval"
 .auth-required #sidebar {
   visibility: hidden;
 }
+.auth-required #composer { visibility: visible; }
 
 @font-face {
   font-family: "Cormorant Garamond";
@@ -1015,7 +1074,6 @@ article:has(.owed-label:not([hidden])) .proposal[data-status="awaiting_approval"
   }
 }
 
-#receipt { min-height: 1.48em; }
 #message-unavailable { margin: .65rem 1.2rem; }
 #presence-tail[data-stale] time { opacity: .55; }
 .presence-caption, .presence-previous {

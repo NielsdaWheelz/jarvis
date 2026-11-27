@@ -47,16 +47,7 @@ const presence = bindPresence({
     if (document.activeElement === landing && !$("workspace-approval").hidden)
       $("workspace-approval").querySelector("button")?.focus();
   },
-  keepBottom(change) {
-    const anchor = chatAnchor();
-    const atEnd = pinned && !selectedMessage && !pendingOpening && !isDetail(location.pathname) &&
-      chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 2;
-    attention.beforeLayoutChange();
-    change();
-    if (atEnd) scrollChat(chat.scrollHeight);
-    else restoreChatAnchor(anchor);
-    attention.update();
-  },
+  keepBottom: preservePage,
 });
 const draftKey = "jarvis.home.draft";
 let reloadReading = null;
@@ -64,8 +55,7 @@ let chatReturn = null;
 const newDraft = () => ({ id: null, text: "", ref: null, files: [], uncertain: false });
 let draft = JSON.parse(sessionStorage.getItem(draftKey) || "null") || newDraft();
 let armed = null,
-  pendingSend = false,
-  checkingReceipt = false,
+  activeSend = null,
   receiptMissing = false,
   staging = 0,
   reselect = null,
@@ -99,10 +89,12 @@ const time = (at, zone) =>
 const chat = $("chat");
 const transcript = $("messages");
 let pinned = true, scrollTarget = null, heldPosition = null, pendingOpening = null;
-let sentPlacement = null;
+let advance = null, receiptSequence = 0;
 let waitingForType = true, fontOpening = null;
 let reread = true, visitOpening = true, placeVisit = true, earlierRead = null;
-let pageSequence = 0, owedSequence = 0;
+let pageSequence = 0, owedSequence = 0, owedIds = "";
+const coarse = matchMedia("(hover: none) and (pointer: coarse)");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const attention = chatAttention({
   chat,
   list: transcript,
@@ -111,6 +103,7 @@ const attention = chatAttention({
   icon: $("chat-icon"),
   live: $("chat-live"),
   formatTime: stampTime,
+  advancing: () => Boolean(advance),
   stopAttending() { placeVisit = pinned; },
   newVisit() {
     reread = visitOpening = true;
@@ -159,6 +152,7 @@ function changeState(values, path = location.href) {
   replaceEntry({ ...history.state, ...values }, path);
 }
 function setPanel() {
+  finishAdvance();
   const open = Boolean(history.state?.panel);
   if (!open && mobile.matches && chat.clientHeight) heldPosition = chatAnchor();
   document.body.dataset.panel = open ? "open" : "closed";
@@ -173,7 +167,6 @@ function setPanel() {
 }
 mobile.addEventListener("change", setPanel);
 function openSidebar(origin) {
-  armed = null;
   if (mobile.matches && !history.state?.panel) {
     rememberOverview(origin);
     files.remember(origin);
@@ -193,39 +186,57 @@ function closeSidebar() {
   startRoute(shownIndex);
 }
 $("sidebar-open").onclick = () => {
+  armed = null;
   openSidebar($("sidebar-open"));
   $("sidebar-close").focus({ preventScroll: true });
 };
 $("sidebar-close").onclick = closeSidebar;
 
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  clearDrag();
-  if (mobile.matches && history.state?.panel) closeSidebar();
+  if (e.key !== "Escape" || e.isComposing) return;
+  if (dragDepth) clearDrag();
+  else if (!$("discard-choice").hidden) $("keep").click();
+  else if (!$("draft-choice").hidden) {
+    preservePage(() => { $("draft-choice").hidden = true; });
+    $("message").focus({ preventScroll: true });
+  } else if (mobile.matches && history.state?.panel) closeSidebar();
 });
-function oldUpload() {
-  return draft.uncertain && draft.files.some((entry) => !entry.sha256);
-}
 function canStage() {
-  return !pendingSend && !checkingReceipt && (!draft.uncertain || (receiptMissing && !oldUpload()));
+  return !activeSend && (!draft.uncertain || receiptMissing) && $("discard-choice").hidden;
+}
+function fitMessage() {
+  const field = $("message");
+  const scroll = field.scrollTop;
+  field.style.height = "auto";
+  field.style.height = field.scrollHeight + "px";
+  field.scrollTop = scroll;
 }
 function updateComposer() {
-  if ($("message").value !== draft.text) $("message").value = draft.text;
-  const editable = !pendingSend && !draft.uncertain;
-  $("message").readOnly = !editable;
-  $("files").disabled = !canStage();
-  $("context").hidden = !draft.ref;
-  $("ref-label").textContent = draft.ref ? draft.refLabel || label(draft.ref) : "";
-  $("remove-ref").disabled = !editable;
-  for (const control of $("file-list").querySelectorAll("button")) {
-    control.hidden = draft.uncertain;
-    control.disabled = !editable || Boolean(staging);
-  }
-  const missing = draft.files.some((entry) => !entry.file);
-  $("uncertain-help").hidden = !draft.uncertain || pendingSend || (!missing && !oldUpload());
-  $("send").textContent = draft.uncertain ? "retry send" : "send";
-  $("send").disabled =
-    !canStage() || Boolean(staging) || missing || (!draft.text.trim() && !draft.files.length);
+  preservePage(() => {
+    const field = $("message");
+    if (field.value !== draft.text) field.value = draft.text;
+    fitMessage();
+    const editable = !activeSend && !draft.uncertain;
+    field.readOnly = !editable;
+    $("composer").toggleAttribute("data-sending", Boolean(activeSend));
+    $("composer").toggleAttribute("data-held", draft.uncertain && !activeSend);
+    $("files").disabled = !canStage();
+    $("context").hidden = !draft.ref;
+    $("ref-label").textContent = draft.ref ? "about · " + (draft.refLabel || label(draft.ref)) : "";
+    $("remove-ref").hidden = !editable;
+    for (const control of $("file-list").querySelectorAll("button")) {
+      const restore = control.dataset.reselect !== undefined;
+      control.hidden = !editable && !(restore && canStage());
+      control.disabled = Boolean(staging);
+    }
+    const missing = draft.files.some((entry) => !entry.file);
+    $("attach").hidden = $("send").hidden = !editable;
+    $("retry-send").hidden = Boolean(activeSend) || !draft.uncertain;
+    $("send").disabled = !editable || Boolean(staging) || missing || (!draft.text.trim() && !draft.files.length);
+    $("retry-send").disabled = Boolean(staging) || missing;
+    $("discard").hidden = $("retry-send").hidden;
+    $("discard").disabled = Boolean(staging);
+  });
 }
 $("remove-ref").onclick = () => {
   draft.ref = null;
@@ -236,30 +247,38 @@ $("remove-ref").onclick = () => {
 function showFiles() {
   const rows = draft.files.map((entry, index) => {
     const row = el("div", undefined, "draft-file");
-    if (entry.preview) row.append(entry.preview);
-    row.append(el("span", entry.name + (entry.file ? "" : " · needs original file")));
+    const thumbnail = el("span", undefined, "draft-thumbnail");
+    thumbnail.setAttribute("aria-hidden", "true");
+    if (entry.preview) thumbnail.append(entry.preview);
+    else thumbnail.textContent = entry.name.includes(".") ? entry.name.split(".").at(-1).slice(0, 5) : "file";
+    const name = el("span", entry.name, "draft-name");
+    name.title = entry.name;
+    row.append(thumbnail, name, el("small", entry.size < 1024 ? entry.size + " b"
+      : entry.size < 1024 ** 2 ? (entry.size / 1024).toFixed(1) + " kib"
+      : (entry.size / 1024 ** 2).toFixed(1) + " mib"));
     if (!entry.file) {
       const choose = button("reselect", () => {
         reselect = entry;
         $("files").multiple = false;
         $("files").click();
       });
+      choose.dataset.reselect = "";
       choose.setAttribute("aria-label", "reselect " + entry.name);
       row.append(choose);
     }
-    const remove = button("remove", () => {
+    const remove = button("×", () => {
       draft.files.splice(index, 1);
       $("file-problem").textContent = "";
       save();
       showFiles();
       const next = $("file-list").children[index] || $("file-list").lastChild;
-      (next?.lastChild || $("files")).focus();
+      (next?.lastChild || $("files")).focus({ preventScroll: true });
     });
     remove.setAttribute("aria-label", "remove " + entry.name);
     row.append(remove);
     return row;
   });
-  $("file-list").replaceChildren(...rows);
+  preservePage(() => { $("file-list").replaceChildren(...rows); });
   updateComposer();
 }
 const rasterType = /^image\/(png|jpeg|gif|webp|bmp|avif)$/i;
@@ -277,7 +296,8 @@ async function attachBytes(entry, file) {
     canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     canvas.setAttribute("aria-hidden", "true");
     entry.preview = canvas;
-    $("file-list").children[draft.files.indexOf(entry)]?.prepend(canvas);
+    $("file-list").children[draft.files.indexOf(entry)]
+      ?.querySelector(".draft-thumbnail").replaceChildren(canvas);
   } catch {
     // The filename remains usable when this browser cannot decode a thumbnail.
   } finally {
@@ -301,15 +321,19 @@ async function restoreFiles(files, missing) {
   const matches = [];
   for (const file of files) {
     const candidates = missing.filter((entry) => entry.size === file.size);
-    const hash = candidates.some((entry) => entry.sha256) ? await digest(file) : null;
+    const hash = await digest(file);
     const match = candidates.find((entry) =>
       entry.sha256 ? entry.sha256 === hash : entry.name === fileName(file)
     );
     if (!match) throw new Error(fileName(file) + " does not match a missing original file.");
     missing.splice(missing.indexOf(match), 1);
-    matches.push(match);
+    matches.push({ entry: match, hash, file });
   }
-  matches.forEach((entry, i) => attachBytes(entry, files[i]));
+  for (const {entry, hash, file} of matches) {
+    entry.sha256 = hash;
+    attachBytes(entry, file);
+  }
+  save();
 }
 let additions = Promise.resolve();
 function stage(files, target = null) {
@@ -328,11 +352,11 @@ function stage(files, target = null) {
         const bytes = [...draft.files, ...files].reduce((total, file) => total + file.size, 0);
         if (bytes + new TextEncoder().encode(draft.text).length > 90 * 1024 * 1024)
           throw new Error("the message and files exceed 90 mib.");
-        for (const file of files) {
-          const entry = { name: fileName(file), size: file.size };
-          draft.files.push(entry);
-          attachBytes(entry, file);
-        }
+        const entries = [];
+        for (const file of files)
+          entries.push({ name: fileName(file), size: file.size, sha256: await digest(file) });
+        draft.files.push(...entries);
+        for (const [i, entry] of entries.entries()) attachBytes(entry, files[i]);
         save();
       }
       showFiles();
@@ -378,47 +402,53 @@ $("message").onpaste = (e) => stageTransfer(e, e.clipboardData);
 let dragDepth = 0;
 function clearDrag() {
   dragDepth = 0;
-  $("composer").classList.remove("dragging");
+  $("sidebar").classList.remove("dragging");
 }
 function fileDrag(e) {
   return e.dataTransfer?.types.includes("Files");
 }
-$("composer").ondragenter = (e) => {
+$("sidebar").ondragenter = (e) => {
   if (!fileDrag(e)) return;
   e.preventDefault();
   dragDepth++;
-  $("composer").classList.toggle("dragging", canStage());
+  $("sidebar").classList.toggle("dragging", canStage());
 };
-$("composer").ondragover = (e) => {
+$("sidebar").ondragover = (e) => {
   if (!fileDrag(e)) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = canStage() ? "copy" : "none";
 };
-$("composer").ondragleave = () => {
+$("sidebar").ondragleave = () => {
   if (--dragDepth <= 0) clearDrag();
 };
-$("composer").ondrop = (e) => {
+$("sidebar").ondrop = (e) => {
   clearDrag();
   stageTransfer(e, e.dataTransfer);
 };
+for (const kind of ["dragover", "drop"]) document.addEventListener(kind, (e) => {
+  if (!fileDrag(e) || e.target.closest("#sidebar")) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "none";
+  clearDrag();
+});
 window.addEventListener("dragend", clearDrag);
 window.addEventListener("blur", clearDrag);
 function discuss(ref, title, origin) {
   openSidebar(origin);
   const choice = $("draft-choice");
   choice.hidden = true;
-  if (pendingSend || draft.uncertain) {
-    $("receipt").textContent = "recover the previous submission first.";
-    refresh();
+  if (activeSend || draft.uncertain) {
+    caption("settle the earlier message first.");
     return;
   }
+  armed = null;
   const use = () => {
     draft.ref = ref;
     draft.refLabel = title || label(ref);
     save();
     updateComposer();
     choice.hidden = true;
-    $("message").focus();
+    $("message").focus({ preventScroll: true });
   };
   if (
     !draft.ref ||
@@ -426,16 +456,16 @@ function discuss(ref, title, origin) {
   )
     return use();
   const keep = button("keep draft", () => {
-    choice.hidden = true;
-    $("message").focus();
+    preservePage(() => { choice.hidden = true; });
+    $("message").focus({ preventScroll: true });
   });
   choice.replaceChildren(
     "change the reference to " + (title || label(ref)) + "? ",
     keep,
     button("use this item", use),
   );
-  choice.hidden = false;
-  keep.focus();
+  preservePage(() => { choice.hidden = false; });
+  keep.focus({ preventScroll: true });
 }
 async function request(path, { allowServerError = false, ...options } = {}) {
   const headers = new Headers(options.headers);
@@ -494,135 +524,194 @@ function showConnection() {
     button(login ? "sign in" : upgrade ? "reload" : "retry", login || upgrade ? () => location.reload() : refresh),
   );
 }
-function accepted(id, submission) {
-  if (draft.id !== submission) return;
-  failures.delete("receipt");
-  showConnection();
-  if (armed?.submission === submission) armed.request = id;
-  if (sentPlacement?.submission === submission) {
-    if ($("msg-" + id)) {
-      scrollChat(chat.scrollHeight);
-      sentPlacement = null;
-    } else sentPlacement.request = id;
-  }
+function caption(text) {
+  const node = $("receipt");
+  if (node.textContent !== text) preservePage(() => { node.textContent = text; });
+}
+function resetDraft() {
   draft = newDraft();
-  $("file-problem").textContent = "";
   receiptMissing = false;
   save();
   resetPicker();
-  showFiles();
+  $("file-problem").textContent = "";
   $("receipt").textContent = "";
+  $("discard-choice").hidden = $("draft-choice").hidden = true;
+  $("compose-actions").hidden = false;
+  showFiles();
+}
+$("discard").onclick = () => {
+  preservePage(() => {
+    $("compose-actions").hidden = true;
+    $("discard-choice").hidden = false;
+  });
+  $("keep").focus({ preventScroll: true });
+};
+$("keep").onclick = () => {
+  preservePage(() => {
+    $("discard-choice").hidden = true;
+    $("compose-actions").hidden = false;
+  });
+  $("discard").focus({ preventScroll: true });
+};
+$("confirm-discard").onclick = () => {
+  if (activeSend || !draft.uncertain) return;
+  if (armed?.submission === draft.id) armed = null;
+  failures.delete("receipt");
+  showConnection();
+  preservePage(resetDraft);
+  $("message").focus({ preventScroll: true });
+  refresh();
+};
+function finishAdvance() {
+  advance?.cancel();
+  advance = null;
+}
+function accepted(receipt, submission) {
+  if (draft.id !== submission && $("msg-" + receipt.id)) return;
+  receiptSequence++;
+  finishAdvance();
+  if (draft.id !== submission) {
+    merge([receipt.message]);
+    return;
+  }
+  const focused = $("composer").contains(document.activeElement);
+  const follow = pinned && Boolean(chat.clientHeight);
+  const anchor = chatAnchor();
+  const last = transcript.querySelector("article:last-child");
+  const offset = last && chatOffset(last);
+  const scroll = chat.scrollTop;
+  failures.delete("receipt");
+  showConnection();
+  if (armed?.submission === submission) armed.request = receipt.id;
+  resetDraft();
+  merge([receipt.message]);
   presence.accepted();
+  if (follow) scrollChat(chat.scrollHeight);
+  else restoreChatAnchor(anchor);
+  if (focused) $("message").focus({ preventScroll: true });
+  if (follow && last && scroll !== chat.scrollTop && !document.hidden && !reducedMotion.matches) {
+    const dy = offset - chatOffset(last);
+    if (dy) {
+      attention.beforeLayoutChange();
+      advance = $("chat-page").animate([{ transform: "translateY(" + dy + "px)" }, { transform: "none" }],
+        { duration: Math.min(420, 140 + .5 * Math.abs(dy)), easing: "cubic-bezier(.2,0,0,1)" });
+      advance.onfinish = () => { advance = null; };
+    }
+  }
   present();
 }
-async function recover() {
-  if (!draft.uncertain) return false;
+function validReceipt(receipt) {
+  if (!receipt?.id || receipt.message?.id !== receipt.id) throw new Error("invalid send receipt");
+  return receipt;
+}
+async function findReceipt(id, signal) {
+  const receipt = await read("/api/submissions/" + id, { signal });
+  return receipt && validReceipt(receipt);
+}
+async function reconcile() {
   const id = draft.id;
-  checkingReceipt = true;
-  updateComposer();
-  try {
-    const receipt = await read("/api/submissions/" + id);
-    if (!draft.uncertain || draft.id !== id) return true;
-    if (receipt) accepted(receipt.id, id);
-    else {
-      receiptMissing = true;
-      $("receipt").textContent = oldUpload()
-        ? "delivery unconfirmed. this earlier upload has no file digest. checking for its receipt."
-        : "delivery unconfirmed. retry the same message.";
-    }
-    return Boolean(receipt);
-  } finally {
-    checkingReceipt = false;
+  const receipt = await findReceipt(id, AbortSignal.timeout(6000));
+  if (activeSend && draft.id === id) return;
+  if (receipt) {
+    accepted(receipt, id);
+    refresh();
+  } else if (draft.id === id) {
+    receiptMissing = true;
+    caption("no receipt yet. retry is safe: it cannot arrive twice.");
     updateComposer();
   }
 }
-$("composer").onsubmit = async (e) => {
-  e.preventDefault();
-  if ($("send").disabled) return;
-  pendingSend = true;
+$("stop-waiting").onclick = () => activeSend?.abort();
+$("composer").onsubmit = async (event) => {
+  event.preventDefault();
+  const trigger = $(draft.uncertain ? "retry-send" : "send");
+  if (activeSend || trigger.disabled || !$("discard-choice").hidden) return;
+  if (new TextEncoder().encode(draft.text).length > 16 * 1024) {
+    $("file-problem").textContent = "the caption exceeds 16 kib. shorten it to send.";
+    return;
+  }
+  const retry = draft.uncertain;
+  const id = draft.id ?? crypto.randomUUID();
+  const flight = new AbortController();
+  activeSend = flight;
+  armed = { submission: id, request: null };
+  draft.id = id;
+  draft.uncertain = true;
+  receiptMissing = false;
+  save();
   $("draft-choice").hidden = true;
   $("file-problem").textContent = "";
+  caption("");
   updateComposer();
-  const retry = draft.uncertain;
-  if (!retry) draft.id = crypto.randomUUID();
-  const id = draft.id;
-  let sending;
+  $("message").focus({ preventScroll: true });
+  attention.sent();
+  fontOpening = pendingOpening = null;
+  pinned = true;
+  scrollChat(chat.scrollHeight);
+  const sending = setTimeout(() => caption("sending…"), 400);
+  const waiting = setTimeout(() => {
+    preservePage(() => { $("stop-waiting").hidden = false; });
+  }, 10000);
+  let receipt;
   try {
-    if (retry && (await recover())) return;
-    if (new TextEncoder().encode(draft.text).length > 16 * 1024) {
-      $("file-problem").textContent = "the caption exceeds 16 kib. shorten it to send.";
-      return;
-    }
-    const message = JSON.stringify({ text: draft.text, ref: draft.ref });
-    const options = { method: "PUT" };
+    if (retry) receipt = await findReceipt(id, flight.signal);
+    if (receipt) return;
+    const descriptor = JSON.stringify({ text: draft.text, ref: draft.ref });
+    const options = { method: "PUT", signal: flight.signal };
     if (draft.files.length) {
       const form = new FormData();
-      form.append("message", message);
-      for (const entry of draft.files) {
-        try {
-          const hash = await digest(entry.file);
-          if (retry && hash !== entry.sha256)
-            throw new Error(entry.name + " has changed. choose its original again.");
-          entry.sha256 = hash;
-        } catch (error) {
-          delete entry.file;
-          delete entry.preview;
-          $("file-problem").textContent = error.message;
-          showFiles();
-          return;
-        }
-        form.append("file", entry.file, entry.name);
-      }
+      form.append("message", descriptor);
+      for (const entry of draft.files) form.append("file", entry.file, entry.name);
       options.body = form;
     } else {
       options.headers = { "Content-Type": "application/json" };
-      options.body = message;
+      options.body = descriptor;
     }
-    if (!retry) armed = { submission: id, request: null };
-    receiptMissing = false;
-    draft.uncertain = true;
-    save();
-    updateComposer();
-    $("receipt").textContent = "";
-    sending = setTimeout(() => { $("receipt").textContent = "sending…"; }, 400);
-    attention.sent();
-    pendingOpening = null;
-    pinned = true;
-    sentPlacement = { submission:id, request:null };
-    scrollChat(chat.scrollHeight);
     const response = await request("/api/messages/" + id, options);
-    if (response.ok) accepted((await response.json()).id, id);
+    if (response.ok) receipt = validReceipt(await response.json());
     else if (response.status === 409) {
-      $("receipt").textContent = "this submission was already used. review the conversation.";
+      caption("a different message already used this send. it is in the conversation.");
       armed = null;
       draft.uncertain = false;
       draft.id = null;
       save();
     } else if ([400, 413, 422].includes(response.status)) {
-      // A rejected retry says nothing about the first attempt.
       draft.uncertain = retry;
+      if (!retry) {
+        draft.id = null;
+        armed = null;
+      }
       save();
-      if (!retry) armed = null;
-      const problem = response.status === 400 ? "use the private home address to send."
+      $("file-problem").textContent = response.status === 400 ? "use the private home address to send."
         : response.status === 413 ? "message or files are too large."
         : "check the message, files and reference.";
-      $("file-problem").textContent = problem;
-      $("receipt").textContent = retry ? "checking whether the earlier message arrived…" : "";
-    } else throw new Error("submission unavailable");
+      caption(retry ? "checking whether your message arrived…" : "");
+    } else throw new Error("send unavailable");
   } catch (error) {
-    $("receipt").textContent = "checking whether your message arrived…";
-    failure(error, "receipt");
+    if (error.upgrade && !retry) {
+      draft.uncertain = false;
+      draft.id = null;
+      armed = null;
+      save();
+      caption("");
+    } else {
+      caption("checking whether your message arrived…");
+      if (!flight.signal.aborted) failure(error, "receipt");
+    }
   } finally {
     clearTimeout(sending);
-    pendingSend = false;
-    updateComposer();
+    clearTimeout(waiting);
+    $("stop-waiting").hidden = true;
+    activeSend = null;
+    if (receipt) accepted(receipt, id);
+    else updateComposer();
     refresh();
   }
 };
 $("message").onkeydown = (e) => {
-  if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-  // Some IMEs report keyCode 229 even after isComposing clears.
-  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key !== "Enter" || e.altKey || e.isComposing || e.keyCode === 229 ||
+      (!(e.ctrlKey || e.metaKey) && (e.shiftKey || coarse.matches))) return;
+  if ($("message").readOnly) return;
   e.preventDefault();
   if (!e.repeat) $("send").click();
 };
@@ -679,8 +768,9 @@ function renderMessage(m, existing) {
   if (m.ref) rows.push(["about", label(m.ref), objectPath(m.ref)]);
   for (const file of m.files)
     rows.push(["file", file.name || "unnamed file", "/f/" + file.id,
-      file.unavailable ? "file unavailable" : originStatus(file.state, file.disposition)]);
-  for (const draft of m.drafts) {
+      file.unavailable ? "file unavailable" : file.state === "filed" ? "filed"
+        : originStatus(file.state, file.disposition)]);
+  for (const draft of [...m.drafts.filter(draft => draft.editable), ...m.drafts.filter(draft => !draft.editable)]) {
     const subject = draft.subject || "(no subject)";
     const editable = draft.editable === true;
     const peers = m.drafts.filter(other => other.editable === draft.editable &&
@@ -750,8 +840,11 @@ function insetPosition(node) {
 }
 function scrollChat(top) {
   if (!chat.clientHeight) return;
+  const target = Math.min(Math.max(0, top), chat.scrollHeight - chat.clientHeight);
   const before = chat.scrollTop;
-  chat.scrollTop = top;
+  if (Math.abs(before - target) < .02) return;
+  finishAdvance();
+  chat.scrollTop = target;
   if (chat.scrollTop !== before) scrollTarget = chat.scrollTop;
 }
 function chatAnchor() {
@@ -760,6 +853,17 @@ function chatAnchor() {
   const node = [...transcript.children].find((child) =>
     child.matches("article") && child.getBoundingClientRect().bottom > top);
   return node ? { id:node.id, offset:chatOffset(node) } : null;
+}
+function preservePage(change) {
+  finishAdvance();
+  const anchor = chatAnchor();
+  const bottom = pinned && !pendingOpening && chat.clientHeight &&
+    chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 2;
+  attention.beforeLayoutChange();
+  change();
+  if (bottom) scrollChat(chat.scrollHeight);
+  else restoreChatAnchor(anchor);
+  attention.update();
 }
 function restoreChatAnchor(anchor) {
   const node = anchor && $(anchor.id);
@@ -778,15 +882,20 @@ chat.addEventListener("scroll", () => {
   const programmatic = chat.scrollTop === scrollTarget;
   scrollTarget = null;
   if (programmatic) return;
-  sentPlacement = null;
+  finishAdvance();
   fontOpening = pendingOpening = null;
-  pinned = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48;
+  const remaining = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  pinned = draft.uncertain ? remaining <= 2 : remaining < 48;
 }, { capture:true, passive:true });
 
+for (const event of ["wheel", "touchstart", "pointerdown", "keydown"])
+  chat.addEventListener(event, finishAdvance, { capture: true, passive: true });
+
 function merge(items) {
+  if (items.some(m => $("msg-" + m.id)?.dataset.version !== JSON.stringify(m))) finishAdvance();
   const anchor = chatAnchor();
   let mutated = false;
-  // The visit separator shares the transcript but is not a message order key.
+  // Only messages participate in the order, including when reading around a day head.
   const ordered = [...transcript.querySelectorAll(":scope > article")];
   for (const m of items) {
     const existing = $("msg-" + m.id);
@@ -855,21 +964,36 @@ function merge(items) {
   restoreChatAnchor(anchor);
 }
 
-async function messagePage(cursor, ver) {
+async function messagePage(cursor) {
   const sequence = ++pageSequence;
   const data = await read("/api/messages" + (cursor ? "?before=" + encodeURIComponent(cursor) : ""),
     { signal: AbortSignal.timeout(6000) });
   if (!Array.isArray(data.owed) || data.owed.length !== data.owed_total)
     throw new Error("incomplete conversation state");
-  if (ver === routeVersion && !document.hidden && sequence > owedSequence) {
-    owedSequence = sequence;
-    attention.setOwed(data.owed);
-    attention.update();
-  }
-  return data;
+  return { ...data, sequence };
 }
 
+function applyOwed({ owed, sequence }) {
+  if (sequence <= owedSequence) return;
+  owedSequence = sequence;
+  const ids = owed.join(",");
+  if (ids === owedIds) return;
+  owedIds = ids;
+  attention.setOwed(owed);
+  attention.update();
+}
+function currentProjection(version) {
+  return version === receiptSequence && !activeSend && !document.hidden;
+}
+async function settlePage(version) {
+  if (!currentProjection(version)) return false;
+  if (!draft.uncertain) return true;
+  const id = draft.id;
+  await reconcile();
+  return currentProjection(version) && (!draft.uncertain || draft.id === id);
+}
 async function messages(ver, paired) {
+  const version = receiptSequence;
   const initial = latest === null;
   const allPages = initial || reread;
   reread = false;
@@ -879,7 +1003,7 @@ async function messages(ver, paired) {
   let latestId;
   try {
     do {
-      data = await messagePage(cursor, ver);
+      data = await messagePage(cursor);
       if (ver !== routeVersion || document.hidden) {
         reread ||= allPages;
         return;
@@ -908,6 +1032,11 @@ async function messages(ver, paired) {
     throw error;
   }
 
+  if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) {
+    reread ||= allPages;
+    return;
+  }
+  applyOwed(data);
   if (initial) {
     if (!latestId) {
       visitOpening = false;
@@ -934,7 +1063,7 @@ async function messages(ver, paired) {
       reread ||= allPages;
       throw error;
     }
-    if (ver !== routeVersion || document.hidden) {
+    if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) {
       reread ||= allPages;
       return;
     }
@@ -976,10 +1105,8 @@ async function messages(ver, paired) {
       pendingOpening = { node:$("chat-boundary") || boundary, capped:initial && firstNewPage >= 3 };
     visitOpening = false;
   }
-  const sentArrived = sentPlacement?.request && $("msg-" + sentPlacement.request);
-  if (sentArrived) sentPlacement = null;
   if (pendingOpening) applyOpening();
-  else if ((follow || sentArrived) && added.length && !initial) {
+  else if (follow && added.length && !initial) {
     const arriving = $("msg-" + added[0]);
     if (!attention.attending()) pinned = false;
     else if (chat.clientHeight) {
@@ -991,7 +1118,7 @@ async function messages(ver, paired) {
       }) || arriving;
       scrollChat(Math.max(before, insetPosition(first)));
     }
-  } else if (sentArrived || follow && !initial && rows.length && chat.clientHeight &&
+  } else if (follow && !initial && rows.length && chat.clientHeight &&
     chat.scrollHeight - before - chat.clientHeight < 48) scrollChat(chat.scrollHeight);
   if (!isDetail(location.pathname)) restoreChatReturn();
   if (arriving) refreshChat(ver, true);
@@ -999,11 +1126,12 @@ async function messages(ver, paired) {
 
 async function earlierMessages() {
   if (!earliest || earlierRead) return false;
-  const before = earliest, ver = routeVersion;
+  const before = earliest, ver = routeVersion, version = receiptSequence;
   $("older").disabled = earlierRead = true;
   try {
-    const data = await messagePage(before, ver);
-    if (ver !== routeVersion || document.hidden) return false;
+    const data = await messagePage(before);
+    if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) return false;
+    applyOwed(data);
     earliest = data.next_before;
     oldest = data.items[0]?.id ?? oldest;
     const anchor = chatAnchor();
@@ -1767,7 +1895,7 @@ function refresh() {
   if (!$("chat").hidden && (!mobile.matches || history.state?.panel)) {
     poll("workspace approval", workspaceApproval);
   }
-  if (!pendingSend && !staging && !checkingReceipt && draft.uncertain) poll("receipt", recover);
+  if (!activeSend && !staging && draft.uncertain) poll("receipt", reconcile);
 }
 
 async function workspaceApproval(ver) {
@@ -1813,7 +1941,13 @@ async function workspaceApproval(ver) {
   node.dataset.round = approval.id;
   node.hidden = false;
 }
+let fieldWidth = 0;
 new ResizeObserver(() => {
+  const width = $("message").clientWidth;
+  if (width && width !== fieldWidth) {
+    fieldWidth = width;
+    preservePage(fitMessage);
+  }
   showTableControls();
   restoreChatReturn();
 }).observe($("chat"));
@@ -1847,6 +1981,7 @@ window.addEventListener("pagehide", () => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    finishAdvance();
     armed = null;
     pendingChat = null;
     presence.suspend();

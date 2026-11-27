@@ -21,7 +21,7 @@ export function precedingArticle(node) {
 }
 
 export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, formatTime,
-  stopAttending, newVisit, place, jump, earlier, failure, preservePosition }) {
+  stopAttending, newVisit, place, jump, earlier, failure, preservePosition, advancing }) {
   const [newButton, owedButton, undo] = ledge.querySelectorAll("button");
   const separator = el("div", undefined, "new-boundary");
   separator.id = "chat-boundary";
@@ -270,6 +270,10 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
   // time across a layout or visibility change.
   function sample() {
     const now = performance.now();
+    if (advancing()) {
+      previous = now;
+      return false;
+    }
     const active = attending();
     if (!active && wasAttending) {
       absentSince = Math.min(now, lastInput + ATTENDING);
@@ -326,7 +330,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     preservePosition(paint);
   }
   setInterval(() => {
-    if (document.hidden) return;
+    if (document.hidden || advancing()) return;
     if (sample() || performance.now() >= nextPaint) preservePosition(paint);
   }, 100);
   const input = (event) => {

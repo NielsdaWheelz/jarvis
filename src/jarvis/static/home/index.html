@@ -78,22 +78,28 @@
       <form id="composer">
         <div id="context" hidden>
           <span id="ref-label"></span>
-          <button id="remove-ref" type="button">remove reference</button>
+          <button id="remove-ref" type="button" aria-label="remove reference">×</button>
         </div>
         <div id="draft-choice" hidden></div>
-        <label class="sr-only" for="message">message jarvis</label>
-        <textarea id="message" rows="2" placeholder="message jarvis…"></textarea>
         <div id="file-list"></div>
+        <label class="sr-only" for="message">message jarvis</label>
+        <div id="writing">
+          <textarea id="message" rows="1" placeholder="to jarvis"></textarea>
+        </div>
         <div id="file-problem" role="status"></div>
-        <div id="uncertain-help" hidden>
-          the earlier message may still arrive.
-          <a href="/" target="_blank" rel="noopener">open an empty draft</a>
-        </div>
-        <div class="compose-actions">
-          <label class="attach">attach<input id="files" type="file" multiple /></label>
+        <div id="compose-actions">
+          <label class="attach" id="attach">attach<input id="files" type="file" multiple aria-label="attach" /></label>
+          <span id="receipt" role="status"></span>
           <button id="send" type="submit">send</button>
+          <button id="stop-waiting" type="button" hidden>stop waiting</button>
+          <button id="retry-send" type="submit" hidden>retry</button>
+          <button id="discard" type="button" hidden>discard</button>
         </div>
-        <div id="receipt" role="status"></div>
+        <div id="discard-choice" hidden>
+          <span>discard these words? a send that did arrive stays in the conversation.</span>
+          <button id="keep" type="button">keep</button>
+          <button id="confirm-discard" type="button">discard</button>
+        </div>
       </form>
     </aside>
     <div id="presence-announcement" class="sr-only" role="status"></div>

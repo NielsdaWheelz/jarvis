@@ -12,7 +12,7 @@ runtime change, release, deployment or resumption.
 
 [the daybook](decisions/0127-the-daybook.md) owns the web and android chat
 typography, inline phone draft and message-bearing send receipts.
-[installed acceptance](issues/daybook-installed.md) records the web and android
+[installed acceptance](decisions/0127-the-daybook.md#installed-acceptance) records the web and android
 release pair and handset journey.
 
 [native antigravity design 0111](decisions/0111-native-antigravity-neon.md) selects the official sdk for the second main route, with fresh children, next-turn follow-ups and an offline shell. the provider, kernel, jarvis routing and recovery, and isolated linux release composition passed synthetic checks. the owner deferred the paid trial. production activation requires a separate cut. [qualification evidence](issues/agy-native-parity.md#release-qualification).

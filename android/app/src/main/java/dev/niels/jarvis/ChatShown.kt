@@ -47,34 +47,39 @@ internal class ChatMessage(val json: JSONObject) {
 }
 
 internal class ShownReports private constructor(context: Context) {
+    private enum class State { PENDING, ACKNOWLEDGED, DROPPED }
+
     private val api = HomeApi(context)
     private val notices = PhoneNotices.get(context)
     private val writes = Mutex()
-    private val reports = mutableStateMapOf<String, Boolean>() // true after a server acknowledgement
+    private val reports = mutableStateMapOf<String, State>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var retry: Job? = null
     var problem by mutableStateOf<String?>(null)
         private set
 
-    fun hides(id: String): Boolean = reports[id]?.let { it || problem == null } == true
+    fun hides(id: String): Boolean = reports[id] == State.ACKNOWLEDGED ||
+        (reports[id] == State.PENDING && problem == null)
     fun contains(id: String) = id in reports
 
     fun record(id: String) {
         if (id in reports) return
-        reports[id] = false
+        reports[id] = State.PENDING
         if (retry?.isActive == true) return
         retry = scope.launch {
             do {
                 delay(1_000)
                 flush()
-            } while (reports.containsValue(false))
+            } while (State.PENDING in reports.values)
         }
     }
 
     fun confirmed(ids: Collection<String>) {
         for (id in ids) reports.remove(id)
-        if (!reports.containsValue(false)) problem = null
+        if (State.PENDING !in reports.values) problem = null
     }
+
+    fun startVisit() { reports.entries.removeAll { it.value == State.DROPPED } }
 
     fun reset() {
         reports.clear()
@@ -86,24 +91,25 @@ internal class ShownReports private constructor(context: Context) {
     suspend fun flush() = withContext(Dispatchers.Main.immediate) {
         writes.withLock {
             while (true) {
-                val ids = reports.asSequence().filter { !it.value }.map { it.key }.take(200).toList()
+                val ids = reports.asSequence().filter { it.value == State.PENDING }.map { it.key }.take(200).toList()
                 if (ids.isEmpty()) return@withLock
                 val revision = notices.revisionBeforeWrite()
-                try {
+                val acknowledged = try {
                     api.writeShown("/api/shown", JSONObject().put("ids", JSONArray(ids)))
+                    true
                 } catch (_: SignInRequired) {
                     // The API already refreshed once. Reports must not prompt sign-in.
-                    confirmed(ids)
-                    return@withLock
+                    false
                 } catch (_: ViewerUpdateRequired) {
-                    reset()
-                    return@withLock
+                    false
                 } catch (_: IOException) {
                     problem = "could not save shown messages"
                     return@withLock
                 }
-                ids.filter { it in reports }.forEach { reports[it] = true }
+                val outcome = if (acknowledged) State.ACKNOWLEDGED else State.DROPPED
+                ids.filter { it in reports }.forEach { reports[it] = outcome }
                 problem = null
+                if (!acknowledged) return@withLock
                 notices.confirmHeld(revision, ids)
             }
         }
@@ -168,6 +174,7 @@ internal class ChatHistory(
     var authorizationEpoch by mutableIntStateOf(0)
         private set
     private var clearProblem by mutableStateOf<String?>(null)
+    private var awaitingClearRead by mutableStateOf(false)
     val writeProblem get() = clearProblem ?: reports.problem
     private var lastFrame = 0L
     private var absentAt: Long? = null
@@ -195,7 +202,7 @@ internal class ChatHistory(
     var pendingClear by mutableStateOf<Clear?>(null)
         private set
 
-    val newAbove get() = if (pendingClear == null) (serverTotal - newIds.size).coerceAtLeast(0) else 0
+    val newAbove get() = if (pendingClear == null && !awaitingClearRead) (serverTotal - newIds.size).coerceAtLeast(0) else 0
     val newTotal get() = newAbove + rows.count(::isNew)
 
     fun isNew(message: ChatMessage) = message.id in newIds && !reports.hides(message.id) &&
@@ -221,6 +228,7 @@ internal class ChatHistory(
             awayThrough = Instant.now()
             if (absentAt?.let { now - it >= 300_000 } == true) {
                 visit++
+                reports.startVisit()
                 boundary = null
                 marked.clear()
                 timings.clear()
@@ -307,6 +315,7 @@ internal class ChatHistory(
     private fun acceptPage(latest: ChatPage, pages: List<ChatPage>) {
         owed = latest.owed
         serverTotal = latest.newTotal
+        awaitingClearRead = false
         reports.confirmed(pages.flatMap { page ->
             page.messages.filter { it.tracked && it.id !in page.new }.map { it.id }
         })
@@ -324,6 +333,7 @@ internal class ChatHistory(
             serverTotal = 0
             pendingClear = null
             clearProblem = null
+            awaitingClearRead = false
             before = null
             received = false
             boundary = null
@@ -363,7 +373,7 @@ internal class ChatHistory(
                     api.writeShown("/api/shown/clear", JSONObject().put("through", clear.through.id))
                     val ids = rows.filter { it.tracked && it.stamp <= clear.through }.map { it.id }
                     newIds = newIds - ids.toSet()
-                    serverTotal = newIds.size
+                    awaitingClearRead = true
                     reports.confirmed(ids)
                     notices.confirmHeld(revision, ids)
                     clearProblem = null
@@ -377,13 +387,13 @@ internal class ChatHistory(
     }
 
     fun leave(pausing: Boolean) {
-        notices.foreground(false, drain = false)
+        val departure = notices.foreground(false)
         reports.launch {
             try {
                 if (pausing) finishClear()
                 reports.flush()
             } finally {
-                clearing.withLock { notices.releaseHeld() }
+                clearing.withLock { notices.releaseHeld(departure) }
             }
         }
     }

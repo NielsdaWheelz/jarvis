@@ -149,7 +149,7 @@ internal fun JarvisHome(
     DisposableEffect(resumed, visibleChat) {
         if (resumed && visibleChat) notices.foreground(true)
         onDispose {
-            if (resumed && visibleChat) {
+            if (resumed && visibleChat && lifecycle.currentState == Lifecycle.State.RESUMED) {
                 history.leave(pausing = false)
             }
         }

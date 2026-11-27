@@ -138,6 +138,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val held = context.getSharedPreferences("held-chat-notices", Context.MODE_PRIVATE)
     private var foreground: Boolean? = null
+    private var visibility = 0L
     private val postingReplies = mutableSetOf<String>()
     private var revision = 0L
     private val groupHandler = Handler(Looper.getMainLooper())
@@ -147,14 +148,14 @@ internal class PhoneNotices private constructor(private val context: Context) {
     internal data class BeforeRead(val active: List<StatusBarNotification>, val revision: Long)
 
     @Synchronized
-    fun foreground(visible: Boolean, drain: Boolean = true) {
+    fun foreground(visible: Boolean): Long {
         foreground = visible
-        if (!visible && drain) releaseHeld()
+        return ++visibility
     }
 
     @Synchronized
-    fun releaseHeld() {
-        if (foreground == true) return
+    fun releaseHeld(departure: Long) {
+        if (foreground == true || departure != visibility) return
         val waiting = held.all
         for ((id, stored) in waiting) {
             post(id, (stored as String).substringBefore(' '))

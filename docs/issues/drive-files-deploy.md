@@ -30,7 +30,8 @@ attachment receipt preserved the exact source bytes. jarvis revised the
 same drive id and verified the new strong tag, head and bytes. the outgoing
 mail attachment matched the revised digest in the staged descriptor and in
 the owner’s gmail download. gmail withheld jarvis’s automatic draft readback.
-the draft stayed unsent. [provider follow-up](gmail-draft-readback-withheld.md) the [phone witness](new-shown-owed-installed.md) remains
-part of the matched rollout. preserve unrelated inputs in the private notes
+the draft stayed unsent. [provider follow-up](gmail-draft-readback-withheld.md)
+the [phone witness](../decisions/0125-new-shown-and-owed.md#installed-acceptance)
+passed in the matched rollout. preserve unrelated inputs in the private notes
 checkout. the old bucket is offline from jarvis and has separate disposal
 authority. [deployment tracker](https://github.com/NielsdaWheelz/jarvis/issues/129)

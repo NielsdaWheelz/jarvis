@@ -79,6 +79,7 @@ internal class Drafts private constructor(private val context: Context) {
     private val manifest = AtomicFile(File(store, "draft.json"))
     private val process = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val writes = Mutex()
+    private val originals = Mutex()
     private val receipts = Mutex()
     private var transferJob: Job? = null
 
@@ -99,6 +100,7 @@ internal class Drafts private constructor(private val context: Context) {
         try {
             draft = withContext(Dispatchers.IO) {
                 val existing = load() ?: Draft()
+                store.listFiles()?.filter { it.name.startsWith(".incoming-") }?.forEach { it.deleteRecursively() }
                 reclaim(existing)
                 existing
             }
@@ -179,11 +181,11 @@ internal class Drafts private constructor(private val context: Context) {
         }
     }
 
-    private suspend fun addOriginals(uris: List<Uri?>, text: String?, fromShare: Boolean) = writes.withLock {
-        val current = draft ?: throw DraftProblem("could not open the draft on this phone")
+    private suspend fun addOriginals(uris: List<Uri?>, text: String?, fromShare: Boolean) = originals.withLock {
+        val before = draft ?: throw DraftProblem("could not open the draft on this phone")
         if (locked) throw DraftProblem(SettleEarlier)
         val count = uris.size + if (text != null) 1 else 0
-        if (count > FileLimit - current.files.size) throw DraftProblem("at most ten files. remove a file first.")
+        if (count > FileLimit - before.files.size) throw DraftProblem("at most ten files. remove a file first.")
         val staging = withContext(NonCancellable) {
             withContext(Dispatchers.IO) {
                 store.mkdirs()
@@ -192,8 +194,8 @@ internal class Drafts private constructor(private val context: Context) {
         }
         try {
             val added = withContext(Dispatchers.IO) {
-                var remaining = BodyLimit - current.files.sumOf(DraftFile::size)
-                val firstSlot = (current.files.maxOfOrNull(DraftFile::slot) ?: -1) + 1
+                var remaining = BodyLimit - before.files.sumOf(DraftFile::size)
+                val firstSlot = (before.files.maxOfOrNull(DraftFile::slot) ?: -1) + 1
                 List(count) { index ->
                     val slot = firstSlot + index
                     val uri = uris.getOrNull(index)
@@ -219,26 +221,30 @@ internal class Drafts private constructor(private val context: Context) {
                     original
                 }
             }
-            withContext(NonCancellable) {
+            writes.withLock {
+                val current = checkNotNull(draft)
+                if (current.id != before.id || locked) throw DraftProblem(SettleEarlier)
                 val result = current.copy(files = current.files + added)
-                withContext(Dispatchers.IO) {
-                    try {
-                        for (file in added.filter { it.sha256 != null }) {
-                            val name = "file-${file.slot}"
-                            Files.move(staging.resolve(name).toPath(), store.resolve(name).toPath(), ATOMIC_MOVE)
+                withContext(NonCancellable) {
+                    withContext(Dispatchers.IO) {
+                        try {
+                            for (file in added.filter { it.sha256 != null }) {
+                                val name = "file-${file.slot}"
+                                Files.move(staging.resolve(name).toPath(), store.resolve(name).toPath(), ATOMIC_MOVE)
+                            }
+                            if (added.all { it.problem == null } && encode(result).contentLength() > BodyLimit) {
+                                throw DraftProblem("message and files exceed 90 mib")
+                            }
+                            write(result)
+                        } catch (e: IOException) {
+                            // The recovered manifest owns private bytes even after a write error.
+                            reclaim(load() ?: current)
+                            throw e
                         }
-                        if (added.all { it.problem == null } && encode(result).contentLength() > BodyLimit) {
-                            throw DraftProblem("message and files exceed 90 mib")
-                        }
-                        write(result)
-                    } catch (e: IOException) {
-                        // The recovered manifest owns private bytes even after a write error.
-                        reclaim(load() ?: current)
-                        throw e
                     }
+                    draft = result
+                    problem = null
                 }
-                draft = result
-                problem = null
             }
         } finally {
             withContext(NonCancellable + Dispatchers.IO) { staging.deleteRecursively() }
@@ -414,8 +420,7 @@ internal class Drafts private constructor(private val context: Context) {
     private fun reclaim(draft: Draft) {
         val retained = draft.files.mapTo(mutableSetOf()) { "file-${it.slot}" }
         store.listFiles()?.forEach {
-            if (it.name.startsWith(".incoming-")) it.deleteRecursively()
-            else if (it.name.startsWith("file-") && it.name !in retained) it.delete()
+            if (it.name.startsWith("file-") && it.name !in retained) it.delete()
         }
     }
 

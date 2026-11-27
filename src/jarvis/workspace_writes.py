@@ -109,6 +109,7 @@ type Receipt = (
     DraftWriteReceipt | DiscardReceipt | CalendarWriteReceipt | DriveWriteReceipt
 )
 type AckRecorder = Callable[[Receipt], Awaitable[None]]
+type DriveOutcome = Literal["created", "copied", "revised", "updated"]
 type EventRequest = CreateEvent | EventEdits | DeleteEvent
 
 _PARSE_ERRORS = (ValueError, LookupError, HeaderParseError, RecursionError)
@@ -248,6 +249,27 @@ class _Exchange:
         if not write:
             await self.fence()
         return result
+
+
+async def _record_ack[R: Receipt](receipt: R, recorder: AckRecorder | None) -> R:
+    if recorder is None:
+        return receipt
+
+    async def persist() -> None:
+        await recorder(receipt)
+
+    # Join the entered receipt transaction even if the executor is cancelled.
+    commit = asyncio.create_task(persist())
+    try:
+        try:
+            await asyncio.shield(commit)
+        except asyncio.CancelledError:
+            await finish_entered(commit)
+            return receipt.with_readback("readback_unavailable")
+    except (Exception, asyncio.CancelledError):
+        # Final local settlement can still take custody of this ack.
+        return receipt.with_readback("ack_recording_failed")
+    return receipt
 
 
 @dataclass(frozen=True, slots=True)
@@ -1142,6 +1164,79 @@ async def _drive_bytes(io: _Exchange, id: str) -> tuple[int, str]:
         return size, digest
 
 
+def _drive_receipt(
+    result: Obj,
+    frozen: FrozenWorkspaceWrite,
+    effect: FrozenDriveEffect,
+    outcome: DriveOutcome,
+) -> DriveWriteReceipt:
+    try:
+        warnings: tuple[str, ...] = ()
+        revision, etag = None, None
+        mode = None
+        suggestions: tuple[str, ...] = ()
+        if isinstance(effect, FrozenDocsUpdate):
+            if result.get("documentId") != effect.id:
+                raise ValueError("docs acknowledgement names another document")
+            control = _obj(result.get("writeControl", {}))
+            if "requiredRevisionId" in control:
+                revision = provider_id(control, "requiredRevisionId")
+            replies = _array(result["replies"])
+            if len(replies) != len(effect.requests):
+                raise ValueError("docs acknowledgement does not match the batch")
+            warnings = tuple(
+                item
+                for reply in replies
+                for item in (_obj(reply).get("warning"), _obj(reply).get("error"))
+                if isinstance(item, str) and len(item.encode()) <= 512
+            )[:20]
+            mode = effect.mode
+            acknowledged = _acknowledged_suggestions(result, len(effect.requests))
+            suggestions = acknowledged or ()
+            returned_mode = control.get("writeMode")
+            if (
+                acknowledged is None
+                or result.get("commentUpdateState") == "ALL_FAILED_UNKNOWN_REASON"
+            ):
+                warnings = ("document_suggestions_unverified", *warnings[:19])
+            elif (returned_mode is not None and returned_mode != mode.upper()) or (
+                mode == "edit" and suggestions
+            ):
+                warnings = ("document_write_mode_unverified", *warnings[:19])
+            id, title = effect.id, None
+        elif isinstance(effect, FrozenDriveRevise):
+            id, title = effect.id, effect.expected.name
+            revision = provider_id(result, "id")
+            if "fileEtag" in result:
+                etag = provider_id(result, "fileEtag")
+        else:
+            id, title = provider_id(result, "id"), effect.name
+            if isinstance(effect, FrozenDriveCopy) and id == effect.id:
+                raise ValueError("copy identity is not new")
+        now = datetime.now(UTC)
+        return DriveWriteReceipt(
+            action_id=frozen.action_id,
+            grant_id=frozen.grant_id,
+            account=frozen.account,
+            acknowledged_at=now,
+            observed_at=now,
+            verification="unverified",
+            reason="readback_pending",
+            outcome=outcome,
+            subject=effect.subject,
+            file_id=id,
+            title=title,
+            link=file_href(effect.subject, id),
+            revision=revision,
+            etag=etag,
+            warnings=warnings,
+            mode=mode,
+            suggestion_ids=suggestions,
+        )
+    except (TypeError, *_PARSE_ERRORS):
+        raise WorkspaceError("uncertain") from None
+
+
 async def _drive_readback(
     io: _Exchange, effect: FrozenDriveEffect, receipt: DriveWriteReceipt
 ) -> Obj:
@@ -1359,24 +1454,11 @@ class WorkspaceWrites:
             elif isinstance(effect, FrozenCalendar):
                 receipt = await self._calendar(io, frozen, effect)
             else:
-                receipt = await self._write_drive(io, frozen, effect)
-            # No admission fence between a validated acknowledgement and local custody.
-            if record_ack is not None:
-                # Once Google acknowledges the effect, local cancellation must
-                # join the entered receipt transaction before the executor exits.
-                async def persist() -> None:
-                    await record_ack(receipt)
-
-                commit = asyncio.create_task(persist())
-                try:
-                    try:
-                        await asyncio.shield(commit)
-                    except asyncio.CancelledError:
-                        await finish_entered(commit)
-                        return receipt.with_readback("readback_unavailable")
-                except (Exception, asyncio.CancelledError):
-                    # Final local settlement can still take custody of this ack.
-                    return receipt.with_readback("ack_recording_failed")
+                receipt = await self._write_drive(io, frozen, effect, record_ack)
+            if not isinstance(receipt, DriveWriteReceipt):
+                receipt = await _record_ack(receipt, record_ack)
+            if receipt.reason != "readback_pending":
+                return receipt
             verified_fields: Obj = {}
             snapshot = None
             try:
@@ -1564,6 +1646,7 @@ class WorkspaceWrites:
         io: _Exchange,
         frozen: FrozenWorkspaceWrite,
         effect: FrozenDriveEffect,
+        record_ack: AckRecorder | None,
     ) -> DriveWriteReceipt:
         async def fresh() -> None:
             while True:
@@ -1591,7 +1674,7 @@ class WorkspaceWrites:
 
         upload: AbstractAsyncContextManager[DriveSourceFile | None] = nullcontext()
         product: Product = "drive"
-        outcome: Literal["created", "copied", "revised", "updated"]
+        outcome: DriveOutcome
         if isinstance(effect, FrozenDocsUpdate):
             product, operation, outcome = "docs", "batch_update_document", "updated"
             args: Obj = {
@@ -1645,6 +1728,7 @@ class WorkspaceWrites:
                     if isinstance(effect, FrozenDriveCreate):
                         args["disableConversionToGoogleType"] = True
         dispatch_started = False
+        receipt = None
         try:
             async with upload as file:
                 if (
@@ -1667,80 +1751,28 @@ class WorkspaceWrites:
                     write=True,
                     upload=(file.path, file.size) if file is not None else None,
                 )
-        except WorkspaceError as e:
-            if not dispatch_started:
-                e.known_no_effect = True
+                # Local source cleanup must never precede custody of a known ack.
+                receipt = _drive_receipt(result, frozen, effect, outcome)
+                receipt = await _record_ack(receipt, record_ack)
+        except (Exception, asyncio.CancelledError) as error:
+            if receipt is not None:
+                if receipt.reason != "readback_pending":
+                    return receipt
+                return receipt.with_readback(
+                    "readback_unavailable"
+                    if isinstance(error, asyncio.CancelledError)
+                    else "source_cleanup_failed"
+                )
+            if isinstance(error, WorkspaceError) and not dispatch_started:
+                error.known_no_effect = True
+            if isinstance(error, OSError | asyncio.CancelledError):
+                raise WorkspaceError(
+                    "uncertain" if dispatch_started else "source_unavailable",
+                    known_no_effect=not dispatch_started,
+                ) from None
             raise
-        except (OSError, asyncio.CancelledError):
-            raise WorkspaceError(
-                "uncertain" if dispatch_started else "source_unavailable",
-                known_no_effect=not dispatch_started,
-            ) from None
-        try:
-            warnings: tuple[str, ...] = ()
-            revision, etag = None, None
-            mode = None
-            suggestions: tuple[str, ...] = ()
-            if isinstance(effect, FrozenDocsUpdate):
-                if result.get("documentId") != effect.id:
-                    raise ValueError("docs acknowledgement names another document")
-                control = _obj(result.get("writeControl", {}))
-                if "requiredRevisionId" in control:
-                    revision = provider_id(control, "requiredRevisionId")
-                replies = _array(result["replies"])
-                if len(replies) != len(effect.requests):
-                    raise ValueError("docs acknowledgement does not match the batch")
-                warnings = tuple(
-                    item
-                    for reply in replies
-                    for item in (_obj(reply).get("warning"), _obj(reply).get("error"))
-                    if isinstance(item, str) and len(item.encode()) <= 512
-                )[:20]
-                mode = effect.mode
-                acknowledged = _acknowledged_suggestions(result, len(effect.requests))
-                suggestions = acknowledged or ()
-                returned_mode = control.get("writeMode")
-                if (
-                    acknowledged is None
-                    or result.get("commentUpdateState") == "ALL_FAILED_UNKNOWN_REASON"
-                ):
-                    warnings = ("document_suggestions_unverified", *warnings[:19])
-                elif (returned_mode is not None and returned_mode != mode.upper()) or (
-                    mode == "edit" and suggestions
-                ):
-                    warnings = ("document_write_mode_unverified", *warnings[:19])
-                id, title = effect.id, None
-            elif isinstance(effect, FrozenDriveRevise):
-                id, title = effect.id, effect.expected.name
-                revision = provider_id(result, "id")
-                if "fileEtag" in result:
-                    etag = provider_id(result, "fileEtag")
-            else:
-                id, title = provider_id(result, "id"), effect.name
-                if isinstance(effect, FrozenDriveCopy) and id == effect.id:
-                    raise ValueError("copy identity is not new")
-            now = datetime.now(UTC)
-            return DriveWriteReceipt(
-                action_id=frozen.action_id,
-                grant_id=frozen.grant_id,
-                account=frozen.account,
-                acknowledged_at=now,
-                observed_at=now,
-                verification="unverified",
-                reason="readback_pending",
-                outcome=outcome,
-                subject=effect.subject,
-                file_id=id,
-                title=title,
-                link=file_href(effect.subject, id),
-                revision=revision,
-                etag=etag,
-                warnings=warnings,
-                mode=mode,
-                suggestion_ids=suggestions,
-            )
-        except (TypeError, *_PARSE_ERRORS):
-            raise WorkspaceError("uncertain") from None
+        assert receipt is not None
+        return receipt
 
     async def recover_drive(
         self,

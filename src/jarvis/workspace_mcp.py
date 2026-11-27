@@ -9,7 +9,14 @@ import json
 import mmap
 import re
 import tempfile
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
+from collections.abc import (
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterator,
+    Mapping,
+)
 from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
@@ -869,12 +876,12 @@ def _response_mime(response: httpx.Response) -> str:
 
 
 async def _bounded_body(
-    response: httpx.Response, limit: int, length: int | None, oversize: Exception
+    chunks: AsyncIterable[bytes], limit: int, length: int | None, oversize: Exception
 ) -> bytearray:
     if length is not None and length > limit:
         raise oversize
     body = bytearray()
-    async for chunk in response.aiter_bytes(chunk_size=65536):
+    async for chunk in chunks:
         if len(body) + len(chunk) > limit:
             raise oversize
         body.extend(chunk)
@@ -884,11 +891,15 @@ async def _bounded_body(
 
 
 async def _drive_rest_json(response: httpx.Response) -> Obj:
-    if _response_mime(response) != "application/json":
+    if _response_mime(response) != "application/json" or not isinstance(
+        response.stream, httpx.AsyncByteStream
+    ):
         raise ValueError("invalid Drive JSON response")
+    # Read the identity stream to EOF. The surrounding response context owns
+    # close, so a complete acknowledgement can be validated before teardown.
     return _decode(
         await _bounded_body(
-            response,
+            response.stream,
             _METADATA_BYTES,
             _identity_length(response),
             ValueError("oversize Drive JSON response"),
@@ -902,11 +913,11 @@ def _drive_rest_status(
     status = response.status_code
     if status in success:
         return
-    if status == 401:
-        raise _Unauthorized
     retry = workspace_retry_at(response.headers.get("Retry-After"))
     if finalizing:
         raise WorkspaceError("uncertain", retry_at=retry)
+    if status == 401:
+        raise _Unauthorized
     if status == 429:
         raise WorkspaceError("rate_limited", retry_at=retry)
     if status == 403:
@@ -1132,19 +1143,26 @@ class WorkspaceMcpClient:
 
             # Opening a resumable session does not create a file. The final
             # upload may do so and needs a fresh authority and audience check.
-            async with self._stream(
-                "PUT",
-                session,
-                headers | {"Content-Type": mime, "Content-Length": str(size)},
-                content=_upload_chunks(path, size),
-                transfer_bytes=size,
-                before_send=before_send,
-                on_transmission=transmitting,
-            ) as response:
-                _drive_rest_status(response, 200, 201, finalizing=True)
-                if (await _drive_rest_json(response)).get("id") != file_id:
-                    raise ValueError("mismatched Drive creation acknowledgement")
-                return {"id": file_id}
+            acknowledged = False
+            try:
+                async with self._stream(
+                    "PUT",
+                    session,
+                    headers | {"Content-Type": mime, "Content-Length": str(size)},
+                    content=_upload_chunks(path, size),
+                    transfer_bytes=size,
+                    before_send=before_send,
+                    on_transmission=transmitting,
+                ) as response:
+                    _drive_rest_status(response, 200, 201, finalizing=True)
+                    if (await _drive_rest_json(response)).get("id") != file_id:
+                        raise ValueError("mismatched Drive creation acknowledgement")
+                    acknowledged = True
+            except (Exception, asyncio.CancelledError):
+                if not acknowledged:
+                    raise
+                # Teardown cannot invalidate the acknowledgement sent to custody.
+            return {"id": file_id}
         except WorkspaceError as error:
             if not transmitted:
                 error.known_no_effect = True
@@ -1382,7 +1400,7 @@ class WorkspaceMcpClient:
                             )
                 else:
                     body = await _bounded_body(
-                        response,
+                        response.aiter_bytes(chunk_size=65536),
                         cap,
                         advertised,
                         WorkspaceError("uncertain" if write else "partial"),

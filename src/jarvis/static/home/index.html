@@ -57,15 +57,17 @@
       <p id="message-unavailable" class="secondary" role="status" hidden>this message is no longer available.</p>
       <section id="chat" class="panel" aria-label="chat">
         <button id="older" hidden>earlier messages</button>
-        <div id="chat-page">
-          <div id="messages"></div>
-          <article id="presence-tail" hidden>
-            <div class="stamp"><strong class="sr-only">jarvis</strong><time></time></div>
-            <div class="presence-caption">
-              <span class="presence-point" aria-hidden="true"></span>
-              <span class="presence-words"></span>
-            </div>
-          </article>
+        <div id="chat-sheet">
+          <div id="chat-page">
+            <div id="messages"></div>
+            <article id="presence-tail" hidden>
+              <div class="stamp"><strong class="sr-only">jarvis</strong><time></time></div>
+              <div class="presence-caption">
+                <span class="presence-point" aria-hidden="true"></span>
+                <span class="presence-words"></span>
+              </div>
+            </article>
+          </div>
         </div>
       </section>
       <div id="chat-ledge" hidden>

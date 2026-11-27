@@ -211,11 +211,16 @@ a {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 1rem var(--end) 1rem var(--gutter);
+  padding-block: 1rem;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
   overflow-anchor: none;
 }
+#chat-sheet {
+  overflow: clip;
+  padding-inline: var(--gutter) var(--end);
+}
+#older { margin-inline-start: var(--gutter); }
 #chat-page article {
   position: relative;
   padding: 0;
@@ -665,12 +670,14 @@ a {
   color: var(--muted);
 }
 .apparatus, .proposal { margin-block-start: var(--u); }
-.apparatus-row {
+.apparatus {
   display: grid;
-  grid-template-columns: 3.75rem minmax(0, 1fr);
-  gap: .45rem;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: .45rem;
   font: 400 .875rem/1.3125rem var(--text);
 }
+.apparatus-row { display: contents; }
+.apparatus-kind { white-space: nowrap; }
 .apparatus-row small { font-size: inherit; color: var(--muted); }
 .apparatus-kind, .proposal-foot span {
   color: var(--muted);

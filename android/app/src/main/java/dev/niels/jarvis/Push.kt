@@ -62,14 +62,12 @@ import org.json.JSONObject
 private const val PHONE = "/api/push/phone"
 private const val REPLY = "reply"
 private const val QUESTION = "question"
-private const val WORKSPACE = "workspace_check"
 
 private fun NotificationManager.prepareChannels() {
     createNotificationChannels(
         listOf(
             NotificationChannel(REPLY, "replies", NotificationManager.IMPORTANCE_DEFAULT),
             NotificationChannel(QUESTION, "questions", NotificationManager.IMPORTANCE_HIGH),
-            NotificationChannel(WORKSPACE, "scheduled checks", NotificationManager.IMPORTANCE_HIGH)
         )
     )
 }
@@ -83,19 +81,6 @@ class Push : FirebaseMessagingService() {
         val data = message.data
         val notice = data["notice_id"]?.takeIf(::canonicalUuid) ?: return
         val kind = data["kind"] ?: return
-        if (kind == WORKSPACE) {
-            if (data.keys != setOf("kind", "notice_id", "todo_id")) return
-            val todo = data["todo_id"]?.takeIf(::canonicalUuid) ?: return
-            val manager = getSystemService(NotificationManager::class.java)
-            if (!manager.allows(kind)) return
-            val destination = Intent(this, WorkspaceTapActivity::class.java).setData(
-                Uri.Builder().scheme("jarvis-check").authority("tap")
-                    .appendPath(notice).appendPath(todo).build()
-            )
-            manager.notify(notice, 0, notification(this, kind, "open jarvis", destination).build())
-            return
-        }
-
         if (kind !in setOf(REPLY, QUESTION) || data.keys != setOf("kind", "notice_id", "message_id")) return
         val id = data["message_id"]?.takeIf(::canonicalUuid) ?: return
         if (notice == messageNoticeTag(id)) PhoneNotices.get(this).receive(id, kind)
@@ -114,6 +99,7 @@ private fun notification(context: Context, channel: String, title: String, desti
         .setContentTitle(title)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setAutoCancel(true)
+        .setOnlyAlertOnce(true)
         .setContentIntent(PendingIntent.getActivity(context, 0, destination, PendingIntent.FLAG_IMMUTABLE))
 
 private fun messageNoticeTag(id: String): String {
@@ -147,6 +133,26 @@ internal class PhoneNotices private constructor(private val context: Context) {
     private val issued = mutableMapOf<String, Long>()
 
     internal data class BeforeRead(val active: List<StatusBarNotification>, val revision: Long)
+
+    suspend fun retireUnsupportedChecks(api: HomeApi) {
+        val checks = manager.activeNotifications.filter { it.notification.channelId == "workspace_check" }
+        for (check in checks) {
+            val occurrence = check.tag
+            if (occurrence == null || !canonicalUuid(occurrence)) {
+                manager.cancel(check.tag, check.id)
+                continue
+            }
+            // Authentication and transport failures leave the old alert untouched.
+            val dated = try {
+                api.read("/api/workspace/occurrences/$occurrence")
+            } catch (_: IOException) {
+                return
+            } catch (_: org.json.JSONException) {
+                return
+            }
+            if (dated == null) manager.cancel(occurrence, check.id)
+        }
+    }
 
     @Synchronized
     fun foreground(visible: Boolean): Long {
@@ -234,7 +240,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
         if (!manager.allows(kind)) return
         val route = Intent(Intent.ACTION_VIEW, Routes.url(Route.Message(id)), context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val title = if (kind == REPLY) "jarvis replied" else "jarvis needs a reply"
+        val title = if (kind == REPLY) "jarvis replied" else "jarvis needs your attention"
         val tag = messageNoticeTag(id)
         val notice = notification(context, kind, title, route)
         if (kind == REPLY) {

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import Text, func, select
+from sqlalchemy import func, select
 
 from jarvis.actions import scoped_delegation
 from jarvis.db import (
@@ -18,7 +18,7 @@ from jarvis.db import (
     native_invocation,
 )
 from jarvis.home_reads import conversation_token, owed_messages
-from jarvis.messages import CATCHUP_SOURCE, latest_control, pending_input_order
+from jarvis.messages import latest_control, pending_input_order
 
 if TYPE_CHECKING:
     from provider_runtime.agent_runtime import AgentToolUse
@@ -34,7 +34,7 @@ _TRIGGERS = {
     ("host", "event_status"): "mail",
     ("host", "work_wake"): "todo",
     ("host", "action"): "result",
-    ("host", CATCHUP_SOURCE): "recovery",
+    ("host", "workspace_retry"): "retry",
 }
 _ACTIVITY_FAMILIES = frozenset(
     ("gmail", "calendar", "drive", "maps", "memory", "web", "work", "agent", "receipt")
@@ -175,9 +175,6 @@ class Presence:
                     .order_by(*pending_input_order)
                 )
             ).all()
-            actions = select(action.c.id).where(
-                message.c.trace["waiting_action_ids"].op("?")(action.c.id.cast(Text)),
-            )
             owner = (
                 await connection.execute(
                     select(message.c.id, message.c.request_state)
@@ -187,17 +184,7 @@ class Presence:
                         message.c.source == "web",
                         message.c.control_kind.is_(None),
                         message.c.processing_parked_at.is_(None),
-                        (message.c.request_state == "pending")
-                        | (
-                            (message.c.request_state == "waiting")
-                            & (message.c.wait_reason == "approval")
-                            & actions.where(
-                                action.c.status.in_(("queued", "executing"))
-                            ).exists()
-                            & ~actions.where(
-                                action.c.status == "awaiting_approval"
-                            ).exists()
-                        ),
+                        message.c.request_state == "pending",
                     )
                     .order_by(message.c.created_at.desc(), message.c.id.desc())
                     .limit(1)

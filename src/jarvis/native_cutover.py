@@ -23,7 +23,6 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.messages import (
-    CATCHUP_SOURCE,
     causal_component_ids,
     current_native_retry,
     latest_control,
@@ -138,29 +137,11 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
         )
         if revision != APPLICATION_SCHEMA_REVISION:
             raise NativeActivationDefect("target requires its own application schema")
-        held_catchups = tuple(
-            await connection.scalars(
-                select(message.c.id).where(
-                    message.c.source_conversation_id == conversation_id,
-                    message.c.role == "host",
-                    message.c.source == CATCHUP_SOURCE,
-                    message.c.request_state == "waiting",
-                    message.c.wait_reason == "configuration",
-                    message.c.processing_parked_at.is_not(None),
-                )
-            )
-        )
-        held_attempts = (
-            tuple(
-                park.attempt_id
-                for park in await parked_inputs(
-                    connection, conversation_id, held_catchups
-                )
-                if park.attempt_id is not None
-                and park.reason == "native protocol requires repair"
-            )
-            if held_catchups
-            else ()
+        held_attempts = tuple(
+            park.attempt_id
+            for park in await parked_inputs(connection, conversation_id)
+            if park.attempt_id is not None
+            and park.reason == "native protocol requires repair"
         )
         old_attempt = await connection.scalar(
             select(native_attempt.c.id)

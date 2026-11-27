@@ -5,12 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import Counter
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from itertools import takewhile
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
@@ -79,7 +78,6 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.definitions import RoleDefinitions, with_main_provider
-from jarvis.home_reads import proposal_presented
 from jarvis.input_framing import home_context, host_input
 from jarvis.kernel import DeferredRoute, KernelRuntime, RouteSelector, SelectedRoute
 from jarvis.memory_service import MemoryService
@@ -87,7 +85,6 @@ from jarvis.messages import (
     MessageStore,
     StoredMessage,
     causal_component_ids,
-    is_recovery_input,
     latest_control,
 )
 from jarvis.native_diagnostics import log_native_failure
@@ -97,7 +94,6 @@ from jarvis.native_journal import (
     NeonOpeningUnavailable,
     PostgresNativeJournal,
     ProductSettlement,
-    StaleCatchupInventory,
     StaleNativeProduct,
     commit_product,
     consume_fenced_losses,
@@ -108,11 +104,6 @@ from jarvis.native_journal import (
     park_unadmitted_input,
     recover_sealed_turn,
     settle_undispatched_antigravity,
-    yield_workspace_input,
-)
-from jarvis.native_protocol import (
-    FOREGROUND_RECOVERY_PROFILE,
-    WORKSPACE_CHECK_PROFILE,
 )
 from jarvis.ownership import (
     DeploymentOwnershipDefect,
@@ -120,16 +111,11 @@ from jarvis.ownership import (
 )
 from jarvis.read_positions import PostgresReadRecorder
 from jarvis.receipt_tools import original_read_position, receipt_scope
-from jarvis.recovery_catchup import (
-    RECOVERY_CATCHUP_SOURCE,
-    CatchupStale,
-    catchup_mail_ids,
-)
 from jarvis.settings import Settings
 from jarvis.stock_observations import StockObservationWriter
 from jarvis.terminal import render_terminal
 from jarvis.tool_results import completed_tool_result, memory_view_section
-from jarvis.workspace_host import WorkspaceHost, is_workspace_wake
+from jarvis.workspace_host import WorkspaceHost
 
 if TYPE_CHECKING:
     from provider_runtime.agent_runtime.neon_control import NeonControl
@@ -181,25 +167,6 @@ async def opening_memory_prefix(memory: MemoryService) -> tuple[int, PromptSecti
     )
 
 
-def _workspace_input(item: StoredMessage) -> bool:
-    return (
-        is_workspace_wake(item.source, item.text)
-        or (item.home or {}).get("workspace_refresh") is not None
-    )
-
-
-def _opening_profile(item: StoredMessage) -> str:
-    if is_recovery_input(item):
-        return FOREGROUND_RECOVERY_PROFILE
-    if _workspace_input(item):
-        return WORKSPACE_CHECK_PROFILE
-    return "main"
-
-
-def _ordinary_prefix(values: tuple[StoredMessage, ...]) -> tuple[StoredMessage, ...]:
-    return tuple(takewhile(lambda item: _opening_profile(item) == "main", values))
-
-
 async def fit_native_inputs(
     owner: JarvisOwner,
     store: MessageStore,
@@ -244,17 +211,13 @@ class NativeInputs:
         *,
         owner: JarvisOwner,
         store: MessageStore,
-        plan: FrozenToolPlan,
         definition: NativeDefinition,
         memory_cutoff: int,
         cancellation: CancellationToken,
         maximum_batch_size: int,
         accept_steers: bool,
-        workspace: WorkspaceHost | None,
     ) -> None:
-        self.owner, self.store, self.plan = owner, store, plan
-        self.workspace = workspace
-        self.owner_preempted = False
+        self.owner, self.store = owner, store
         self.definition = definition
         self.memory_cutoff = memory_cutoff
         # The kernel can prepare a steer before submit, but sends it only after
@@ -285,7 +248,7 @@ class NativeInputs:
                 or attempt["fenced_at"] is not None
             ):
                 return Preempt("owner_fenced")
-            if not self.accept_steers and self.plan.profile.id == "main":
+            if not self.accept_steers:
                 return NoNewInput()
             deliveries = {
                 row.message_id: row.state
@@ -313,22 +276,6 @@ class NativeInputs:
             exclude_ids=known,
             steer=True,
         )
-        # The checked session has immutable provider permissions. Leave an
-        # interrupting owner request pending for a fresh ordinary session.
-        if self.plan.profile.id != "main":
-            if (
-                values
-                and values[0].role == "owner"
-                and values[0].request_state == "pending"
-            ):
-                if self.plan.profile.id == FOREGROUND_RECOVERY_PROFILE:
-                    self.owner_preempted = True
-                    return Preempt("recovery_owner_steer")
-                if await yield_workspace_input(self.owner, request, values[0].id):
-                    self.owner_preempted = True
-                    return Preempt("workspace_owner_steer")
-            return NoNewInput()
-        values = _ordinary_prefix(values)
         if not values:
             return NoNewInput()
         as_of = datetime.now(UTC)
@@ -376,16 +323,6 @@ class NativeInputs:
             raise NativeDefect("write request_ref is outside delivered live inputs")
 
 
-class WorkspaceMatchSender(Protocol):
-    def __call__(
-        self,
-        occurrence_id: UUID,
-        todo_id: UUID,
-        *,
-        still_current: Callable[[], Awaitable[bool]],
-    ) -> Awaitable[object]: ...
-
-
 class RecoverAction(Protocol):
     async def __call__(
         self, action_id: UUID, *, allow_queued_execution: bool
@@ -412,7 +349,6 @@ class NativeRunner:
         workspace: WorkspaceHost | None = None,
         recover_action: RecoverAction | None = None,
         neon_control: NeonControl | None = None,
-        notify_workspace_match: WorkspaceMatchSender | None = None,
     ) -> None:
         self.settings, self.store, self.owner = settings, store, owner
         self.opening_reads = opening_reads
@@ -421,7 +357,7 @@ class NativeRunner:
         self.memory, self.actions = memory, actions
         self.presence = presence
         self.recover_action, self.neon_control = recover_action, neon_control
-        self.workspace, self.notify_workspace_match = workspace, notify_workspace_match
+        self.workspace = workspace
         self.dispatcher_factory = dispatcher_factory
         self._session: ProviderSessionLease | None = None
         self._journal: PostgresNativeJournal | None = None
@@ -432,8 +368,6 @@ class NativeRunner:
     async def record(self, attempt_id: str, message: AgentMessage) -> None:
         if self._journal is None:
             raise NativeDefect("public message has no active native journal")
-        if self._journal.plan.profile.id == FOREGROUND_RECOVERY_PROFILE:
-            return
         await self._journal.record(attempt_id, message)
         await self.memory.publish()
 
@@ -483,30 +417,6 @@ class NativeRunner:
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
                 return NativeRunOutcome("stopped")
             first = pending[0]
-            if first.role == "host" and first.source == RECOVERY_CATCHUP_SOURCE:
-                grant = None if self.workspace is None else self.workspace.enrollment()
-                if grant is None:
-                    all_deferred = False
-                    excluded_inputs.append(first.id)
-                    continue
-                try:
-                    async with self.owner.database.connect() as connection:
-                        await catchup_mail_ids(
-                            connection,
-                            self.owner.scope_id,
-                            first.id,
-                            grant.account,
-                            grant.grant_id,
-                        )
-                except CatchupStale:
-                    if await park_unadmitted_input(
-                        self.owner, first.id, "catch-up inventory no longer matches"
-                    ):
-                        self.notify_delivery()
-                        return NativeRunOutcome("progressed")
-                    all_deferred = False
-                    excluded_inputs.append(first.id)
-                    continue
             pinned = _retry_pin(first)
             selected = await self.route_selector.choose_route("main", pinned=pinned)
             if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
@@ -543,18 +453,8 @@ class NativeRunner:
         pinned: NativeRoute | None,
         cancellation: CancellationToken,
     ) -> NativeRunOutcome | DeferredRoute | None:
-        profile = _opening_profile(pending[0])
-        match profile:
-            case "foreground_recovery":
-                template = self.definitions.foreground_recovery
-            case "workspace_check":
-                template = self.definitions.workspace_check
-            case "main":
-                template = self.definitions.main
-            case _:
-                raise NativeDefect("unknown opening profile")
-        pending = _ordinary_prefix(pending) if profile == "main" else pending[:1]
-        plan = self.definitions.plans[profile]
+        template = self.definitions.main
+        plan = self.definitions.plans["main"]
         try:
             pending_publication = await self.memory.pending_publication()
             await self.memory.project_pending(pending_publication)
@@ -715,7 +615,6 @@ class NativeRunner:
             raise NativeDefect("supervision requires an acquired native session")
         attempt_id = request.attempt_id
         plan = request.plan
-        profile = plan.profile.id
         protocol_fault = False
         terminal = None
         native_inputs = None
@@ -745,27 +644,18 @@ class NativeRunner:
                     antigravity=antigravity,
                     on_armed=self.presence.arm,
                     workspace_grant=(
-                        self.workspace.enrollment()
-                        if profile == FOREGROUND_RECOVERY_PROFILE
-                        and self.workspace is not None
-                        else None
+                        self.workspace.enrollment if self.workspace else None
                     ),
                 )
                 self._journal = journal
                 native_inputs = NativeInputs(
                     owner=self.owner,
                     store=self.store,
-                    plan=plan,
                     definition=definition,
                     memory_cutoff=cutoff,
                     cancellation=cancellation,
                     maximum_batch_size=self.settings.maximum_batch_size,
-                    accept_steers=(
-                        pinned is None
-                        and profile == "main"
-                        and selected.route != "agy_neon"
-                    ),
-                    workspace=self.workspace,
+                    accept_steers=selected.route != "agy_neon",
                 )
                 dispatcher = self.dispatcher_factory(native_inputs, journal)
                 dispatcher.on_effect_settled = self.notify_work
@@ -815,13 +705,6 @@ class NativeRunner:
                 ):
                     return "retry_stock"
                 return DeferredRoute.opening_failure(selected.route)
-            except StaleCatchupInventory:
-                parked = await park_unadmitted_input(
-                    self.owner,
-                    UUID(request.input_ids[0]),
-                    "catch-up inventory no longer matches",
-                )
-                return NativeRunOutcome("progressed" if parked else "blocked")
             except NativeDefect as error:
                 log_native_failure(LOGGER, error, attempt_id=attempt_id, boundary="run")
                 terminal = None
@@ -886,35 +769,7 @@ class NativeRunner:
                         LOGGER, error, attempt_id=attempt_id, boundary="terminal"
                     )
                     raise
-            match = result.workspace_match
-            if (
-                match is not None
-                and self.workspace is not None
-                and self.notify_workspace_match is not None
-            ):
-                workspace = self.workspace
-
-                async def still_current() -> bool:
-                    return await workspace.match_current(
-                        match.occurrence_id, match.work_id
-                    )
-
-                try:
-                    await self.notify_workspace_match(
-                        match.occurrence_id, match.work_id, still_current=still_current
-                    )
-                except DeploymentOwnershipDefect:
-                    raise
-                except Exception:
-                    LOGGER.warning(
-                        "workspace match delivery failed: occurrence=%s",
-                        match.occurrence_id,
-                    )
-            progressed = (
-                result.status == "committed"
-                or result.eligibility_changed
-                or (native_inputs is not None and native_inputs.owner_preempted)
-            )
+            progressed = result.status == "committed" or result.eligibility_changed
             return NativeRunOutcome("progressed" if progressed else "blocked")
         finally:
             journal, self._journal = self._journal, None
@@ -1555,12 +1410,6 @@ async def native_receipt_context(
                 action.c.attempts,
                 case(
                     (
-                        action.c.status == "awaiting_approval",
-                        proposal_presented(owner.scope_id),
-                    ),
-                ).label("presented"),
-                case(
-                    (
                         or_(
                             retired,
                             action.c.execution_contract["schema_version"]
@@ -1585,11 +1434,6 @@ async def native_receipt_context(
                     status=row.status,
                     attempts=row.attempts,
                     arguments=row.arguments,
-                    **(
-                        {"presented": row.presented}
-                        if row.presented is not None
-                        else {}
-                    ),
                 )
             )
         joined = native_invocation.join(

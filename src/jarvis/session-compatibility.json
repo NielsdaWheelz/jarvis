@@ -49,7 +49,7 @@
     "main": {
       "effort": "max",
       "model": "gpt-6.2-astra",
-      "revision": "jarvis-main-cited-sources-v31"
+      "revision": "jarvis-main-one-main-v32"
     }
   },
   "schema_version": "jarvis-session-compatibility.v6"

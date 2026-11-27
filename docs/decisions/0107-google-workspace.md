@@ -1,5 +1,9 @@
 # 0107 · gmail and calendar through google mcp
 
+[adr 0132](0132-one-main.md) is the successor for main authority, named checks,
+local approvals and workspace blockers. the durable arrival and host-only
+label acknowledgment remain part of intake.
+
 **connector pr · proposed design.** installed baseline `74bfcab/0023`, november 24, 2026. implementation and deployment require separate cuts. agent access through google mcp is due february 1, 2027.
 
 ## what the owner gets

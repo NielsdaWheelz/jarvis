@@ -1,5 +1,9 @@
 # adr 0118. reading and deciding in chat
 
+the 0124/daybook reader is the predecessor. [0132 unit c](0132-one-main.md#c-workspace-blockers-and-attended-recovery)
+owns the remaining decision and permission presentation in its matched
+viewer cut. original proposal cards retain their dated receipts.
+
 the [daybook](0127-the-daybook.md#the-reader) sets the conversation's type, apparatus, and proposal presentation.
 
 **design only · november 26, 2026.** web and android render both speakers’ sent messages as markdown. the desktop column keeps its current width. an action card belongs to its recorded proposal. jarvis’s draft viewer owns exact email inspection. this amends the presentation rules in [0091](0091-source-backed-reports.md), [0097](0097-todo-home.md), [0105](0105-native-android.md) and [0107](0107-google-workspace.md).

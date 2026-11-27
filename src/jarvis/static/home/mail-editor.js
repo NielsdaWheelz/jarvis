@@ -127,22 +127,19 @@ function explanation(data) {
     "could not complete the request."
   );
 }
-async function mailRequest(url, options) {
-  const response = await fetch(url, { cache: "no-store", redirect: "manual", ...options });
-  if (response.type === "opaqueredirect") throw new Error("sign in to continue.");
-  const payload = await response.json().catch(() => ({}));
-  const data = typeof payload.detail === "object" ? payload.detail : payload;
-  if (!response.ok && !data.state) {
-    let reason = data.reason || (typeof data.detail === "string" ? data.detail : null);
-    if (response.status === 410) reason = "missing_draft";
-    if (response.status === 413) reason = "attachment size limit exceeded";
-    if (!reason && [401, 403].includes(response.status)) reason = "sign in to continue.";
-    return { state: "failed", reason: reason || "request failed (" + response.status + ")" };
+export function openEditor(panel, path, original, digest, request) {
+  async function mailRequest(url, options) {
+    const response = await request(url, { allowServerError: true, ...options });
+    const payload = await response.json().catch(() => ({}));
+    const data = typeof payload.detail === "object" ? payload.detail : payload;
+    if (!response.ok && !data.state) {
+      let reason = data.reason || (typeof data.detail === "string" ? data.detail : null);
+      if (response.status === 410) reason = "missing_draft";
+      if (response.status === 413) reason = "attachment size limit exceeded";
+      return { state: "failed", reason: reason || "request failed (" + response.status + ")" };
+    }
+    return data;
   }
-  return data;
-}
-
-export function openEditor(panel, path, original, digest) {
   const api = "/api" + path;
   const form = el("fieldset", undefined, "mail-fields"),
     actions = el("div", undefined, "mail-actions");

@@ -12,9 +12,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import (
     AwareDatetime,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     field_validator,
+    model_validator,
 )
 
 _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -75,9 +77,25 @@ type RepeatRule = Annotated[
 ]
 
 
+def _calendar_date(value: object) -> object:
+    if isinstance(value, datetime) or not (
+        isinstance(value, date)
+        or (
+            isinstance(value, str)
+            and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value)
+        )
+    ):
+        raise ValueError("date must use YYYY-MM-DD")
+    return date.fromisoformat(value) if isinstance(value, str) else value
+
+
+CalendarDate = Annotated[date, BeforeValidator(_calendar_date)]
+
+
 class Wake(_Closed):
     at: AwareDatetime
     repeat: RepeatRule | None
+    until: CalendarDate | None = None
 
     @field_validator("at", mode="before")
     @classmethod
@@ -94,6 +112,12 @@ class Wake(_Closed):
     @classmethod
     def utc_instant(cls, value: datetime) -> datetime:
         return _utc(value)
+
+    @model_validator(mode="after")
+    def until_requires_repeat(self) -> Wake:
+        if self.until is not None and self.repeat is None:
+            raise ValueError("an end date requires a recurring wake")
+        return self
 
 
 @dataclass(frozen=True, slots=True)

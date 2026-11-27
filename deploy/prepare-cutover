@@ -22,6 +22,12 @@ from memory_snapshot import (
     row_inventory,
     schema_inventory,
 )
+from one_main_snapshot import (
+    CONVERTED_WORK_ROWS,
+    WORK_COLUMNS,
+    cut_inventory,
+    stopped_workspace_grant,
+)
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
@@ -44,6 +50,7 @@ STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
 POSTGRES_BIN = Path("/usr/lib/postgresql/16/bin")
 SHOWN_CUT = (DRIVE_CUSTODY_SCHEMA, "0028")
+ONE_MAIN_CUT = ("0028", "0029")
 
 
 def require(condition, reason):
@@ -383,6 +390,63 @@ async def require_workspace_target(conn, facts, original):
     )
 
 
+async def one_main_source_facts(conn, scope, state):
+    return {
+        "inventory": await cut_inventory(conn, scope, stopped_workspace_grant(state)),
+        "converted_work": await row_inventory(conn, CONVERTED_WORK_ROWS, "1"),
+        # The process-bound Google forms die with their owning writer. Any
+        # associated entered effect is still represented in the inventory.
+        "live_forms": "both writers stopped",
+    }
+
+
+def require_clear_one_main(document):
+    entries = document["inventory"]["incompatible"]
+    require(
+        not entries,
+        "one-main cut held for predecessor disposition: "
+        + json.dumps(entries, ensure_ascii=True, separators=(",", ":")),
+    )
+
+
+async def require_one_main_target(conn, facts, manifest):
+    original = manifest["original_facts"]
+    changed = {"public.alembic_version", "public.work", "public.workspace_block"}
+    require(
+        {k: v for k, v in facts.items() if k not in {"tables", "schema"}}
+        == {k: v for k, v in original.items() if k not in {"tables", "schema"}}
+        and {k: v for k, v in facts["tables"].items() if k not in changed}
+        == {k: v for k, v in original["tables"].items() if k not in changed}
+        and facts["tables"]["public.workspace_block"][0] == 0
+        and await row_inventory(conn, f"(SELECT {WORK_COLUMNS} FROM public.work)", "1")
+        == manifest["one_main"]["converted_work"],
+        "one-main cut changed evidence, quota, cursor, or converted schedule",
+    )
+    require(
+        await conn.scalar(
+            text("""
+            SELECT has_table_privilege('jarvis_runtime','workspace_block','SELECT')
+               AND has_table_privilege('jarvis_runtime','workspace_block','INSERT')
+               AND NOT has_table_privilege('jarvis_runtime','workspace_block',
+                                           'DELETE,TRUNCATE')
+               AND has_column_privilege('jarvis_runtime','workspace_block',
+                                        'revision','UPDATE')
+               AND NOT has_column_privilege('jarvis_runtime','workspace_block',
+                                            'id','UPDATE')
+               AND NOT EXISTS (
+                   SELECT FROM pg_roles WHERE rolname='jarvis_backup'
+                       AND (NOT has_table_privilege(oid,'workspace_block','SELECT')
+                          OR has_table_privilege(oid,'workspace_block',
+                                                 'DELETE,TRUNCATE')
+                          OR has_any_column_privilege(oid,'workspace_block',
+                                                    'INSERT,UPDATE'))
+               )
+        """)
+        ),
+        "workspace block grants differ from the target",
+    )
+
+
 def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     require(not destination.exists(), "snapshot exists; verify it or inspect it")
@@ -575,16 +639,25 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
     )
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     migrating_drive = operation == "migrate-restored-drive"
+    migrating_one_main = operation == "migrate-restored-one-main"
+    migrating = migrating_drive or migrating_one_main
     original = rehearsal_binding(manifest)
     source_proof = proof / "restored-source.json"
-    if migrating_drive:
+    if migrating:
         url = make_url(migration_url)
         require(
-            target["schema"] == DRIVE_CUSTODY_SCHEMA
-            and [url.host, url.port or 5432, url.database] != manifest["database"]
+            [url.host, url.port or 5432, url.database] != manifest["database"]
             and json.loads(source_proof.read_bytes()) == original,
-            "drive rehearsal requires a verified, separate restored database",
+            "migration rehearsal requires a verified, separate restored database",
         )
+    if migrating_one_main:
+        require(
+            (manifest["source"]["schema"], target["schema"]) == ONE_MAIN_CUT,
+            "unexpected one-main restore/migration transition",
+        )
+        require_clear_one_main(manifest["one_main"])
+    if migrating_drive:
+        require(target["schema"] == DRIVE_CUSTODY_SCHEMA, "wrong drive target")
         drive_map = proof / "drive-cut.json"
         require(
             file_digest(drive_map) == map_sha256,
@@ -601,13 +674,13 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
     engine = create_engine(migration_url)
     try:
         async with maintenance_ownership(engine) as db, db.begin() as conn:
-            mode = "READ WRITE" if migrating_drive else "READ ONLY"
+            mode = "READ WRITE" if migrating else "READ ONLY"
             await conn.execute(
                 text(f"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, {mode}")
             )
             version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
             facts = await inventory(conn, manifest["owner_scope"])
-            if migrating_drive:
+            if migrating:
                 require(
                     version == manifest["source"]["schema"]
                     and facts == manifest["original_facts"],
@@ -619,14 +692,21 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
                         str(Path(__file__).resolve().parents[1] / "alembic.ini")
                     )
                     cfg.attributes["connection"] = connection
-                    cfg.attributes["drive_cut"] = verified_map.model_dump(mode="json")
+                    if migrating_drive:
+                        cfg.attributes["drive_cut"] = verified_map.model_dump(
+                            mode="json"
+                        )
+                    else:
+                        cfg.attributes["workspace_grant"] = stopped_workspace_grant(
+                            snapshot / "private-state"
+                        )
                     command.upgrade(cfg, target["schema"])
 
                 await conn.run_sync(upgrade)
                 require(
                     await conn.scalar(text("SELECT version_num FROM alembic_version"))
                     == target["schema"],
-                    "drive rehearsal did not reach the target schema",
+                    "migration rehearsal did not reach the target schema",
                 )
                 return
             if (manifest["source"]["schema"], target["schema"]) == ("0023", "0024"):
@@ -643,6 +723,18 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
                     await require_workspace_target(
                         conn, facts, manifest["original_facts"]
                     )
+            if (manifest["source"]["schema"], target["schema"]) == ONE_MAIN_CUT:
+                require_clear_one_main(manifest["one_main"])
+                if version == "0028":
+                    require(
+                        await one_main_source_facts(
+                            conn, manifest["owner_scope"], snapshot / "private-state"
+                        )
+                        == manifest["one_main"],
+                        "restored one-main obligations differ from the stopped source",
+                    )
+                elif version == "0029":
+                    await require_one_main_target(conn, facts, manifest)
             if operation == "record-rehearsal" and (
                 manifest["source"]["schema"],
                 version,
@@ -758,6 +850,9 @@ async def cut(operation, destination, binding, stop, qualification):
                 "database": endpoint,
             }
             workspace_cut = (source["schema"], target["schema"]) == ("0023", "0024")
+            one_main_cut = (source["schema"], target["schema"]) == ONE_MAIN_CUT
+            if one_main_cut and version == "0028":
+                evidence["one_main"] = await one_main_source_facts(conn, scope, STATE)
             if workspace_cut and version == "0023":
                 evidence["workspace_obligations"] = await workspace_obligations(
                     conn, STATE
@@ -781,6 +876,8 @@ async def cut(operation, destination, binding, stop, qualification):
                 )
                 if workspace_cut:
                     require_clear_workspace(evidence["workspace_obligations"])
+                if one_main_cut:
+                    require_clear_one_main(evidence["one_main"])
                 return
             manifest = json.loads((destination / "SNAPSHOT.json").read_bytes())
             require(
@@ -798,6 +895,8 @@ async def cut(operation, destination, binding, stop, qualification):
                 )
             if workspace_cut:
                 require_clear_workspace(manifest["workspace_obligations"])
+            if one_main_cut:
+                require_clear_one_main(manifest["one_main"])
             if operation in {"snapshot", "verify"}:
                 return
             document = json.loads(qualification.read_bytes())
@@ -832,6 +931,10 @@ async def cut(operation, destination, binding, stop, qualification):
                         cfg.attributes["drive_cut"] = verified_drive_map.model_dump(
                             mode="json"
                         )
+                    if one_main_cut:
+                        cfg.attributes["workspace_grant"] = stopped_workspace_grant(
+                            STATE
+                        )
                     command.upgrade(cfg, target["schema"])
 
                 await conn.run_sync(upgrade)
@@ -860,6 +963,7 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] in {
         "verify-restored-source",
         "migrate-restored-drive",
+        "migrate-restored-one-main",
         "record-rehearsal",
     }:
         parser = argparse.ArgumentParser(

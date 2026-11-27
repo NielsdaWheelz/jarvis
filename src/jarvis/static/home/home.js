@@ -475,7 +475,7 @@ function discuss(ref, title, origin) {
 }
 async function request(path, { allowServerError = false, ...options } = {}) {
   const headers = new Headers(options.headers);
-  headers.set("X-Jarvis-Viewer-Contract", "shown-v1");
+  headers.set("X-Jarvis-Viewer-Contract", "one-main-v1");
   const response = await fetch(path, { redirect: "manual", cache: "no-store", ...options, headers });
   if (response.type === "opaqueredirect" || [401, 403].includes(response.status)) {
     if (!loginRequired) {
@@ -755,6 +755,74 @@ function apparatus(rows) {
   return list;
 }
 
+function workspaceBlock(block) {
+  const group = el("section", undefined, "proposal");
+  const state = {
+    resolved: "resolved",
+    checking: "checking with google",
+    superseded: {
+      consent_expired: "google’s request expired",
+      source_changed: "the workspace connection changed. start a fresh request",
+      uncertain: "the original change is still unconfirmed",
+      target_observed: "the intended state is visible now. the original change is still unconfirmed",
+      target_differs: "the current state differs. the original change is still unconfirmed",
+    }[block.reason] || "this request is no longer current",
+    denied: {
+      denied: "request denied",
+      policy_block: "google blocked this under its policy",
+      screened: "some content was withheld",
+      withheld: "google withheld content",
+      partial: "some results were unavailable",
+      not_found: "google could not confirm that this item is available",
+      exhausted: "couldn’t complete this after retrying",
+    }[block.reason] || "this operation is unavailable",
+    waiting: block.reason === "approval_busy" ? "another google choice is open. this will retry after it closes"
+      : "retrying " + (block.retry_at ? time(block.retry_at) : "when google is available"),
+    needs_owner: {
+      reconnect: "reconnect " + block.product + " to jarvis, then retry",
+      answer_google: block.reason === "consent_expired" ?
+        "google’s choice expired. resume to ask again" : "google needs a choice before this can continue",
+      verify: block.reason === "label_still_present" ?
+        "remove jarvis’s pending label from the affected message in gmail, then verify" :
+        "the original result still needs verification",
+    }[block.remedy],
+  }[block.state];
+  group.append(el("div", block.product + " · " + block.operation.replaceAll("_", " "), "proposal-title"));
+  const status = el("p", state, "prose");
+  status.setAttribute("role", "status");
+  group.append(status);
+  if (block.state !== "needs_owner") return group;
+  const submission = crypto.randomUUID();
+  const control = button({
+    reconnect: "check connection",
+    answer_google: "resume " + block.product,
+    verify: "verify result",
+  }[block.remedy] || "resume", async () => {
+    control.disabled = true;
+    try {
+      await request("/api/workspace/blocks/" + block.id + "/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision: block.revision, submission_id: submission }),
+      });
+      status.textContent = "checking with google";
+    } catch (error) {
+      const form = $("workspace-approval");
+      if (block.remedy === "answer_google" && !form.hidden) {
+        form.querySelector("button")?.focus();
+        status.textContent = "answer google’s open request";
+      } else {
+        status.textContent = error.login ? "sign in to continue" : "couldn’t confirm this request";
+      }
+      control.disabled = false;
+    } finally {
+      refresh();
+    }
+  });
+  group.append(control);
+  return group;
+}
+
 function renderMessage(m, existing) {
   const node = existing || el("article");
   node.id = "msg-" + m.id;
@@ -812,11 +880,8 @@ function renderMessage(m, existing) {
     if (proposal.decision)
       details.push(["you", proposal.decision === "approve" ? "approved" : "denied", "/m/" + proposal.owner_message_id]);
     if (details.length) group.append(apparatus(details));
-    const reply = button("reply", () => discuss(
-      { kind: "proposal", message_id: m.id, action_id: proposal.action_id }, proposal.title));
-    reply.dataset.action = proposal.action_id;
     const foot = el("div", undefined, "proposal-foot");
-    foot.append(reply, el("span", proposal.status_label || proposal.status.replaceAll("_", " ")));
+    foot.append(el("span", proposal.status_label || proposal.status.replaceAll("_", " ")));
     group.append(foot);
     return group;
   });
@@ -837,6 +902,7 @@ function renderMessage(m, existing) {
   const controls = el("div");
   if (rows.length) controls.append(apparatus(rows));
   controls.append(...proposals);
+  if (m.workspace_block) controls.append(workspaceBlock(m.workspace_block));
   if (node.controls) node.controls.replaceWith(controls);
   else node.append(controls);
   node.controls = controls;
@@ -1422,7 +1488,7 @@ async function mailRead(ver, path, messageId, kind, actionId) {
   content.replaceChildren(draftPreview(revision, editing));
   if (editing) {
     if (revision?.status === "complete" && revision.editable === true)
-      mailEditor = openEditor(content, path, revision, digest);
+      mailEditor = openEditor(content, path, revision, digest, request);
     else content.append(el("p", "this saved revision is read-only."));
   }
   sheet.dataset.loaded = "true";
@@ -1639,7 +1705,7 @@ function renderTodoBody(row, open) {
   const item = record?.record;
   const timezone = record?.timezone || overviewPage?.timezone || "UTC";
   const wake = item?.wake_at && (
-    (Date.parse(item.wake_at) <= Date.parse(record.as_of) ? "jarvis check was due " : "jarvis check scheduled for ") +
+    (Date.parse(item.wake_at) <= Date.parse(record.as_of) ? "scheduled wake was due " : "next scheduled wake ") +
     time(item.wake_at, record.timezone).toLowerCase()
   );
   const version = JSON.stringify([record === null, item, wake, timezone, row.results, row.cursors, row.errors]);

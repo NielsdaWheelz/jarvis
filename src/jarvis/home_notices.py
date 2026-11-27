@@ -1,12 +1,11 @@
 """Persist a private notification with the fact that earned it."""
 
-from collections.abc import Awaitable, Callable
 from uuid import UUID, uuid5
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import exists, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from jarvis.db import home_notice
+from jarvis.db import home_notice, message, workspace_block
 from jarvis.fcm import FcmSender, NoticeKind, PushFailure
 from jarvis.ownership import Database
 from jarvis.phone import PhoneSlot
@@ -41,7 +40,18 @@ async def deliver_pending(
                             home_notice.c.message_id,
                             home_notice.c.kind,
                         )
-                        .where(home_notice.c.provider_id.is_(None))
+                        .join(message, message.c.id == home_notice.c.message_id)
+                        .where(
+                            home_notice.c.provider_id.is_(None),
+                            or_(
+                                message.c.source != "workspace_block",
+                                exists().where(
+                                    workspace_block.c.notice_anchor
+                                    == home_notice.c.message_id,
+                                    workspace_block.c.state == "needs_owner",
+                                ),
+                            ),
+                        )
                         .order_by(home_notice.c.created_at, home_notice.c.id)
                         .limit(limit)
                     )
@@ -80,28 +90,3 @@ async def deliver_pending(
         else:
             if len(notices) < limit:
                 return None
-
-
-async def deliver_workspace_match(
-    sender: FcmSender,
-    phone: PhoneSlot,
-    occurrence_id: UUID,
-    todo_id: UUID,
-    *,
-    still_current: Callable[[], Awaitable[bool]],
-) -> PushFailure | None:
-    """Only the first live commit calls this once. A failed delivery expires."""
-    try:
-        state = await phone.read()
-        if state.fid is None:
-            return None
-        result = await sender.send_workspace_match(
-            state.fid, occurrence_id, todo_id, still_current=still_current
-        )
-        if isinstance(result, PushFailure):
-            if result.kind == "unregistered":
-                await phone.unregister(state.generation)
-            return result
-    except OSError:
-        return PushFailure("slot")
-    return None

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -17,7 +18,7 @@ from llm_tools import (
     render_prompt,
 )
 from pydantic import BaseModel, TypeAdapter
-from sqlalchemy import RowMapping, case, delete, func, insert, select, update
+from sqlalchemy import RowMapping, case, delete, func, insert, or_, select, update
 
 from jarvis.actions import (
     ActionPersistenceDefect,
@@ -37,6 +38,7 @@ from jarvis.work_schedule import (
     Wake,
     due_window,
     first_occurrence,
+    resolve_civil,
     resolve_occurrence,
 )
 from jarvis.work_tools import (
@@ -55,17 +57,21 @@ from jarvis.work_tools import (
     WorkUpdateInput,
     validate_work_result,
 )
-from jarvis.workspace_checks import (
-    WorkspaceCheck,
-    WorkspaceSelectors,
-    observed_calendar_ids,
-)
 
 _REPEAT = TypeAdapter[RepeatRule](RepeatRule)
 _STATE_RANK = {state: rank for rank, state in enumerate(WORK_STATES)}
 _STATE_ORDER = case(_STATE_RANK, value=work.c.state)
 _DATE_ORDER = work.c.due_date.asc().nulls_last()
 _TIE_BREAK = (work.c.updated_at.desc(), work.c.id)
+
+
+_NO_WAKE = {
+    "wake_id": None,
+    "wake_at": None,
+    "repeat": None,
+    "wake_local_date": None,
+    "wake_until": None,
+}
 
 
 def _record(row: RowMapping | dict[str, object]) -> WorkRecord:
@@ -84,11 +90,9 @@ class WorkStore:
         conversation_id: str,
         *,
         owner_timezone: str = "UTC",
-        workspace_grant_id: Callable[[], UUID | None] | None = None,
     ) -> None:
         self._database = database
         self._owner_zone = ZoneInfo(owner_timezone)
-        self._workspace_grant_id = workspace_grant_id
         self._conversation_id = conversation_id
         self.notify_changed: Callable[[], None] = lambda: None
 
@@ -231,24 +235,18 @@ class WorkStore:
                 arguments, WorkCreateInput | WorkUpdateInput | WorkDeleteInput
             ):
                 raise ActionPersistenceDefect("work mutation has foreign input")
-            origin = (
-                await connection.execute(
-                    select(
-                        message.c.source_conversation_id,
-                        message.c.role,
-                        message.c.source,
-                        message.c.control_kind,
-                        message.c.home,
-                    ).where(message.c.id == stored.origin_message_id)
+            scope = await connection.scalar(
+                select(message.c.source_conversation_id).where(
+                    message.c.id == stored.origin_message_id
                 )
-            ).one()
+            )
             if (
                 tool_id not in WORK_MUTATION_IDS
                 or stored.tool_name != tool_id
                 or stored.payload != arguments.model_dump(mode="json")
                 or stored.status != "executing"
                 or stored.attempts < 1
-                or origin.source_conversation_id != self._conversation_id
+                or scope != self._conversation_id
             ):
                 raise ActionPersistenceDefect(
                     "work mutation differs from its entered action"
@@ -272,31 +270,12 @@ class WorkStore:
             values: dict[str, object] = {}
             assigning: Wake | None = None
             has_wake = False
-            setting_check = False
-            selectors: WorkspaceSelectors | None = None
-            editing_condition = False
-            old_check = (
-                WorkspaceCheck.model_validate(row["workspace_check"])
-                if row is not None and row["workspace_check"] is not None
-                else None
-            )
-            owner_authorized = (
-                origin.role == "owner"
-                and origin.source != "initialize_state"
-                and origin.control_kind is None
-                and "workspace_refresh" not in (origin.home or {})
-            )
             if isinstance(arguments, WorkCreateInput):
                 if row is not None:
                     raise ActionPersistenceDefect(
                         "creating work already exists without a receipt"
                     )
-                values = arguments.model_dump(
-                    mode="python", exclude={"wake", "workspace_check"}
-                )
-                values["workspace_check"] = None
-                selectors = arguments.workspace_check
-                setting_check = selectors is not None
+                values = arguments.model_dump(mode="python", exclude={"wake"})
                 values.update(id=identifier, created_at=now, updated_at=now)
                 assigning, has_wake = arguments.wake, True
             elif row is None:
@@ -306,20 +285,12 @@ class WorkStore:
                 for change in arguments.changes:
                     if change.field == "wake":
                         assigning, has_wake = change.value, True
-                    elif change.field == "workspace_check":
-                        setting_check, selectors = True, change.value
                     else:
-                        if change.field == "content":
-                            editing_condition = True
                         values[change.field] = change.value
                 values["updated_at"] = now
-            elif old_check is not None and not owner_authorized:
-                error = {"type": "InvalidWorkspaceCheck", "code": "owner_required"}
             if error is None and values:
                 if has_wake:
-                    values.update(
-                        wake_id=None, wake_at=None, repeat=None, wake_local_date=None
-                    )
+                    values.update(_NO_WAKE)
                     if assigning is not None:
                         if values["state"] in {"done", "cancelled"}:
                             error = {"type": "InvalidSchedule", "code": "inactive"}
@@ -346,103 +317,32 @@ class WorkStore:
                                         occurrence.local_date,
                                         occurrence.at,
                                     )
-                                values.update(
-                                    wake_id=action_id,
-                                    wake_at=occurrence.at,
-                                    repeat=None
-                                    if assigning.repeat is None
-                                    else assigning.repeat.model_dump(mode="json"),
-                                    wake_local_date=occurrence.local_date,
-                                )
+                                if (
+                                    assigning.until is not None
+                                    and occurrence.at.astimezone(
+                                        self._owner_zone
+                                    ).date()
+                                    > assigning.until
+                                ):
+                                    error = {
+                                        "type": "InvalidSchedule",
+                                        "code": "after_end_date",
+                                    }
+                                else:
+                                    values.update(
+                                        wake_id=action_id,
+                                        wake_at=occurrence.at,
+                                        repeat=None
+                                        if assigning.repeat is None
+                                        else assigning.repeat.model_dump(mode="json"),
+                                        wake_local_date=occurrence.local_date,
+                                        wake_until=assigning.until,
+                                    )
                             except ScheduleError as exc:
                                 error = {"type": "InvalidSchedule", "code": exc.code}
                 if values["state"] in {"done", "cancelled"}:
-                    values.update(
-                        wake_id=None, wake_at=None, repeat=None, wake_local_date=None
-                    )
-                if (
-                    old_check is not None
-                    and not setting_check
-                    and (
-                        values["state"] in {"done", "cancelled"}
-                        or (has_wake and assigning is None)
-                    )
-                ):
-                    setting_check = True
-                changing_check = setting_check or (
-                    old_check is not None and (editing_condition or has_wake)
-                )
-                if error is None and changing_check:
-                    if not owner_authorized:
-                        error = {
-                            "type": "InvalidWorkspaceCheck",
-                            "code": "owner_required",
-                        }
-                    elif setting_check and selectors is None:
-                        values["workspace_check"] = None
-                    elif values.get("repeat") is None:
-                        error = {
-                            "type": "InvalidWorkspaceCheck",
-                            "code": "recurring_wake_required",
-                        }
-                    elif not str(values["content"]).strip():
-                        error = {
-                            "type": "InvalidWorkspaceCheck",
-                            "code": "condition_required",
-                        }
-                    else:
-                        grant = (
-                            self._workspace_grant_id()
-                            if self._workspace_grant_id
-                            else None
-                        )
-                        selected = selectors or old_check
-                        contract = stored.current_execution_contract
-                        admitted = contract.workspace_grant_id
-                        if (
-                            grant is None
-                            or grant != admitted
-                            or (
-                                not setting_check
-                                and old_check is not None
-                                and old_check.grant_id != str(grant)
-                            )
-                        ):
-                            error = {
-                                "type": "InvalidWorkspaceCheck",
-                                "code": "grant_unavailable",
-                            }
-                        elif selected is not None and selected.expired(
-                            now, self._owner_zone
-                        ):
-                            error = {"type": "InvalidWorkspaceCheck", "code": "expired"}
-                        elif (
-                            selectors is not None
-                            and selectors.calendar is not None
-                            and not await observed_calendar_ids(
-                                connection,
-                                selectors.calendar,
-                                attempt_id=contract.claim_id,
-                                grant_id=grant,
-                                input_ids=contract.input_message_ids,
-                                before_ordinal=contract.model_step_ordinal,
-                                admitted_at=stored.created_at,
-                            )
-                        ):
-                            error = {
-                                "type": "InvalidWorkspaceCheck",
-                                "code": "calendar_not_observed",
-                            }
-                        elif selectors is not None:
-                            values["workspace_check"] = {
-                                **selectors.model_dump(mode="json"),
-                                "grant_id": str(grant),
-                            }
-                    if values.get("wake_id") is not None:
-                        values["wake_id"] = action_id
-                if values["state"] in {"done", "cancelled"}:
-                    values["workspace_check"] = None
-                if values["state"] == "next_up":
+                    values.update(_NO_WAKE)
+                if error is None and values["state"] == "next_up":
                     count = await connection.scalar(
                         select(func.count())
                         .select_from(work)
@@ -469,6 +369,7 @@ class WorkStore:
                         else None,
                         "wake_at": values.get("wake_at"),
                         "repeat": values.get("repeat"),
+                        "wake_until": values.get("wake_until"),
                         "recorded_at": now,
                     }
                 )
@@ -494,7 +395,15 @@ class WorkStore:
 
     async def next_due_at(self) -> datetime | None:
         async with self._database.begin() as connection:
-            return await connection.scalar(select(func.min(work.c.wake_at)))
+            wake_at, until = (
+                await connection.execute(
+                    select(func.min(work.c.wake_at), func.min(work.c.wake_until))
+                )
+            ).one()
+        if wake_at is None or until is None or until == date.max:
+            return wake_at
+        expires = resolve_civil(until + timedelta(days=1), time.min, self._owner_zone)
+        return min(wake_at, expires)
 
     async def recompute_calendar_wakes(self) -> None:
         async with self._database.begin() as connection:
@@ -524,6 +433,7 @@ class WorkStore:
         if as_of.tzinfo is None or as_of.utcoffset() is None:
             raise ValueError("work publication clock must be timezone-aware")
         as_of = as_of.astimezone(UTC)
+        owner_date = as_of.astimezone(self._owner_zone).date()
         async with self._database.begin() as connection:
             await lock_conversation(connection, self._conversation_id)
             control = await connection.scalar(
@@ -541,7 +451,9 @@ class WorkStore:
                 (
                     await connection.execute(
                         select(work)
-                        .where(work.c.wake_at <= as_of)
+                        .where(
+                            or_(work.c.wake_at <= as_of, work.c.wake_until < owner_date)
+                        )
                         .order_by(work.c.wake_at, work.c.id)
                         .limit(1)
                         .with_for_update()
@@ -553,19 +465,9 @@ class WorkStore:
             if row is None:
                 return None
             record = _record(row)
-            if record.workspace_check is not None and record.workspace_check.expired(
-                as_of, self._owner_zone
-            ):
+            if record.wake_until is not None and owner_date > record.wake_until:
                 await connection.execute(
-                    update(work)
-                    .where(work.c.id == row["id"])
-                    .values(
-                        wake_id=None,
-                        wake_at=None,
-                        repeat=None,
-                        wake_local_date=None,
-                        workspace_check=None,
-                    )
+                    update(work).where(work.c.id == row["id"]).values(**_NO_WAKE)
                 )
                 return None
             if record.state in {"done", "cancelled"} or row["wake_id"] is None:
@@ -578,6 +480,13 @@ class WorkStore:
             window = due_window(rule, row["wake_at"], row["wake_local_date"], as_of)
             if window is None:
                 raise ValueError("due work has no due occurrence")
+            if (
+                record.wake_until is not None
+                and window.next_wake_at is not None
+                and window.next_wake_at.astimezone(self._owner_zone).date()
+                > record.wake_until
+            ):
+                window = replace(window, next_wake_at=None, next_local_date=None)
             identity = (
                 "date:" + window.scheduled_local_date.isoformat()
                 if window.scheduled_local_date is not None
@@ -627,6 +536,9 @@ class WorkStore:
                     wake_at=window.next_wake_at,
                     repeat=row["repeat"] if window.next_wake_at is not None else None,
                     wake_local_date=window.next_local_date,
+                    wake_until=row["wake_until"]
+                    if window.next_wake_at is not None
+                    else None,
                 )
             )
             return appended.message.id if appended.inserted else None

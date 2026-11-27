@@ -9,6 +9,11 @@ These instructions govern all work in this repository.
 - Read `SPEC.md` before proposing or making implementation changes, then read
   the relevant supporting document.
 - Accepted ADRs remain binding until superseded by a new ADR.
+- [adr 0132](docs/decisions/0132-one-main.md) owns the one-main successor
+  design, connector-only mail and calendar prohibitions, workspace blocker
+  recovery and hard cut. its per-feature designer, temporary end-to-end red,
+  green and refactor, independent opus review and probe deletion apply to
+  this cut. current source and installation are its predecessor.
 - [adr 0102](docs/decisions/0102-historical-capture-cleanup.md) governs the stopped
   historical cleanup after the conversation filter. generation 2 numbers the new
   archive. keep surviving original ids, and report retirement for removed ids.

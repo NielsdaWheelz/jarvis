@@ -10,6 +10,17 @@ worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
 runtime change, release, deployment or resumption.
 
+[one main and workspace recovery](decisions/0132-one-main.md) is a design
+cut. units a–c own cognition, connector effects and workspace blockers;
+unit d composes them, migrates the predecessor and qualifies the matched
+clients. source implementation, live qualification and activation are pending.
+
+on november 27 independent opus 5.5 passed all four design units on spec blob
+`fb65225d0fa4021550896d361dca62d621dc6062` after closing nine initial findings,
+the 0118 presentation conflict and the batched-read resume ambiguity. the
+reopened review rounds, final spec and sha256 manifest are on macbook under
+`~/.local/state/jarvis/qualification/adr0132-one-main-design/fb65225/`.
+
 [the daybook](decisions/0127-the-daybook.md) owns the web and android chat
 typography, inline phone draft and message-bearing send receipts.
 [installed acceptance](decisions/0127-the-daybook.md#installed-acceptance) records the web and android
@@ -430,6 +441,22 @@ revision and client contract. a reused name with different bytes holds the
 cut. use one matched viewer contract for chat, evidence, file submission and
 the artifact library. the v4/v7 or v30 identities from independent candidates
 cannot name the combined release.
+
+[chat reading and approvals](decisions/0118-chat-reading-and-approvals.md)
+delivered its reading slice through 0124 and the daybook. [0132 unit c](decisions/0132-one-main.md#c-workspace-blockers-and-attended-recovery)
+owns the remaining decision-card and google-permission surfaces in the one
+matched viewer cut. old proposal cards follow their historical receipts.
+include an uncertain action followed by a late verified acknowledgement.
+noncanonical internal links, including uppercase ids, display as text.
+the [draft revision reader](decisions/0121-exact-chat-draft-revisions.md) is
+source-qualified. the [matched installation](issues/chat-draft-revision-inspection.md)
+remains pending.
+
+on november 26, independent claude opus 5.5 at high effort passed the revised
+design at sha256 `d1eb74b7341d43d21cb6bc496bf92f0bd09a7f6ebcb2b67547aa2c5b7eb9cf22`.
+the first review held six points covering mail handoff and proof, html and
+link parity, receipt labels and android dismissal. the final review closed
+all six. both reviews are under `~/.local/state/jarvis/qualification/adr0118-chat-design/`.
 
 [adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)
 records the qualified source and isolated stock candidate. it removes the old

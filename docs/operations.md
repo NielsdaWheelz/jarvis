@@ -1011,21 +1011,13 @@ unentered work before any future activation. after new receipts, repair forward;
 older readers cannot be made safe by erasing facts or resurrecting retired codecs.
 selected-only release retention remains governed by adr 0053.
 
-## conversational decisions
+## workspace actions and recovery
 
-consequential tool policy creates one immutable `awaiting_approval` action. main
-uses the configured owner's canonical conversation as consent evidence. an earlier
-clear decision can suffice; otherwise main asks an ordinary question. it need not
-ask again merely because the action was recorded later. main supplies the action,
-approve/deny decision and actual owner-message id to `approval.respond` during a
-current admitted turn.
-
-the action transition and original local callback receipt commit atomically.
-approval queues the stored arguments; denial cancels without an external effect.
-the receipt proves the decision, not execution success. repeats return the first
-successful decision without requeueing; a contrary decision is rejected. no
-component, preview attachment or interaction handler exists in current source.
-never decide an action directly in postgres.
+adr 0132 gives every ordinary main wake the same tools. supported operations
+use their existing effect receipts and preflight checks. google's required
+choices appear in the usual private chat. every deliberate retry claims the
+original blocked operation. a historical local approval remains an inert
+decision receipt.
 
 scoped stop cancels all proven unentered work of its named request, including
 pending approvals. entered effects still reconcile. a late event preserves its
@@ -1033,7 +1025,7 @@ stopped parent's state and cannot revive it. administrative pause covers all
 waking requests; resume releases only its accumulated pause targets and never
 resurrects cancelled actions or conversational stops.
 
-gmail send requires the current jarvis draft revision and its frozen envelope
+the human editor sends a current jarvis draft using its frozen envelope
 and files. the metered preflight compares the live draft to that revision. a
 readback mismatch leaves the draft for manual completion in gmail. the send
 submits approved mime with the draft id. a gmail edit racing after preflight
@@ -1221,8 +1213,6 @@ service stops are independent. select the owning service before stopping it.
 | --- | --- | --- |
 | `memory status` | neither | read-only status |
 | `list-parked` | neither | read-only owner-scope inventory, jarvis with runtime login |
-| `resume-recovery-quota-wait INVENTORY` | assistant | jarvis with runtime login. resumes an existing held mail report at its verified quota deadline |
-| `queue-recovery-catchup INVENTORY` | assistant | jarvis with runtime login. queues a named read-only mail report under [adr 0114](decisions/0114-automatic-foreground-recovery.md) |
 | `release-parked`, `dream`, `memory retry-compression`, `initialize-state`, `check-paused`, `cutover-native`, `check-activation`, `attachment-reconcile` | assistant | jarvis with runtime login. manual dream uses the online private search socket |
 | `memory retry-capture SOURCE_CONVERSATION_UUID` | memory for external sources, assistant for jarvis projection | use the corresponding service's identity and login. revalidate the source under its key |
 | schema/grants, declaration changes, authorized resets, `rebuild-memory [--node START+COUNT --generation 2]` | both, assistant key then memory key | full rebuild uses the migrator and `embedding.env`. node-only rebuild uses the runtime login and compactor, with no embedding credential |
@@ -1328,38 +1318,33 @@ leave the november 24 calendar case under its recorded hold.
 
 ## Restart and recovery
 
-### automatic foreground recovery
+### one main recovery
 
-settle predecessor seals, active openings and outstanding retries under their
-original release before an adr 0114 activation. activation rejects retired
-executable native requests, including sealed requests with unsettled product.
-settled originals remain available through their recorded receipts.
+under [adr 0132](decisions/0132-one-main.md), settle a predecessor's
+usable seals and unresolved effects before cutover. the installed
+predecessor owns disposition of its executable requests. keep their
+original receipts and wake identities. report any blocked item by its
+local id. ordinary pending input remains eligible under the new release.
 
-on the selected recovery release, capacity waits remain quiet and recheck
-on the service wake. a bounded continuation uses the original effects as
-evidence and runs independently answerable work with read-only authority.
-`list-parked` remains the inventory for holds that need intervention. a
-restricted hold is inspection-only under the generic release command.
+capacity waits recheck on the service wake. an ordinary main turn can
+resume positively unentered work. after possible native entry, reconcile
+the original evidence and park only requests whose effects remain
+uncertain. independent work can continue. use `list-parked` for the
+record and `release-parked` after the original hold is resolved.
 
-for the separately authorized historical mail catch-up, refresh the parked
-inventory while the assistant is stopped. pass a private json file with
-`members`, each carrying `id`, `parked_at`, `attempt_id`, and
-`informational_only`. use the recorded timestamp including its offset.
-give mail from a mixed-owner turn or with an unresolved original action
-informational scope. keep the four calendar-turn inputs under their
-original disposition. run
-`jarvis queue-recovery-catchup INVENTORY` through the existing independent
-maintenance wrapper. the command returns the canonical host input id.
-after restart verify the one logical report, the exact coverage
-dispositions and the absence of new executor entries. do not release the
-mail inputs into ordinary full main for this operation.
+for the 0028 → 0029 cut, use the named stopped snapshot and
+`deploy/prepare-cutover verify-restored-source SNAPSHOT PROOF` on the
+separate restored database. next run `migrate-restored-one-main SNAPSHOT PROOF`
+with the same predecessor proof, then `record-rehearsal SNAPSHOT PROOF`.
+the snapshot binds the existing grant and schedule conversion. settle
+unrepresentable or differently bound schedules through the predecessor.
+keep the dated todo record when disposing of a schedule. source and target
+backup verification are separate from the selected service's live checks.
 
-a quota receipt with a future deadline defers the same read-only input without
-spending its fault retry. if an earlier release put that input on protocol hold
-while such a deadline was outstanding, use the same inventory and stopped
-wrapper with `jarvis resume-recovery-quota-wait INVENTORY`. this rechecks the
-original park, mail identities, owner controls and current grant before scheduling
-the held input. a deadline that has since passed makes it eligible immediately.
+prepare the matched signed android update before releasing the new service.
+an older app can show the generic notification and will ask for an update
+when it opens the message. the durable message is available in the current
+browser viewer. opening an old scheduled alert reads its dated result.
 
 Startup first reconciles every queued or executing action whose original turn
 cannot safely resume. Each exact current binding and immutable execution
@@ -1397,12 +1382,11 @@ capacity-reset timer exists.
 isolated roles retain finite invocation/tool bounds; main has no cumulative
 model/tool quota or arbitrary elapsed cutoff.
 
-a committed approval receipt survives a lost callback reply or process death.
-startup recovers the queued action through its original current contract; only
-actual executor entry increments `attempts`. an entered effect always follows
-its bounded reconciliation procedure before a proven safe repeat. a local decision
-receipt does not suppress the eventual external outcome event. unresolved retired
-contracts block admission rather than renewing an approval.
+a committed action receipt survives a lost callback reply or process death.
+startup checks the original action contract before recovery. only executor
+entry increments `attempts`. uncertain effects stay attached to the
+original action. retired local decisions remain historical evidence.
+google consent resumes the exact operation through its live form.
 
 newly resolved action facts are published once with their original outcome time,
 source identity and causal parent. publication and rearming exact action waiters

@@ -86,9 +86,6 @@ from jarvis.messages import (
 )
 from jarvis.ownership import Database, lock_conversation
 from jarvis.work_tools import WORK_MUTATION_IDS, validate_work_result
-from jarvis.workspace_host import (
-    is_workspace_wake,
-)
 from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, MAX_CONSENT_ROUNDS, WorkspaceError
 from jarvis.workspace_write_models import (
     CalendarWriteReceipt,
@@ -116,6 +113,7 @@ from jarvis.write_tools import (
     WORKSPACE_MAIL_IMPLEMENTATION,
     WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION,
     WORKSPACE_MAIL_SNAPSHOT_REVISIONS,
+    WORKSPACE_WRITE_IMPLEMENTATION,
     WRITE_TOOL_IDS,
     workspace_implementation,
 )
@@ -176,6 +174,18 @@ _RETIRED_WORKSPACE_REVISIONS = {
 _RETIRED_WORKSPACE_REVISIONS[GMAIL_CREATE_DRAFT_SPEC.id].update(
     (WORKSPACE_IMPLEMENTATION, WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION)
 )
+
+
+for _tool in WRITE_TOOL_IDS:
+    if workspace_implementation(_tool) == WORKSPACE_WRITE_IMPLEMENTATION:
+        _RETIRED_WORKSPACE_REVISIONS.setdefault(_tool, set()).add(
+            WORKSPACE_IMPLEMENTATION
+        )
+
+_RETIRED_WORK_REVISIONS = {
+    str(tool): f"jarvis-work-{tool.removeprefix('work.')}-v2"
+    for tool in WORK_MUTATION_IDS
+}
 
 
 class ActionPersistenceDefect(RuntimeError):
@@ -250,7 +260,6 @@ class ExecutionContract(_ExecutionEnvelope):
     agent_target: AgentWriteTarget | None = None
     agent_placement: AgentPlacement | None = None
     workspace: FrozenWorkspaceWrite | None = None
-    workspace_grant_id: UUID | None = None
     workspace_prepare_attempts: Annotated[int, Field(ge=0)] = 0
     workspace_prepare_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] = 0.0
     workspace_prepare_human_elapsed: Annotated[
@@ -270,8 +279,6 @@ class ExecutionContract(_ExecutionEnvelope):
             del value["workspace_prepare_seconds"]
             del value["workspace_prepare_human_elapsed"]
             del value["workspace_prepare_consent_rounds"]
-        if self.workspace_grant_id is None:
-            del value["workspace_grant_id"]
         return value
 
 
@@ -352,7 +359,7 @@ class ActionStore:
     def __init__(self, engine: Database) -> None:
         self.engine = engine
 
-    async def insert_automatic(
+    async def insert(
         self,
         *,
         tool_name: ToolId,
@@ -363,54 +370,6 @@ class ActionStore:
         created_at: datetime | None = None,
         invocation_id: UUID,
         check_admitted: Callable[[AsyncConnection], Awaitable[None]] | None = None,
-    ) -> StoredAction:
-        return await self._insert(
-            tool_name,
-            arguments,
-            execution_contract,
-            origin_message_id,
-            "queued",
-            action_id,
-            created_at,
-            invocation_id,
-            check_admitted,
-        )
-
-    async def insert_awaiting_approval(
-        self,
-        *,
-        tool_name: ToolId,
-        arguments: Mapping[str, object],
-        execution_contract: ExecutionContract,
-        origin_message_id: UUID,
-        action_id: UUID | None = None,
-        created_at: datetime | None = None,
-        invocation_id: UUID,
-        check_admitted: Callable[[AsyncConnection], Awaitable[None]] | None = None,
-    ) -> StoredAction:
-        return await self._insert(
-            tool_name,
-            arguments,
-            execution_contract,
-            origin_message_id,
-            "awaiting_approval",
-            action_id,
-            created_at,
-            invocation_id,
-            check_admitted,
-        )
-
-    async def _insert(
-        self,
-        tool_name: ToolId,
-        arguments: Mapping[str, object],
-        execution_contract: ExecutionContract,
-        origin_message_id: UUID,
-        status: Literal["queued", "awaiting_approval"],
-        action_id: UUID | None,
-        created_at: datetime | None,
-        invocation_id: UUID,
-        check_admitted: Callable[[AsyncConnection], Awaitable[None]] | None,
     ) -> StoredAction:
         identifier = action_id or uuid4()
         timestamp = created_at or datetime.now(UTC)
@@ -426,6 +385,7 @@ class ActionStore:
                 execution_contract,
                 invocation_id,
                 tool_name,
+                canonical_arguments["arguments"],
             )
             if check_admitted is not None:
                 await check_admitted(connection)
@@ -456,7 +416,7 @@ class ActionStore:
                             tool_name=str(tool_name),
                             arguments=canonical_arguments,
                             execution_contract=execution_contract.as_json(),
-                            status=status,
+                            status="queued",
                             origin_message_id=origin_message_id,
                             created_at=timestamp,
                         )
@@ -545,21 +505,6 @@ class ActionStore:
                 if action_id is None
                 else await recorded_action(connection, action_id)
             )
-
-    async def is_standing_check(self, request_id: UUID) -> bool:
-        async with self.engine.connect() as connection:
-            origin = (
-                (
-                    await connection.execute(
-                        select(message.c.source, message.c.text, message.c.home).where(
-                            message.c.id == request_id
-                        )
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            return standing_workspace_input(origin)
 
     async def replacement_for_discard(
         self,
@@ -895,7 +840,7 @@ class ActionStore:
                 if stored.result != canonical_result:
                     raise ActionPersistenceDefect("cancelled action result changed")
                 return stored
-            if stored.status not in {"queued", "awaiting_approval"}:
+            if stored.status != "queued":
                 raise ActionPersistenceDefect("action is no longer cancellable")
             return await _update_action(
                 connection,
@@ -1213,7 +1158,6 @@ class ActionPositionRecorder:
             if (
                 origin["source_conversation_id"] != self._source_conversation_id
                 or origin["role"] not in {"owner", "host"}
-                or standing_workspace_input(origin)
                 or origin["control_kind"] is not None
                 or origin["request_state"] not in {"pending", "waiting"}
                 or origin["processing_parked_at"] is not None
@@ -1229,7 +1173,7 @@ class ActionPositionRecorder:
                     or entry.frozen != stored.current_execution_contract.workspace
                 ):
                     raise RecoveryRequired(
-                        "workspace entry needs live native owner authority"
+                        "workspace entry needs its live invocation and enrollment"
                     )
                 try:
                     await entry.authorize(connection)
@@ -1345,7 +1289,7 @@ class ActionPositionRecorder:
                 and (stored.result or {}).get("type") != "workspace_ack_v1"
             ):
                 # The provider returned an ack while the first local commit failed.
-                receipt = _verify_workspace_receipt(stored, canonical_result["value"])
+                receipt = validate_workspace_receipt(stored, canonical_result["value"])
                 if receipt.reason != "ack_recording_failed":
                     raise ActionPersistenceDefect(
                         "workspace success lacks its acknowledgement"
@@ -1573,143 +1517,62 @@ async def _locked_action(
     return None if row is None else _stored_action(row)
 
 
-def standing_workspace_input(origin: RowMapping) -> bool:
-    home = cast(dict[str, object] | None, origin["home"])
-    return (home is not None and "workspace_refresh" in home) or is_workspace_wake(
-        origin["source"], origin["text"]
-    )
-
-
-async def current_workspace_owner_delivery(
-    connection: AsyncConnection,
-    attempt_id: UUID,
-    input_ids: tuple[UUID, ...],
-    owner_id: UUID,
-    *,
-    owner_live: ColumnElement[bool] | None = None,
-) -> bool:
-    """The named owner must be waking in the latest proven input batch."""
-    deliveries = (
-        await connection.execute(
-            select(
-                native_input_delivery.c.message_id,
-                native_input_delivery.c.delivery_id,
-                native_input_delivery.c.was_waking,
-            )
-            .join(message, message.c.id == native_input_delivery.c.message_id)
-            .where(
-                native_input_delivery.c.attempt_id == attempt_id,
-                proven_native_delivery,
-                message.c.control_kind.is_(None),
-                owner_live if owner_live is not None else literal(True),
-            )
-            .order_by(native_input_delivery.c.ordinal)
-        )
-    ).all()
-    return (
-        bool(deliveries)
-        and tuple(row.message_id for row in deliveries) == input_ids
-        and any(
-            row.message_id == owner_id
-            and row.was_waking
-            and row.delivery_id == deliveries[-1].delivery_id
-            for row in deliveries
-        )
-    )
-
-
-async def workspace_owner_live(
+async def workspace_invocation_live(
     connection: AsyncConnection,
     lineage: NativeDispatchLineage,
-    owner_id: UUID,
+    request_id: UUID,
     tool: ToolId,
-    *,
-    decision_for: UUID | None = None,
 ) -> bool:
-    """Check the live owner input and its exact native invocation."""
+    """Check the accepted invocation, its delivered request and current attempt."""
     scope = lineage.permit.scope_id
-    request = native_invocation.c.proposal["arguments"]
-    if decision_for is None:
-        addressed = (native_invocation.c.request_message_id == owner_id) & (
-            request["request_ref"].as_string() == str(owner_id)
-        )
-    else:
-        origin = message.alias("workspace_origin")
-        addressed = (
-            (native_invocation.c.action_id == decision_for)
-            & select(action.c.id)
-            .join(origin, origin.c.id == action.c.origin_message_id)
-            .where(
-                action.c.id == decision_for,
-                action.c.status.in_(("queued", "executing")),
-                origin.c.role == "owner",
-                origin.c.source_conversation_id == scope,
-                origin.c.source != "initialize_state",
-                origin.c.control_kind.is_(None),
-                origin.c.processing_parked_at.is_(None),
-                origin.c.request_state.in_(("pending", "waiting")),
-                origin.c.home["workspace_refresh"].is_(None),
+    return bool(
+        await connection.scalar(
+            select(
+                select(native_invocation.c.id)
+                .join(
+                    native_attempt,
+                    native_attempt.c.id == native_invocation.c.attempt_id,
+                )
+                .join(message, message.c.id == native_invocation.c.request_message_id)
+                .join(
+                    native_input_delivery,
+                    and_(
+                        native_input_delivery.c.attempt_id == native_attempt.c.id,
+                        native_input_delivery.c.message_id == message.c.id,
+                    ),
+                )
+                .where(
+                    native_invocation.c.id == UUID(lineage.invocation_id),
+                    native_invocation.c.tool_id == str(tool),
+                    native_invocation.c.ordinal == lineage.ordinal,
+                    native_invocation.c.validation == "accepted",
+                    native_invocation.c.request_message_id == request_id,
+                    native_invocation.c.proposal["arguments"]["request_ref"].as_string()
+                    == str(request_id),
+                    native_invocation.c.proposal["input_ids"]
+                    == list(lineage.input_ids),
+                    native_invocation.c.proposal["through_checkpoint"].as_string()
+                    == str(lineage.through_checkpoint),
+                    native_attempt.c.id == UUID(lineage.attempt_id),
+                    native_attempt.c.conversation_id == scope,
+                    native_attempt.c.owner_epoch == str(lineage.permit.owner_token),
+                    native_attempt.c.fenced_at.is_(None),
+                    native_attempt.c.terminal_at.is_(None),
+                    native_attempt.c.product_outcome.is_(None),
+                    message.c.role.in_(("owner", "host")),
+                    message.c.source_conversation_id == scope,
+                    message.c.control_kind.is_(None),
+                    message.c.processing_parked_at.is_(None),
+                    message.c.request_state.in_(("pending", "waiting")),
+                    proven_native_delivery,
+                    latest_control(scope)
+                    .correlate(None)
+                    .scalar_subquery()
+                    .is_distinct_from("pause"),
+                )
+                .exists()
             )
-            .exists()
-            & (request["owner_message_id"].as_string() == str(owner_id))
-            & (request["action_id"].as_string() == str(decision_for))
-            & (
-                native_invocation.c.reply_receipt["result"]["value"][
-                    "owner_message_id"
-                ].as_string()
-                == str(owner_id)
-            )
-            & (
-                native_invocation.c.reply_receipt["result"]["value"][
-                    "decision"
-                ].as_string()
-                == "approve"
-            )
         )
-    owner_live = (
-        select(message.c.id)
-        .join(
-            native_attempt,
-            native_attempt.c.conversation_id == message.c.source_conversation_id,
-        )
-        .join(native_invocation, native_invocation.c.attempt_id == native_attempt.c.id)
-        .where(
-            native_invocation.c.id == UUID(lineage.invocation_id),
-            native_invocation.c.tool_id == str(tool),
-            native_invocation.c.ordinal == lineage.ordinal,
-            native_invocation.c.validation == "accepted",
-            addressed,
-            native_invocation.c.proposal["input_ids"] == list(lineage.input_ids),
-            native_invocation.c.proposal["through_checkpoint"].as_string()
-            == str(lineage.through_checkpoint),
-            native_attempt.c.id == UUID(lineage.attempt_id),
-            native_attempt.c.conversation_id == scope,
-            native_attempt.c.owner_epoch == str(lineage.permit.owner_token),
-            native_attempt.c.fenced_at.is_(None),
-            native_attempt.c.terminal_at.is_(None),
-            native_attempt.c.product_outcome.is_(None),
-            message.c.id == owner_id,
-            message.c.role == "owner",
-            message.c.source != "initialize_state",
-            message.c.home["workspace_refresh"].is_(None),
-            message.c.source_conversation_id == scope,
-            message.c.control_kind.is_(None),
-            message.c.processing_parked_at.is_(None),
-            message.c.request_state.in_(("pending", "waiting")),
-            latest_control(scope)
-            .correlate(None)
-            .scalar_subquery()
-            .is_distinct_from("pause"),
-        )
-        .correlate(None)
-        .exists()
-    )
-    return await current_workspace_owner_delivery(
-        connection,
-        UUID(lineage.attempt_id),
-        tuple(map(UUID, lineage.input_ids)),
-        owner_id,
-        owner_live=owner_live,
     )
 
 
@@ -1751,7 +1614,7 @@ async def _record_workspace_ack(
             "acknowledgement is outside the entered invocation"
         )
     value = receipt.model_dump(mode="json")
-    _verify_workspace_receipt(stored, value)
+    validate_workspace_receipt(stored, value)
     if stored.status == "executing":
         evidence = {
             "type": "workspace_ack_v1",
@@ -1795,7 +1658,7 @@ def _workspace_uncertainty() -> dict[str, object]:
     }
 
 
-def _verify_workspace_receipt(stored: StoredAction, value: object) -> WorkspaceReceipt:
+def validate_workspace_receipt(stored: StoredAction, value: object) -> WorkspaceReceipt:
     frozen = stored.current_execution_contract.workspace
     if frozen is None or frozen.action_id != stored.id:
         raise ValueError("receipt lacks its frozen workspace action")
@@ -1868,7 +1731,7 @@ def _verify_workspace_receipt(stored: StoredAction, value: object) -> WorkspaceR
         if (
             receipt.calendar_id != effect.calendar_id
             or receipt.scope != effect.scope
-            or receipt.notify != effect.notify
+            or receipt.notify
             or (effect.event_id is not None and receipt.event_id != effect.event_id)
             or receipt.outcome
             != {
@@ -1930,7 +1793,7 @@ def _verified_replacement(
         or not isinstance(source.execution_contract, ExecutionContract)
     ):
         raise WorkspaceError("unverified_replacement")
-    receipt = _verify_workspace_receipt(source, _stored_tool_result(source)["value"])
+    receipt = validate_workspace_receipt(source, _stored_tool_result(source)["value"])
     if (
         not isinstance(receipt, DraftWriteReceipt)
         or receipt.verification != "verified"
@@ -1974,13 +1837,12 @@ async def _prior_discard(
     fresh = await connection.scalar(
         select(message.c.id).where(
             message.c.id == origin_id,
-            message.c.role == "owner",
             message.c.created_at > previous["completed_at"],
             message.c.id != previous["origin_message_id"],
         )
     )
     if fresh is None:
-        raise WorkspaceError("fresh_owner_required")
+        raise WorkspaceError("fresh_request_required")
     return None
 
 
@@ -2026,6 +1888,7 @@ async def _lock_new_action(
     contract: ExecutionContract,
     invocation_id: UUID,
     tool_name: ToolId,
+    payload: object,
 ) -> None:
     scope = await connection.scalar(
         select(message.c.source_conversation_id).where(message.c.id == origin_id)
@@ -2056,12 +1919,6 @@ async def _lock_new_action(
         raise ActionPersistenceDefect(
             "action origin is no longer a live waking request"
         )
-    if tool_name in WRITE_TOOL_IDS and (
-        origin["role"] != "owner" or origin["source"] == "initialize_state"
-    ):
-        raise WorkspaceError("owner_required")
-    if standing_workspace_input(origin):
-        raise WorkspaceError("owner_required")
     if len(inputs) != len(contract.input_message_ids) or any(
         row["source_conversation_id"] != scope for row in inputs
     ):
@@ -2078,10 +1935,22 @@ async def _lock_new_action(
     if paused == "pause":
         raise ActionPersistenceDefect("paused conversation cannot admit actions")
     component = await causal_component_ids(connection, (origin_id,))
+    relevant = action.c.origin_message_id.in_(component)
+    if contract.workspace is not None:
+        relevant |= (
+            (message.c.source_conversation_id == scope)
+            & (action.c.tool_name == tool_name)
+            & (action.c.arguments["arguments"] == payload)
+            & (
+                action.c.execution_contract["workspace"]["grant_id"].as_string()
+                == str(contract.workspace.grant_id)
+            )
+        )
     unknown = await connection.scalar(
         select(action.c.id)
+        .join(message, message.c.id == action.c.origin_message_id)
         .where(
-            action.c.origin_message_id.in_(component),
+            relevant,
             or_(
                 and_(
                     action.c.status == "uncertain",
@@ -2091,10 +1960,7 @@ async def _lock_new_action(
                         & ~action.c.execution_contract.op("?")("workspace")
                     ),
                 ),
-                and_(
-                    action.c.status == "executing",
-                    action.c.attempts > 0,
-                ),
+                and_(action.c.status == "executing", action.c.attempts > 0),
             ),
         )
         .limit(1)
@@ -2103,7 +1969,7 @@ async def _lock_new_action(
         *WORK_MUTATION_IDS,
         *EVENT_MUTATION_IDS,
     ):
-        raise ActionPersistenceDefect("causal component has an unknown effect")
+        raise WorkspaceError("effect_outcome_unknown")
     attempt_id = await connection.scalar(
         select(native_invocation.c.attempt_id).where(
             native_invocation.c.id == invocation_id
@@ -2290,6 +2156,8 @@ def _stored_action(row: RowMapping) -> StoredAction:
             )
             or envelope.implementation_revision
             in _RETIRED_WORKSPACE_REVISIONS.get(str(row["tool_name"]), set())
+            or envelope.implementation_revision
+            == _RETIRED_WORK_REVISIONS.get(str(row["tool_name"]))
         ):
             if status not in {"succeeded", "failed", "uncertain", "cancelled"}:
                 raise ValueError("retired action must drain before activation")
@@ -2365,11 +2233,6 @@ def _validate_new_action(
             or contract.workspace_prepare_consent_rounds
         ):
             raise ValueError("only workspace actions have a preparation budget")
-        if contract.workspace_grant_id is not None and tool_name not in {
-            "work.create",
-            "work.update",
-        }:
-            raise ValueError("unexpected captured workspace grant")
     if not historical and arguments.get("request_ref") != str(origin_message_id):
         raise ValueError("origin request differs from the exact ActionRequest")
 
@@ -2435,7 +2298,7 @@ def _validate_stored_action(stored: StoredAction) -> None:
         ):
             raise ValueError("workspace action identity changed")
         if stored.status == "succeeded":
-            receipt = _verify_workspace_receipt(
+            receipt = validate_workspace_receipt(
                 stored, _stored_tool_result(stored)["value"]
             )
             if (
@@ -3017,10 +2880,11 @@ def public_resolution_result(stored: StoredAction) -> dict[str, object]:
             for key, value in stored.result.items()
             if key != "reconciliation_basis"
         }
-    if stored.tool_name in WORK_MUTATION_IDS and stored.status in {
-        "succeeded",
-        "failed",
-    }:
+    if (
+        stored.tool_name in WORK_MUTATION_IDS
+        and stored.status in {"succeeded", "failed"}
+        and isinstance(stored.execution_contract, ExecutionContract)
+    ):
         result = _stored_tool_result(stored)
         if result["type"] == "Success" or result["error"].get("type") in {
             "NotFound",

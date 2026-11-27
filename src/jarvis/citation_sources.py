@@ -397,7 +397,7 @@ def project(
 async def _originals(
     db: AsyncConnection, scope: str, grant: WorkspaceEnrollment, ids: set[UUID]
 ) -> dict[str, Record]:
-    from jarvis.workspace_checks import original_workspace_reads
+    from jarvis.workspace_history import original_workspace_reads
 
     n, p = native_invocation.c, read_position.c
     query = (

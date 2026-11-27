@@ -6,6 +6,22 @@ date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
 
+## one main turn and workspace recovery
+
+[adr 0132](docs/decisions/0132-one-main.md) is the successor design for all
+owner-facing wakes. main has one tool and execution contract whether the input
+comes from the owner, an event, a timer or recovery. jarvis may use every
+supported operation automatically within its enrolled connections. the agent
+cannot send email or create, change or delete an event involving another
+person. it may read those events. all wakes share the gmail allowance.
+special google checks become ordinary scheduled todos. workspace blocks have a private record,
+one phone notice when the owner can act, and recovery through the operation
+that encountered the block. the adr owns the detailed guarantees and limits.
+it supersedes conflicting target rules in sections 4, 5, 7 and 9 and the
+special workspace-check, restricted recovery and local approval designs at
+implementation. the installed predecessor remains the operational contract
+until the matched cut.
+
 ## proposed native antigravity route
 
 [design 0111](docs/decisions/0111-native-antigravity-neon.md) specifies a full api-funded main through the official antigravity sdk between personal codex and stock codex-neon after confirmed personal exhaustion. agy starts native children with a fresh task brief and keeps its native shell offline. the two paid harnesses share the existing project and data boundary. the installed routing contract governs until a separately authorized hard cut.

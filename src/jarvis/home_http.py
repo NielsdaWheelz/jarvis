@@ -38,6 +38,7 @@ from jarvis.home_reads import (
     artifact_discussion,
     clear_shown,
     conversation,
+    dated_occurrence,
     eligible_draft,
     mail_revision,
     record_shown,
@@ -52,7 +53,6 @@ from jarvis.mail_editor_http import build_mail_editor_router
 from jarvis.messages import (
     IngressUnavailable,
     InvalidReference,
-    StaleWorkspaceOccurrence,
     SubmissionConflict,
 )
 from jarvis.ownership import Database, DeploymentOwnershipDefect
@@ -66,6 +66,7 @@ from jarvis.phone import (
 )
 from jarvis.presence import Presence
 from jarvis.work import WorkStore
+from jarvis.workspace_blocks import WorkspaceBlocks
 from jarvis.workspace_enrollment import WorkspaceEnrollment
 from jarvis.workspace_mcp import WorkspaceApprovals
 
@@ -85,8 +86,6 @@ class Submit(Protocol):
         text: str,
         ref: object,
         uploads: tuple[WebUpload, ...],
-        *,
-        workspace_occurrence: UUID | None = None,
     ) -> tuple[UUID, bool]: ...
 
 
@@ -94,6 +93,13 @@ class WorkspaceChoice(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
 
     choice: str | None = Field(max_length=256)
+
+
+class WorkspaceResume(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+
+    revision: int = Field(ge=1)
+    submission_id: CanonicalUUID
 
 
 class _ShownReport(BaseModel):
@@ -120,6 +126,7 @@ def create_home_app(
     phone: PhoneSlot,
     presence: Presence,
     workspace_approvals: WorkspaceApprovals | None = None,
+    workspace_blocks: WorkspaceBlocks | None = None,
     drive_reader: DriveReader | None = None,
     mail_editor: MailEditor | None = None,
     source_enrollment: Callable[[], WorkspaceEnrollment | None] | None = None,
@@ -142,7 +149,11 @@ def create_home_app(
         ):
             response = JSONResponse({"detail": "invalid origin"}, status_code=400)
         elif (
-            request.url.path
+            (
+                request.url.path.startswith("/api/")
+                and request.method not in {"GET", "HEAD"}
+            )
+            or request.url.path
             in {
                 "/api/messages",
                 "/api/home",
@@ -153,7 +164,7 @@ def create_home_app(
             or request.url.path.startswith(
                 ("/api/messages/", "/api/submissions/", "/api/artifacts/")
             )
-        ) and request.headers.getlist("x-jarvis-viewer-contract") != ["shown-v1"]:
+        ) and request.headers.getlist("x-jarvis-viewer-contract") != ["one-main-v1"]:
             response = JSONResponse(
                 {"detail": "reload the jarvis viewer or update the android app"},
                 status_code=426,
@@ -189,41 +200,15 @@ def create_home_app(
     async def put(
         submission_id: UUID, request: Request, response: Response
     ) -> dict[str, Any]:
-        occurrence = None
-        headers = request.headers.getlist("x-jarvis-workspace-occurrence")
-        if headers:
-            media = (
-                request.headers.get("content-type", "")
-                .partition(";")[0]
-                .strip()
-                .lower()
-            )
-            if len(headers) != 1 or media != "application/json":
-                raise HTTPException(422, "invalid workspace refresh")
-            try:
-                occurrence = canonical_uuid(headers[0])
-            except ValueError as exc:
-                raise HTTPException(422, "invalid workspace occurrence") from exc
         try:
             async with read_submission(request, submission_id) as (
                 body,
                 raw_ref,
                 uploads,
             ):
-                if occurrence is None:
-                    identifier, created = await submit(
-                        submission_id, body, raw_ref, uploads
-                    )
-                else:
-                    identifier, created = await submit(
-                        submission_id,
-                        body,
-                        raw_ref,
-                        uploads,
-                        workspace_occurrence=occurrence,
-                    )
-        except StaleWorkspaceOccurrence as exc:
-            raise HTTPException(410, "this check is no longer available") from exc
+                identifier, created = await submit(
+                    submission_id, body, raw_ref, uploads
+                )
         except IngressUnavailable as exc:
             raise HTTPException(503, "jarvis is offline") from exc
         except SpoolFull as exc:
@@ -243,6 +228,7 @@ def create_home_app(
                     message.c.source_conversation_id == scope,
                     message.c.role == "owner",
                     message.c.source == "web",
+                    message.c.role == "owner",
                     message.c.source_message_id == str(submission_id),
                 )
             )
@@ -275,6 +261,24 @@ def create_home_app(
                 identifier, body.choice, scope
             )
         )
+
+    async def resume_block(identifier: UUID, body: WorkspaceResume) -> Response:
+        if workspace_blocks is None:
+            raise HTTPException(410, "workspace recovery unavailable")
+        return Response(
+            status_code=await workspace_blocks.resume(
+                identifier, body.revision, body.submission_id
+            )
+        )
+
+    async def occurrence(
+        occurrence_id: UUID, identifier: UUID | None = None
+    ) -> dict[str, UUID]:
+        async with database.connect() as conn:
+            result = await dated_occurrence(conn, scope, occurrence_id, identifier)
+        if result is None:
+            raise HTTPException(404, "dated result unavailable")
+        return {"message_id": result[0], "todo_id": result[1]}
 
     async def source_grant() -> WorkspaceEnrollment | None:
         if source_enrollment is None:
@@ -529,13 +533,24 @@ def create_home_app(
     app.add_api_route("/api/todos/{identifier}", todo, methods=["GET"])
     app.add_api_route("/api/todos/{identifier}/results", results, methods=["GET"])
     app.add_api_route(
+        "/api/todos/{identifier}/occurrences/{occurrence_id}",
+        occurrence,
+        methods=["GET"],
+    )
+    app.add_api_route(
         "/api/drive/origin/{identifier}/content", file, methods=["GET", "HEAD"]
     )
     mount_drive(app, drive_reader, attachments.pending, attachments.inspect)
     app.add_api_route("/api/home", home, methods=["GET"])
     app.add_api_route(_PHONE_ROUTE, phone_registration, methods=["GET", "PUT"])
+    app.add_api_route(
+        "/api/workspace/occurrences/{occurrence_id}", occurrence, methods=["GET"]
+    )
     app.add_api_route(_WORKSPACE_APPROVALS, approvals, methods=["GET"])
     app.add_api_route(_WORKSPACE_APPROVALS + "/{identifier}", choose, methods=["POST"])
+    app.add_api_route(
+        "/api/workspace/blocks/{identifier}/resume", resume_block, methods=["POST"]
+    )
     app.add_api_route("/api/artifacts", artifacts, methods=["GET"])
     app.add_api_route("/api/artifacts/{slug}", artifact, methods=["GET"])
     app.add_api_route(

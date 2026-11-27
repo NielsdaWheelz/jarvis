@@ -72,16 +72,27 @@ _DRAFT_REFS = """
 _CHAT_TIME = """CASE WHEN m.source = 'native_control'
     THEN COALESCE(m.processed_at, m.created_at) ELSE m.created_at END"""
 _CHAT_MEMBERSHIP = """m.source_conversation_id = :scope
-  AND m.role IN ('assistant','owner') AND m.source != 'initialize_state'"""
+  AND (m.role IN ('assistant','owner') OR m.source = 'workspace_block')
+  AND m.source != 'initialize_state'"""
 _TRACKED = f"""{_CHAT_MEMBERSHIP}
-  AND m.role = 'assistant' AND m.source != 'native_progress'"""
+  AND m.role IN ('assistant','host') AND m.source != 'native_progress'"""
 _NEW = f"""{_TRACKED}
   AND NOT EXISTS (SELECT FROM owner_shown s WHERE s.message_id = m.id)"""
 
 # Extract only owner-facing columns. In particular, never load a native request.
 _MESSAGES = f"""
-SELECT m.id, m.role, m.source, {_CHAT_TIME} AS at, m.text,
-       m.home->'ref' AS ref, m.home->'present' AS present,
+SELECT m.id,
+       CASE WHEN m.source='workspace_block' THEN 'assistant' ELSE m.role END AS role,
+       m.source, {_CHAT_TIME} AS at, m.text,
+       CASE WHEN b.id IS NOT NULL THEN jsonb_build_object(
+         'id', b.id, 'revision', b.revision, 'product', b.product,
+         'operation', b.operation, 'reason', b.reason, 'state', b.state,
+         'remedy', b.remedy, 'retry_at', b.retry_at
+       ) END AS workspace_block,
+       COALESCE(NULLIF(m.home->'ref','null'::jsonb),
+         (SELECT jsonb_build_object('kind','todo','id',w.id)
+          FROM work w WHERE w.id::text=m.home #>> '{{todo_result,todo_id}}')) AS ref,
+       m.home->'present' AS present,
        CASE WHEN m.role = 'assistant' AND m.source = 'native_final'
             THEN m.home->'sources_v1' END AS sources,
        COALESCE(m.home->'artifact_links', '[]') AS artifact_links,
@@ -109,6 +120,7 @@ SELECT m.id, m.role, m.source, {_CHAT_TIME} AS at, m.text,
              AND f.origin_message_id = m.id
        ), '[]') AS files
 FROM message m
+LEFT JOIN workspace_block b ON b.id=m.id
 LEFT JOIN action saved
   ON m.role='assistant' AND m.source IN ('native_final','native_failure')
  AND saved.id=CASE
@@ -135,33 +147,25 @@ WHERE {_CHAT_MEMBERSHIP}
 """
 
 _OWED = """
-SELECT id, CASE WHEN approval THEN 'approval' ELSE 'owner_input' END AS kind
-FROM (
-    SELECT final.id, final.created_at,
-        final.home->'proposal_ids' ?| ARRAY(
-            SELECT a.id::text FROM action a
-            JOIN message origin ON origin.id = a.origin_message_id
-            WHERE a.status = 'awaiting_approval'
-              AND origin.source_conversation_id = :scope
-              AND origin.processing_parked_at IS NULL
-              AND origin.wait_reason IS DISTINCT FROM 'configuration'
-        ) AS approval,
-        final.trace->>'native_attempt_id' IN (
-            SELECT waiting.trace->>'native_attempt_id' FROM message waiting
-            WHERE waiting.source_conversation_id = :scope
-              AND waiting.request_state = 'waiting'
-              AND waiting.wait_reason = 'owner_input'
-        ) AS owner_input
-    FROM message final
-    WHERE final.source_conversation_id = :scope
-      AND final.role = 'assistant' AND final.source = 'native_final'
-      AND final.created_at >= COALESCE((
-          SELECT max(reply.created_at) FROM message reply
-          WHERE reply.source_conversation_id = :scope
-            AND reply.role = 'owner' AND reply.request_state = 'pending'
-      ), '-infinity'::timestamptz)
-) waits
-WHERE approval OR owner_input
+SELECT final.id, 'owner_input' AS kind, final.created_at
+FROM message final
+WHERE final.source_conversation_id = :scope
+  AND final.role = 'assistant' AND final.source = 'native_final'
+  AND final.trace->>'native_attempt_id' IN (
+    SELECT waiting.trace->>'native_attempt_id' FROM message waiting
+    WHERE waiting.source_conversation_id = :scope
+      AND waiting.request_state = 'waiting'
+      AND waiting.wait_reason = 'owner_input'
+  )
+  AND final.created_at >= COALESCE((
+    SELECT max(reply.created_at) FROM message reply
+    WHERE reply.source_conversation_id = :scope
+      AND reply.role = 'owner' AND reply.request_state = 'pending'
+  ), '-infinity'::timestamptz)
+UNION ALL
+SELECT b.id, 'owner_input' AS kind, m.created_at
+FROM workspace_block b JOIN message m ON m.id=b.id
+WHERE m.source_conversation_id = :scope AND b.state = 'needs_owner'
 """
 
 
@@ -381,6 +385,30 @@ async def todo_results(
         last = items[-1]
         next_before = f"{last['at'].isoformat()}~message~{last['message_id']}"
     return {"items": items, "next_before": next_before}
+
+
+async def dated_occurrence(
+    connection: AsyncConnection, scope: str, occurrence: UUID, todo: UUID | None = None
+) -> tuple[UUID, UUID] | None:
+    matches = (
+        await connection.execute(
+            text("""
+                SELECT m.id, w.id AS todo_id FROM message m
+                JOIN message original ON original.id = :occurrence
+                  AND original.source='work_wake'
+                  AND original.source_conversation_id=:scope
+                JOIN work w ON m.home #>> '{todo_result,todo_id}'=w.id::text
+                WHERE (CAST(:todo AS uuid) IS NULL OR w.id=:todo)
+                  AND m.source_conversation_id=:scope
+                  AND m.role='assistant' AND m.source='native_final'
+                  AND m.home #>> '{todo_result,request_id}'=original.id::text
+                  AND m.home #>> '{workspace_result,occurrence_id}'=original.id::text
+                LIMIT 2
+            """),
+            {"scope": scope, "todo": todo, "occurrence": occurrence},
+        )
+    ).all()
+    return (matches[0].id, matches[0].todo_id) if len(matches) == 1 else None
 
 
 async def draft_for_request(

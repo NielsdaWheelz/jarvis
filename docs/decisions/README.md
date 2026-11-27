@@ -3,6 +3,10 @@
 Accepted ADRs are permanent records of why Jarvis is shaped this way. They are
 not implementation suggestions.
 
+[adr 0132](0132-one-main.md) specifies the successor to wake-specific plans
+and jarvis approval gates. it owns the two agent connector prohibitions,
+workspace recovery, and the matched source/client/installation cut.
+
 [adr 0046](0046-reset-testing.md) supersedes earlier test-retention and
 verification-execution requirements during the owner-approved reset. runtime
 contracts remain binding; dated evidence remains historical. adr 0065 separately
@@ -157,6 +161,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0115](0115-web-home-address.md) | web home address | accepted. ordinary navigation stays at the bare domain and exact objects keep their links. |
 | [0116](0116-chat-composer-attachments.md) | attach files to the open chat draft | implemented. isolated web, service and handset acceptance passed. installation pending. |
 | [0117](0117-inline-todo-viewer.md) | inline todo viewer | source and isolated candidate qualified for web and android. every active title opens in place. |
+| [0118](0118-chat-reading-and-approvals.md) | reading and deciding in chat | 0124 delivered reading. [0132](0132-one-main.md) owns remaining decision and permission presentation. |
 | [0119](0119-owner-gmail-draft-editor.md) | owner gmail draft editor | one human-operated editor for verified jarvis drafts. installation and live qualification separate. |
 | [0120](0120-drive-files.md) | drive files and documents | implemented; live qualification and the stopped cut remain open. |
 | [0121](0121-exact-chat-draft-revisions.md) | exact draft revisions from chat | immutable revision reader and matched client cut. installed qualification pending. |

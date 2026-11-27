@@ -158,8 +158,7 @@ class InputOutcome(_StrictModel):
     input_id: CanonicalUuid
     disposition: Literal["complete", "continue", "waiting", "stop"]
     wait_reason: (
-        Literal["approval", "external_reconciliation", "owner_input", "configuration"]
-        | None
+        Literal["external_reconciliation", "owner_input", "configuration"] | None
     )
     action_refs: list[CanonicalUuid]
 
@@ -180,9 +179,7 @@ class InputOutcome(_StrictModel):
                 "jarvis_waiting_missing_blocker",
                 "waiting disposition requires a blocker",
             )
-        elif bool(self.action_refs) != (
-            self.wait_reason in {"approval", "external_reconciliation"}
-        ):
+        elif bool(self.action_refs) != (self.wait_reason == "external_reconciliation"):
             raise PydanticCustomError(
                 "jarvis_blocker_action_refs_mismatch",
                 "action references disagree with the blocker",

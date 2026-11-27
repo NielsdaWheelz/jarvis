@@ -32,6 +32,8 @@ class GmailArrivalSource:
         arguments: dict[str, object],
         *,
         before_send: Callable[[], Awaitable[None]],
+        episode: UUID,
+        attended: bool,
     ) -> dict[str, object]:
         return await self.client.call(
             "gmail",
@@ -39,7 +41,8 @@ class GmailArrivalSource:
             arguments,
             grant_id=self.grant_id,
             invocation_id=str(uuid4()),
-            background=True,
+            arrival_episode=episode,
+            consent_allowed=attended,
             before_send=before_send,
         )
 

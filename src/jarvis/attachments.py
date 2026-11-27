@@ -37,7 +37,7 @@ from jarvis.db import (
 )
 from jarvis.ownership import Database, lock_conversation
 from jarvis.read_tools import ATTACHMENT_MAX_BYTES, ReadResponse, display_descriptor
-from jarvis.workspace_checks import workspace_read_receipts
+from jarvis.workspace_history import workspace_read_receipts
 from jarvis.workspace_mcp import WorkspaceError
 from jarvis.workspace_reads import observed_workspace_file
 

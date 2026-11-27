@@ -169,7 +169,6 @@ class CalendarWritableEvent(_StrictModel):
         tuple[Annotated[str, Field(max_length=1_024)], ...],
         Field(max_length=20),
     ]
-    attendees: Annotated[tuple[Mailbox, ...], Field(max_length=50)]
     use_default_reminders: bool
     reminders: Annotated[tuple[Reminder, ...], Field(max_length=10)]
 
@@ -282,7 +281,6 @@ class CalendarChanges(_Changes):
         ]
         | None
     ) = None
-    attendees: Recipients | None = None
     use_default_reminders: StrictBool | None = None
     reminders: Annotated[tuple[Reminder, ...], Field(max_length=10)] | None = None
 
@@ -294,31 +292,18 @@ class CalendarChanges(_Changes):
         return None if value is None else _bounded_utf8(value, bounds[name], name)
 
 
-type RemovedAttendees = Annotated[
-    tuple[Annotated[str, Field(min_length=3, max_length=320)], ...],
-    Field(min_length=1, max_length=50),
-]
-
-
-class CalendarEdits(CalendarChanges):
-    remove_attendees: RemovedAttendees | None = None
-
-
 class CreateEvent(_StrictModel):
     calendar: ResourceId
     fields: CalendarWritableEvent
-    notify: StrictBool
 
 
 class EventEdits(_StrictModel):
     event_ref: EventRef
-    changes: CalendarEdits
-    notify: StrictBool
+    changes: CalendarChanges
 
 
 class DeleteEvent(_StrictModel):
     event_ref: EventRef
-    notify: StrictBool
 
 
 class _Change[Tag: str, Value](_StrictModel):
@@ -349,8 +334,6 @@ type CalendarFieldChange = Annotated[
             tuple[Annotated[str, Field(max_length=1024)], ...], Field(max_length=20)
         ],
     ]
-    | _Change[Literal["attendees"], Recipients]
-    | _Change[Literal["remove_attendees"], RemovedAttendees]
     | _Change[Literal["use_default_reminders"], StrictBool]
     | _Change[
         Literal["reminders"], Annotated[tuple[Reminder, ...], Field(max_length=10)]
@@ -398,7 +381,6 @@ class UpdateEvent(_StrictModel):
     changes: Annotated[
         tuple[CalendarFieldChange, ...], Field(min_length=1, max_length=10)
     ]
-    notify: StrictBool
 
     @model_validator(mode="after")
     def unique_changes(self) -> Self:
@@ -446,6 +428,7 @@ class FrozenCompose(_StrictModel):
     # Only the digest of the verified parent's quoted text is needed for readback.
     quote_digest: Sha256 | None
     expected_body_digest: Sha256 | None
+    expected_sender_name: Annotated[str, Field(max_length=320)] | None = None
     editor: DraftEditorStamp | None = None
 
     def matches_observed_body(self, body: str) -> bool:
@@ -466,6 +449,7 @@ class FrozenCompose(_StrictModel):
         envelope = {"to", "cc", "bcc", "subject"}
         return (
             snapshot.sender.address == receipt.account
+            and (self.old is None or snapshot.sender.name == self.expected_sender_name)
             and snapshot.model_dump(include=envelope)
             == self.content.model_dump(include=envelope)
             and snapshot.files == self.files
@@ -488,11 +472,6 @@ class EventObservation(_StrictModel):
     observed_at: AwareDatetime
 
 
-class EventAttendee(_StrictModel):
-    email: str
-    displayName: str | None = None
-
-
 class CalendarMutation(_StrictModel):
     summary: str | None = None
     description: str | None = None
@@ -502,9 +481,6 @@ class CalendarMutation(_StrictModel):
     allDay: StrictBool | None = None
     timeZone: str | None = None
     recurrenceData: tuple[str, ...] | None = None
-    attendees: tuple[EventAttendee, ...] | None = None
-    addedAttendees: tuple[EventAttendee, ...] | None = None
-    removedAttendeeEmails: tuple[str, ...] | None = None
     overrideReminders: tuple[Reminder, ...] | None = None
     useDefaultReminders: StrictBool | None = None
 
@@ -516,8 +492,8 @@ class FrozenCalendar(_StrictModel):
     calendar_id: ResourceId
     event_id: ResourceId | None
     scope: Scope
-    notify: StrictBool
     prior: EventObservation | None
+    inherited_digest: Sha256 | None = None
     wire: CalendarMutation
     expected: CalendarChanges
     preserved_digest: Sha256 | None
@@ -840,17 +816,6 @@ class DrivePermission(_StrictModel):
     pending_owner: bool | None
 
 
-class DriveAudience(_StrictModel):
-    target: DriveId
-    state: Literal["private", "shared", "unknown"]
-    identities: tuple[DrivePermission, ...]
-    fingerprint: Sha256
-
-    @property
-    def private(self) -> bool:
-        return self.state == "private"
-
-
 class DriveExpected(_StrictModel):
     name: DriveName
     parent: DriveId | None
@@ -862,14 +827,12 @@ class DriveExpected(_StrictModel):
 class FrozenDriveCreate(DriveCreate):
     tool: Literal["drive.create"] = "drive.create"
     subject: DriveId
-    audience: DriveAudience
     expected: DriveExpected
 
 
 class FrozenDriveCopy(DriveCopy):
     tool: Literal["drive.copy"] = "drive.copy"
     subject: DriveId
-    audience: DriveAudience
     expected: DriveExpected
     source_etag: DriveToken
 
@@ -877,14 +840,12 @@ class FrozenDriveCopy(DriveCopy):
 class FrozenDriveRevise(DriveRevise):
     tool: Literal["drive.revise"] = "drive.revise"
     subject: DriveId
-    audience: DriveAudience
     expected: DriveExpected
 
 
 class FrozenDocsUpdate(DocsUpdate):
     tool: Literal["docs.update"] = "docs.update"
     subject: DriveId
-    audience: DriveAudience
 
 
 type FrozenDriveEffect = (
@@ -904,6 +865,22 @@ class FrozenWorkspaceWrite(_StrictModel):
     @property
     def tool(self) -> str:
         return self.effect.tool
+
+
+type UncertainVerification = Literal[
+    "target_observed", "target_differs", "verification_unavailable"
+]
+
+
+def can_observe_workspace_target(frozen: FrozenWorkspaceWrite) -> bool:
+    effect = frozen.effect
+    return (
+        isinstance(effect, FrozenDiscard)
+        or (isinstance(effect, FrozenCalendar) and effect.event_id is not None)
+        or (
+            isinstance(effect, FrozenDriveRevise) and effect.expected.sha256 is not None
+        )
+    )
 
 
 class _Receipt(_StrictModel):

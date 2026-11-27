@@ -57,7 +57,7 @@ internal class HomeApi(context: Context) {
         val request = Request.Builder().url(url).method(method, payload)
         for ((name, value) in headers) request.header(name, value)
         request.header("Cache-Control", "no-store")
-        request.header("X-Jarvis-Viewer-Contract", "shown-v1")
+        request.header("X-Jarvis-Viewer-Contract", "one-main-v1")
         if (method != "GET" && method != "HEAD") request.header("Origin", Routes.origin)
         if (method == "PUT" && url.pathSegments.size == 3 && url.pathSegments[1] == "messages") {
             ShownReports.get(application).flush()

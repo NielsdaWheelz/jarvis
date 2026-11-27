@@ -159,14 +159,19 @@ internal class PhoneNotices private constructor(private val context: Context) {
 
     @Synchronized
     fun finishStartup() {
+        if (startup.isEmpty()) return
+        val checked = startup
         startup = emptySet()
-        releaseHeld(visibility)
+        if (foreground != true) postHeld(held.all.filterKeys { it in checked })
     }
 
     @Synchronized
     fun releaseHeld(departure: Long) {
         if (foreground == true || departure != visibility) return
-        val waiting = held.all.filterKeys { it !in startup }
+        postHeld(held.all.filterKeys { it !in startup })
+    }
+
+    private fun postHeld(waiting: Map<String, *>) {
         for ((id, stored) in waiting) {
             post(id, (stored as String).substringBefore(' '))
             held.edit().remove(id).apply()

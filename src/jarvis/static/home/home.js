@@ -101,7 +101,6 @@ const transcript = $("messages");
 let pinned = true, scrollTarget = null, heldPosition = null, pendingOpening = null;
 let sentPlacement = null;
 let reread = true, visitOpening = true, placeVisit = true, earlierRead = null;
-let pageSequence = 0, owedSequence = 0;
 const attention = chatAttention({
   chat,
   list: transcript,
@@ -126,9 +125,14 @@ const attention = chatAttention({
   },
   jump(id) { navigate("/m/" + id); },
   earlier: earlierMessages,
-  failure(error) {
-    if (error) failure(error, "shown");
-    else if (failures.delete("shown")) showConnection();
+  request,
+  recheck(older = false) {
+    reread ||= older;
+    if (!document.hidden && !loginRequired) refreshChat(routeVersion);
+  },
+  failure(error, part) {
+    if (error) failure(error, part);
+    else if (failures.delete(part)) showConnection();
   },
 });
 
@@ -437,7 +441,7 @@ function discuss(ref, title, origin) {
 }
 async function request(path, { allowServerError = false, ...options } = {}) {
   const headers = new Headers(options.headers);
-  headers.set("X-Jarvis-Viewer-Contract", "cited-sources-v1");
+  headers.set("X-Jarvis-Viewer-Contract", "shown-v1");
   const response = await fetch(path, { redirect: "manual", cache: "no-store", ...options, headers });
   if (response.type === "opaqueredirect" || [401, 403].includes(response.status)) {
     if (!loginRequired) {
@@ -576,6 +580,9 @@ $("composer").onsubmit = async (e) => {
       options.headers = { "Content-Type": "application/json" };
       options.body = message;
     }
+    attention.sent();
+    await attention.flush();
+    if (loginRequired) return;
     if (!retry) armed = { submission: id, request: null };
     receiptMissing = false;
     draft.uncertain = true;
@@ -583,7 +590,6 @@ $("composer").onsubmit = async (e) => {
     updateComposer();
     $("receipt").textContent = "";
     sending = setTimeout(() => { $("receipt").textContent = "sending…"; }, 400);
-    attention.sent();
     pendingOpening = null;
     pinned = true;
     sentPlacement = { submission:id, request:null };
@@ -823,66 +829,60 @@ function merge(items) {
   restoreChatAnchor(anchor);
 }
 
-async function messagePage(cursor, ver) {
-  const sequence = ++pageSequence;
+async function messagePage(cursor) {
+  const sequence = attention.reading();
   const data = await read("/api/messages" + (cursor ? "?before=" + encodeURIComponent(cursor) : ""),
     { signal: AbortSignal.timeout(6000) });
-  if (!Array.isArray(data.owed) || data.owed.length !== data.owed_total)
+  if (!Array.isArray(data?.items) || !Array.isArray(data.new) ||
+      !Array.isArray(data.owed) || data.owed.length !== data.owed_total ||
+      !Number.isSafeInteger(data.new_total) || data.new.length > data.new_total)
     throw new Error("incomplete conversation state");
-  if (ver === routeVersion && !document.hidden && sequence > owedSequence) {
-    owedSequence = sequence;
-    attention.setOwed(data.owed);
-    attention.update();
-  }
-  return data;
+  return { ...data, sequence };
 }
 
 async function messages(ver, paired) {
   const initial = latest === null;
   const allPages = initial || reread;
   reread = false;
-  const pages = [], scanned = [];
-  let data, cursor = null, depth = 0, firstNewPage = -1;
+  const pages = [];
+  let data, cursor = null, seenNew = 0, needContext = false;
   let foundLatest = !latest, foundOldest = !allPages || !oldest;
   let latestId;
   try {
     do {
-      data = await messagePage(cursor, ver);
+      data = await messagePage(cursor);
       if (ver !== routeVersion || document.hidden) {
         reread ||= allPages;
         return;
       }
       const items = data.items;
-      if (!depth) {
+      if (!pages.length) {
         latestId = items.at(-1)?.id;
         // A new head and a late insert can arrive between the same two reads.
-        if (paired && paired.chat !== chatToken && oldest) foundOldest = false;
+        if (oldest && (attention.olderStale(data.new_total) || paired && paired.chat !== chatToken))
+          foundOldest = false;
       }
-      if (!depth || !foundLatest || !foundOldest || initial && depth < 3) pages.push(data);
+      pages.push(data);
       foundLatest ||= items.some((m) => m.id === latest);
       foundOldest ||= items.some((m) => m.id === oldest);
-      for (const m of items) if (tracked(m)) scanned.push({ id:m.id, at:m.at, role:m.role, source:m.source });
       if (initial) {
-        const first = items.findIndex(attention.isNew);
-        if (first >= 0) firstNewPage = depth + (first === 0 && data.next_before && depth < 2 ? 1 : 0);
+        seenNew += data.new.length;
+        needContext = Boolean(data.new.length && data.new[0] === items[0]?.id);
       }
-      depth++;
       cursor = data.next_before;
     } while (cursor && (!foundLatest || !foundOldest ||
-      allPages && attention.afterStart(data.items[0]) ||
-      initial && firstNewPage >= depth));
+      initial && pages.length < 3 && (seenNew < data.new_total || needContext)));
   } catch (error) {
     reread ||= allPages;
     throw error;
   }
 
-  if (initial) {
-    if (!latestId) {
-      visitOpening = false;
-      presence.chatChecked(paired, null, false);
-      return;
-    }
-    pages.splice(Math.min(3, Math.max(1, firstNewPage + 1)));
+  if (initial && !latestId) {
+    visitOpening = false;
+    attention.page(data, data.sequence);
+    attention.update();
+    presence.chatChecked(paired, null, false);
+    return;
   }
   const rows = pages.toReversed().flatMap((page) => page.items);
   // A current page can straddle the previously loaded edge after new inserts.
@@ -908,7 +908,7 @@ async function messages(ver, paired) {
     }
     if (origin) {
       rows.unshift(origin);
-      scanned.push(origin);
+      attention.remember(origin);
     } else chatReturn = null;
   }
   if (initial) {
@@ -922,7 +922,8 @@ async function messages(ver, paired) {
   const follow = pinned && !selectedMessage && !isDetail(location.pathname) && !chatReturn;
   const anchor = chatAnchor();
   $("older").hidden = !earliest;
-  attention.receive(scanned, added);
+  for (const page of pages) attention.page(page, page.sequence);
+  attention.announce(added);
   merge(rows);
   for (const terminal of terminals) knownTerminals.add(terminal.id);
   if (paired) {
@@ -941,7 +942,7 @@ async function messages(ver, paired) {
       restoreChatAnchor(anchor);
     }
     if ((initial || placeVisit) && !returning && !isDetail(location.pathname))
-      pendingOpening = { node:$("chat-boundary") || boundary, capped:initial && firstNewPage >= 3 };
+      pendingOpening = { node:$("chat-boundary") || boundary, capped:initial && seenNew < data.new_total };
     visitOpening = false;
   }
   const sentArrived = sentPlacement?.request && $("msg-" + sentPlacement.request);
@@ -970,13 +971,13 @@ async function earlierMessages() {
   const before = earliest, ver = routeVersion;
   $("older").disabled = earlierRead = true;
   try {
-    const data = await messagePage(before, ver);
+    const data = await messagePage(before);
     if (ver !== routeVersion || document.hidden) return false;
     earliest = data.next_before;
     oldest = data.items[0]?.id ?? oldest;
     const anchor = chatAnchor();
     $("older").hidden = !earliest;
-    attention.receive(data.items);
+    attention.page(data, data.sequence);
     for (const row of data.items)
       if (row.source === "native_final" || row.source === "native_failure") knownTerminals.add(row.id);
     merge(data.items);
@@ -1643,7 +1644,7 @@ async function detailRead(ver) {
     if (ver !== routeVersion || document.hidden) return;
     $("message-unavailable").hidden = Boolean(m);
     if (!m) return;
-    attention.receive([m]);
+    attention.remember(m);
     const alreadySelected = selectedMessage === id;
     const restore = reloadReading?.id === id;
     selectedMessage = id;
@@ -1815,3 +1816,11 @@ window.addEventListener("pageshow", event => {
 });
 window.addEventListener("online", refresh);
 setInterval(refresh, 3000);
+setInterval(() => {
+  if (!document.hidden || loginRequired) return;
+  poll("shown counts", async ver => {
+    const sequence = attention.reading();
+    const data = await read("/api/shown", { signal: AbortSignal.timeout(6000) });
+    if (ver === routeVersion && document.hidden) attention.totals(data, sequence);
+  });
+}, 60000);

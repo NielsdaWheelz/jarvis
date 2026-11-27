@@ -23,6 +23,13 @@ this amends spec §§8–9 and the prospective maintenance rules derived from ad
 4. **apply and release.** durably mark `applying` before the first change to selected code, configuration, grants or data. apply the named operation. verify target settings, schema, b and the cut's recovery evidence under exclusion. if needed, durably install then release only the contained host to verify its private socket while writers stay held. fsync changed files, unit definitions, selection renames and parent directories. release postgres keys. sync the passing receipt inside the hold, rename the whole directory to `committed-ID` on the same filesystem, and fsync its parent before issuing starts. verify actual processes, sockets, private web and memory. prune only after readiness.
 5. **recover.** same-id retry verifies actual state and already-applied steps. after commit it finishes starts/probes only while the bound target still owns the installation and there is no observed startup failure. a superseded receipt reports history. on observed startup failure publish a repair hold referencing the committed receipt before stopping affected services. preserve effect evidence and report the new failure. an observed startup failure or changed repair inputs require a new authorized id with `--repair-of HELD_ID`. verify and transfer custody under the flock without clearing unit guards. a return to the source through this path requires proof of zero mutation and any specific owner decision to run the disputed work. an uncertain or changed installation requires forward repair.
 
+stage a new forward-repair release with
+`deploy/install-release --repair-of HELD_ID TARGET`. the existing lock and
+hold must identify an applying or startup-failed release. preserve both bound
+releases and allow one distinct repair candidate. the original migration proof
+must still verify before transferring custody. successful readiness restores the
+ordinary release retention rule.
+
 for a successor schema, resume the same named release with `--qualification FILE` after the isolated restore and target checks. when backup is configured, a changed target lock or schema also requires `--reader-image DIGEST` from the verified recovery kit. bind that reader to the release and publish it under the same backup hold. the serving release keeps one verified stopped recovery copy and compact receipts for earlier changes.
 
 ## b. jarvis owns work compatibility

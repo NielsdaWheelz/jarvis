@@ -166,7 +166,8 @@ function setPanel() {
   attention.update();
 }
 mobile.addEventListener("change", setPanel);
-function openSidebar(origin) {
+function openSidebar(origin, keepPresentation = false) {
+  if (!keepPresentation) armed = null;
   if (mobile.matches && !history.state?.panel) {
     rememberOverview(origin);
     files.remember(origin);
@@ -186,7 +187,6 @@ function closeSidebar() {
   startRoute(shownIndex);
 }
 $("sidebar-open").onclick = () => {
-  armed = null;
   openSidebar($("sidebar-open"));
   $("sidebar-close").focus({ preventScroll: true });
 };
@@ -434,14 +434,14 @@ for (const kind of ["dragover", "drop"]) document.addEventListener(kind, (e) => 
 window.addEventListener("dragend", clearDrag);
 window.addEventListener("blur", clearDrag);
 function discuss(ref, title, origin) {
-  openSidebar(origin);
-  const choice = $("draft-choice");
-  choice.hidden = true;
-  if (activeSend || draft.uncertain) {
+  const blocked = activeSend || draft.uncertain;
+  openSidebar(origin, blocked);
+  if (blocked) {
     caption("settle the earlier message first.");
     return;
   }
-  armed = null;
+  const choice = $("draft-choice");
+  choice.hidden = true;
   const use = () => {
     draft.ref = ref;
     draft.refLabel = title || label(ref);
@@ -576,7 +576,7 @@ function accepted(receipt, submission) {
     return;
   }
   const focused = $("composer").contains(document.activeElement);
-  const follow = pinned && Boolean(chat.clientHeight);
+  const follow = pinned && chat.clientHeight && chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 2;
   const anchor = chatAnchor();
   const last = transcript.querySelector("article:last-child");
   const offset = last && chatOffset(last);
@@ -1035,15 +1035,15 @@ async function messages(ver, paired) {
     } while (cursor && (!foundLatest || !foundOldest ||
       allPages && attention.afterStart(data.items[0]) ||
       initial && firstNewPage >= depth));
+    if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) {
+      reread ||= allPages;
+      return;
+    }
   } catch (error) {
     reread ||= allPages;
     throw error;
   }
 
-  if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) {
-    reread ||= allPages;
-    return;
-  }
   applyOwed(data);
   if (initial) {
     if (!latestId) {
@@ -1067,13 +1067,13 @@ async function messages(ver, paired) {
     let origin;
     try {
       origin = await read("/api/messages/" + returning.messageId, { signal: AbortSignal.timeout(6000) });
+      if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) {
+        reread ||= allPages;
+        return;
+      }
     } catch (error) {
       reread ||= allPages;
       throw error;
-    }
-    if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) {
-      reread ||= allPages;
-      return;
     }
     if (origin) {
       rows.unshift(origin);

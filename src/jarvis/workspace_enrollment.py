@@ -141,7 +141,7 @@ async def _json(
             raise WorkspaceError(
                 "temporary"
                 if url == GOOGLE_JWKS or response.status_code >= 500
-                else "grant_unavailable"
+                else "oauth_code_exchange_rejected"
             )
         body = bytearray()
         async for chunk in response.aiter_bytes(chunk_size=16384):
@@ -251,6 +251,25 @@ async def exchange_workspace_code(
             },
         )
         access = _text(token, "access_token")
+        expires = token.get("expires_in")
+        if (
+            type(expires) is not int
+            or not 60 < expires <= 31_536_000
+            or _text(token, "token_type").lower() != "bearer"
+        ):
+            raise ValueError("invalid Google token lifetime or type")
+        if token.get("refresh_token") is None:
+            raise WorkspaceError("oauth_refresh_token_missing")
+        refresh = _text(token, "refresh_token")
+    except (GoogleAuthError, ValueError, KeyError, TypeError, OverflowError):
+        raise WorkspaceError("oauth_token_response_invalid") from None
+    except (httpx.RequestError, TimeoutError):
+        raise WorkspaceError("temporary") from None
+    try:
+        scopes = granted_scopes(token.get("scope"), human_product=human_product)
+    except ValueError:
+        raise WorkspaceError("oauth_token_scope_invalid") from None
+    try:
         account, subject = await signed_identity(
             http,
             token,
@@ -259,25 +278,11 @@ async def exchange_workspace_code(
             expected_email=expected_email,
             nonce=nonce,
         )
-        expires = token.get("expires_in")
-        if (
-            type(expires) is not int
-            or not 60 < expires <= 31_536_000
-            or _text(token, "token_type").lower() != "bearer"
-        ):
-            raise ValueError("invalid Google token lifetime or type")
-        return VerifiedTokens(
-            account,
-            subject,
-            granted_scopes(token.get("scope"), human_product=human_product),
-            access,
-            _text(token, "refresh_token"),
-            expires,
-        )
-    except (GoogleAuthError, ValueError, KeyError, TypeError, OverflowError):
-        raise WorkspaceError("grant_unavailable") from None
-    except (httpx.RequestError, TimeoutError):
-        raise WorkspaceError("temporary") from None
+    except WorkspaceError as exc:
+        if exc.kind == "grant_unavailable":
+            raise WorkspaceError("oauth_identity_invalid") from None
+        raise
+    return VerifiedTokens(account, subject, scopes, access, refresh, expires)
 
 
 async def enroll_workspace(
@@ -314,7 +319,16 @@ async def enroll_workspace(
     copy = _APPROVAL_COPY if product is None else _HUMAN_COPY[product]
     scopes = ENROLLMENT_SCOPES if product is None else _HUMAN_SCOPES[product]
     if drive:
-        scopes = _AGENT_SCOPES
+        previous = manager.enrollment()
+        if previous is None:
+            scopes = _AGENT_SCOPES
+        else:
+            if (
+                previous.account.casefold() != expected_email.casefold()
+                or pending_label_id not in (None, previous.pending_label_id)
+            ):
+                raise WorkspaceError("grant_unavailable")
+            scopes = previous.scopes | {DRIVE_SCOPE}
         copy += (
             " google grants account-wide drive access, including docs. "
             "jarvis uses the supported drive and docs agent operations."
@@ -392,7 +406,6 @@ async def enroll_workspace(
                     "code_challenge": challenge,
                     "code_challenge_method": "S256",
                     "login_hint": expected_email,
-                    **({"include_granted_scopes": "true"} if drive else {}),
                 }
             )
         )

@@ -1,6 +1,6 @@
 # adr 0127. set the conversation as a daybook
 
-**implemented · isolated candidate verified · installed acceptance open.** the conversation is
+**implemented · isolated candidate and installed journeys verified.** the conversation is
 the surface the owner uses most. it has no typography, no receipt for a send,
 and on android no composer beside the text it answers. web and android will
 set it as one dated page in two hands. the owner approved this design, its
@@ -442,7 +442,7 @@ parallel. the units merge when green and reviewed. assets and their consuming cs
 | a · receipt | `src/jarvis/home_http.py`: `put`, `submission`, the cache line in `private` | return the receipt above, read through `visible_message` after `submit` returns. serve fonts immutable. |
 | b · web | `src/jarvis/static/home/`: `index.html`, `home.css`, `home.js`; in `presence.js` the shared clock formatter and the local receipt gate; in `chat-attention.js` only the previous-article lookup, the boundary's place before a head, and the sampler's pause during the advance; the composer sentence in `SPEC.md` | two passes by one owner. first the page: tokens, faces, preload, stamp, heads, apparatus, proposal, reader, 0125 marks, selected. then the foot: composer dom, states, keys, drop, abort, discard, `accepted(receipt)`, the page advance. composer code stays in `home.js`; no new script. |
 | c · android | `android/app/src/main/java/dev/niels/jarvis/`: `Home.kt`, `ChatShown.kt`, `ShareActivity.kt`, `Drafts.kt`, `Presence.kt`, `MessageMarkdown.kt`, `HomeApi.kt`, `MainActivity.kt`, new `Paper.kt` (scheme, faces, conversation styles) and `Composer.kt` (the dock); the manifest | everything under android above. the signed candidate is version code 12, after the shared shown cut's v11. |
-| e · documents | pointers in the amended adrs, the decisions index, the implementation plan, `docs/issues/daybook-installed.md` | written by the lead when b merges; the installed issue owns rollout and the handset. |
+| e · documents | pointers in the amended adrs, the decisions index, the implementation plan and installed acceptance | written by the lead when b merges; installed acceptance records rollout and the handset. |
 
 first placement on web waits for both Literata faces, for at most 1.5 s. if a
 face lands later and the owner has not scrolled, the opening placement runs
@@ -542,15 +542,14 @@ before each merge.
    arrives as a text original and jarvis is not paused. process-text does the
    same. share while in flight or held: the refusal, and nothing copied.
 6. `reply` on a proposal and `discuss` from a file set the reference slip.
-7. talkback names the speaker of each message; `send`, `attach` and each `×`
-   are labelled 48dp targets.
+7. `send`, `attach` and each `×` have 48dp targets.
 8. at animator scale zero nothing moves beyond 0126's own rules.
 9. no spinner in the conversation or share screen; a divider's pixel is `--line`.
 10. the deleted destinations and buttons are gone; `refresh` remains.
 
 **installed.** after the next web release and signed v12 app update, one send
-through crossing and handoff on each client, on the s22+ with talkback. the
-installed issue records the release identities.
+through crossing and handoff on web and the s22+. the
+[installed evidence](#installed-acceptance) records the release identities.
 
 ## decisions and their costs
 
@@ -707,7 +706,7 @@ finished copying.
 
 the signed v12 build and service wheel are bound to `350ffb2`. the package
 check verifies the release signer, the package name and the version increase
-above v11. [installed acceptance](../issues/daybook-installed.md) records the
+above v11. [installed acceptance](#installed-acceptance) records the
 separate web and handset journey.
 
 
@@ -725,3 +724,28 @@ the local records are under `~/.local/state/jarvis/qualification/`:
 
 the checks and their cleanup have separate recorded outcomes. the temporary
 probes leave no product test files behind.
+
+## installed acceptance
+
+on november 27 utc, [stock release `6e6c8a4`](https://github.com/NielsdaWheelz/jarvis/tree/6e6c8a4b5e8f30a5de69e3ee9903365045044b94)
+applied the daybook from [pr #142](https://github.com/NielsdaWheelz/jarvis/pull/142)
+to the installed shared shown release. the web and android sources match that
+merge. schema `0028`, the stock host mapping, backup settings and owner
+control `resume 42` were preserved. the named change committed and the
+predecessor release was pruned.
+
+through the private edge, web accepted one send with 201, placed it in the
+transcript, and received its paired reply. the submission lookup returned
+the same row as the exact message read. the edge served `home.js` as
+`private, no-store` and the hashed font as `private, max-age=31536000, immutable`.
+
+the enrolled galaxy s22+ upgraded from signed v11 to signed v12 in place,
+with the same certificate and verified app link. the v11 draft list and
+v12 dock were empty before the send. reopening chat showed the same tail,
+and the previous release’s exact reply reopened from its verified link.
+the dock cleared after the send and the exact reply appeared on the phone.
+both replies have an observed receipt in `owner_shown`.
+
+release identities, the exact request and reply ids, and the device checks
+are in private macbook evidence under
+`~/.local/state/jarvis/operations/adr0127-daybook/`.

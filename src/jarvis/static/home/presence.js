@@ -23,6 +23,16 @@ const interruptions = new Set(["paused", "standby", "retrying"]);
 export const time = at => new Date(at).toLocaleTimeString([], {
   hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
+
+// Literata's tabular substitution selects lining figures. Give its old-style
+// figures equal cells, preserving the literal clock string.
+export function stampDigits(node, value) {
+  if (node.textContent !== value) {
+    node.replaceChildren(...Array.from(value, char =>
+      /\p{Nd}/u.test(char) ? el("span", char, "stamp-digit") : char));
+  }
+}
+
 const lastHeard = at => "last heard " + (at === null ? "—" : time(at));
 
 function workWords(work) {
@@ -103,7 +113,7 @@ export function bindPresence({ request, openOwed, keepBottom }) {
     if (!elapsedRunning || tail.hidden || document.hidden) return;
     const whole = Math.max(0, Math.floor((clock.elapsed + performance.now() - clock.at) / 1000));
     const value = whole < 20 ? "" : Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0");
-    if (elapsed.textContent !== value) elapsed.textContent = value;
+    stampDigits(elapsed, value);
   }
   setInterval(renderElapsed, 500);
 
@@ -147,7 +157,7 @@ export function bindPresence({ request, openOwed, keepBottom }) {
           elapsed: Date.parse(data.as_of) - Date.parse(ownerWork.since),
         };
       }
-    } else elapsed.textContent = "";
+    } else stampDigits(elapsed, "");
     if (tail.hidden) keepBottom(() => { tail.hidden = false; });
     renderElapsed();
   }

@@ -7,7 +7,7 @@ import { chatAttention, instant, precedingArticle, tracked } from "./chat-attent
 import { address } from "./home-address.js";
 import { linkedText, parseMessage, renderMarkdown, showTableControls, updateCitations } from "./chat-reader.js";
 import { bindInspection } from "./inspection.js";
-import { bindPresence, time as stampTime } from "./presence.js";
+import { bindPresence, stampDigits, time as stampTime } from "./presence.js";
 
 const $ = (id) => document.getElementById(id);
 function creationPath(messageId, created) {
@@ -90,10 +90,10 @@ const chat = $("chat");
 const transcript = $("messages");
 let pinned = true, scrollTarget = null, heldPosition = null, pendingOpening = null;
 let advance = null, receiptSequence = 0;
-let waitingForType = true, fontOpening = null;
+let fontLoad = "waiting", fontOpening = null;
 let reread = true, visitOpening = true, placeVisit = true, earlierRead = null;
 let pageSequence = 0, owedSequence = 0, owedIds = "";
-const coarse = matchMedia("(hover: none) and (pointer: coarse)");
+const fine = matchMedia("(pointer: fine)");
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const attention = chatAttention({
   chat,
@@ -426,7 +426,7 @@ $("sidebar").ondrop = (e) => {
   stageTransfer(e, e.dataTransfer);
 };
 for (const kind of ["dragover", "drop"]) document.addEventListener(kind, (e) => {
-  if (!fileDrag(e) || e.target.closest("#sidebar")) return;
+  if (!fileDrag(e) || (e.target instanceof Element && e.target.closest("#sidebar"))) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = "none";
   clearDrag();
@@ -567,6 +567,7 @@ function finishAdvance() {
   advance = null;
 }
 function accepted(receipt, submission) {
+  if (loginRequired) return;
   if (draft.id !== submission && $("msg-" + receipt.id)) return;
   receiptSequence++;
   finishAdvance();
@@ -703,14 +704,14 @@ $("composer").onsubmit = async (event) => {
     clearTimeout(waiting);
     $("stop-waiting").hidden = true;
     activeSend = null;
-    if (receipt) accepted(receipt, id);
+    if (receipt && !loginRequired) accepted(receipt, id);
     else updateComposer();
     refresh();
   }
 };
 $("message").onkeydown = (e) => {
   if (e.key !== "Enter" || e.altKey || e.isComposing || e.keyCode === 229 ||
-      (!(e.ctrlKey || e.metaKey) && (e.shiftKey || coarse.matches))) return;
+      (!(e.ctrlKey || e.metaKey) && (e.shiftKey || !fine.matches))) return;
   if ($("message").readOnly) return;
   e.preventDefault();
   if (!e.repeat) $("send").click();
@@ -748,9 +749,10 @@ function renderMessage(m, existing) {
     const localDay = [date.getFullYear(), date.getMonth() + 1, date.getDate()]
       .map((value, index) => String(value).padStart(index ? 2 : 4, "0")).join("-");
     const stamp = el("div", undefined, "stamp");
-    const when = el("time", stampTime(m.at));
+    const when = el("time");
     when.dateTime = date.toISOString();
     when.title = localDate.format(date);
+    stampDigits(when, stampTime(m.at));
     stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis", "sr-only"), when);
     node.append(stamp);
     Object.assign(node.dataset, { role: m.role, source: m.source, day: localDay });
@@ -870,12 +872,19 @@ function restoreChatAnchor(anchor) {
   if (node) scrollChat(chat.scrollTop + chatOffset(node) - anchor.offset);
 }
 function applyOpening() {
-  if (waitingForType || !pendingOpening || !chat.clientHeight) return;
-  const { node, capped } = pendingOpening;
+  if (fontLoad === "waiting" || !pendingOpening || !chat.clientHeight) return;
+  const opening = pendingOpening;
+  const { node, capped, exactOffset } = opening;
   pendingOpening = null;
-  if (selectedMessage || isDetail(location.pathname) || chatReturn) return;
-  if (!$("sidebar").hasAttribute("data-literata")) fontOpening = { node, capped };
-  scrollChat(capped ? 0 : node ? insetPosition(node) : chat.scrollHeight);
+  if (chatReturn) return;
+  if (exactOffset !== undefined) {
+    if (location.pathname !== "/m/" + selectedMessage || node.id !== "msg-" + selectedMessage) return;
+    scrollChat(chat.scrollTop + chatOffset(node) - exactOffset);
+  } else {
+    if (selectedMessage || isDetail(location.pathname)) return;
+    scrollChat(capped ? 0 : node ? insetPosition(node) : chat.scrollHeight);
+  }
+  if (fontLoad === "fallback") fontOpening = opening;
   return true;
 }
 chat.addEventListener("scroll", () => {
@@ -979,11 +988,10 @@ function applyOwed({ owed, sequence }) {
   const ids = owed.join(",");
   if (ids === owedIds) return;
   owedIds = ids;
-  attention.setOwed(owed);
-  attention.update();
+  preservePage(() => attention.setOwed(owed));
 }
 function currentProjection(version) {
-  return version === receiptSequence && !activeSend && !document.hidden;
+  return version === receiptSequence && !activeSend && !loginRequired && !document.hidden;
 }
 async function settlePage(version) {
   if (!currentProjection(version)) return false;
@@ -1081,8 +1089,7 @@ async function messages(ver, paired) {
     (initial || instant(m.at) + m.id > $("msg-" + latest)?.dataset.order)).map((m) => m.id);
   const before = chat.scrollTop;
   const follow = pinned && !selectedMessage && !isDetail(location.pathname) && !chatReturn;
-  const anchor = chatAnchor();
-  $("older").hidden = !earliest;
+  if ($("older").hidden !== !earliest) preservePage(() => { $("older").hidden = !earliest; });
   attention.receive(scanned, added);
   merge(rows);
   for (const terminal of terminals) knownTerminals.add(terminal.id);
@@ -1091,7 +1098,6 @@ async function messages(ver, paired) {
     chatToken = paired.chat;
     lastArrivingTerminal = paired.you ? arriving?.id || null : null;
   } else if (arriving) lastArrivingTerminal = arriving.id;
-  restoreChatAnchor(anchor);
   latest = latestId ?? latest;
   if (initial || visitOpening) {
     const boundary = [...transcript.querySelectorAll("article")].find((node) =>
@@ -1134,13 +1140,11 @@ async function earlierMessages() {
     applyOwed(data);
     earliest = data.next_before;
     oldest = data.items[0]?.id ?? oldest;
-    const anchor = chatAnchor();
-    $("older").hidden = !earliest;
+    if ($("older").hidden !== !earliest) preservePage(() => { $("older").hidden = !earliest; });
     attention.receive(data.items);
     for (const row of data.items)
       if (row.source === "native_final" || row.source === "native_failure") knownTerminals.add(row.id);
     merge(data.items);
-    restoreChatAnchor(anchor);
     return data.items.length > 0;
   } catch (error) {
     failure(error);
@@ -1800,8 +1804,9 @@ async function detailRead(ver) {
   const route = address(location.href);
   if (route?.kind === "message") {
     const { id } = route;
+    const version = receiptSequence;
     const m = await read("/api/messages/" + id, { signal: AbortSignal.timeout(6000) });
-    if (ver !== routeVersion || document.hidden) return;
+    if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) return;
     $("message-unavailable").hidden = Boolean(m);
     if (!m) return;
     attention.receive([m]);
@@ -1810,11 +1815,11 @@ async function detailRead(ver) {
     selectedMessage = id;
     merge([m]);
     if (alreadySelected) return;
-    pendingOpening = null;
     pinned = false;
     const node = $("msg-" + id);
     node.classList.add("selected");
-    scrollChat(chat.scrollTop + chatOffset(node) - (restore ? reloadReading.offset : 0));
+    pendingOpening = { node, exactOffset: restore ? reloadReading.offset : 0 };
+    applyOpening();
     reloadReading = null;
     restoreChatReturn();
   }
@@ -1952,23 +1957,30 @@ new ResizeObserver(() => {
   restoreChatReturn();
 }).observe($("chat"));
 const typeDeadline = setTimeout(() => {
-  waitingForType = false;
+  fontLoad = "fallback";
   applyOpening();
 }, 1500);
-Promise.all([
-  document.fonts.load('400 1rem Literata'),
-  document.fonts.load('italic 400 1rem Literata'),
-]).then(() => {
+Promise.allSettled([
+  Promise.all([document.fonts.load("400 1rem Literata"), document.fonts.load("italic 400 1rem Literata")]),
+  Promise.all([
+    document.fonts.load('400 1rem "Cormorant Garamond"'),
+    document.fonts.load('italic 400 1rem "Cormorant Garamond"'),
+  ]),
+]).then(([reading, display]) => {
   clearTimeout(typeDeadline);
+  finishAdvance();
   const anchor = chatAnchor();
   attention.beforeLayoutChange();
-  $("sidebar").setAttribute("data-literata", "");
-  waitingForType = false;
+  const sidebar = $("sidebar");
+  sidebar.toggleAttribute("data-literata", reading.status === "fulfilled");
+  sidebar.toggleAttribute("data-cormorant", display.status === "fulfilled");
+  fontLoad = "settled";
   pendingOpening ||= fontOpening;
   fontOpening = null;
   if (!applyOpening()) restoreChatAnchor(anchor);
   attention.update();
-}).catch(() => {});
+});
+if (draft.uncertain) $("receipt").textContent = "checking whether your message arrived…";
 showFiles();
 startRoute();
 window.addEventListener("pagehide", () => {

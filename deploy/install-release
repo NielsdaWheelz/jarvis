@@ -115,6 +115,13 @@ if candidate in {directory.name for directory in bound.values()}:
     raise SystemExit("stage a distinct repair candidate")
 if (install / "current").resolve(strict=True) not in bound.values():
     raise SystemExit("selected release differs from the held operation")
+for directory in (install / "releases").iterdir():
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", directory.name)
+        and directory not in bound.values()
+        and directory.name != candidate
+    ):
+        raise SystemExit(f"another repair candidate occupies the release slot: {directory.name}")
 print(bound["target"])
 PY
 )"

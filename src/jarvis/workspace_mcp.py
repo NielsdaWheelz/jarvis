@@ -1,4 +1,4 @@
-"""Host-owned Google Workspace MCP transport and transient owner challenges."""
+"""Host-owned Google Workspace transport and transient owner challenges."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ import httpx
 
 from jarvis._secrets import contains_secret
 from jarvis._thread_io import joined_thread
-from jarvis.home_refs import DRIVE_ID_PATTERN
+from jarvis.home_refs import DRIVE_ID_PATTERN, DRIVE_MIME_PATTERN
 from jarvis.read_tools import ATTACHMENT_MAX_BYTES
 
 Product = Literal["gmail", "calendar", "drive", "docs"]
@@ -150,6 +150,9 @@ _CHOICES = frozenset(
 _METADATA_BYTES = 2 * 1024 * 1024
 _MAX_REQUEST_BYTES = 36 * 1024 * 1024
 _BINARY_CHUNK_BYTES = 3 * 65_536
+_DRIVE_FILES = "https://www.googleapis.com/drive/v3/files"
+_DRIVE_UPLOAD_PATH = "/upload/drive/v3/files"
+_DRIVE_UPLOAD = f"https://www.googleapis.com{_DRIVE_UPLOAD_PATH}"
 
 
 class WorkspaceError(Exception):
@@ -836,6 +839,83 @@ class _Unauthorized(Exception):
     pass
 
 
+async def _upload_chunks(path: Path, size: int) -> AsyncIterator[bytes]:
+    with path.open("rb") as data:
+        remaining = size
+        while remaining:
+            requested = min(remaining, _BINARY_CHUNK_BYTES)
+            piece = await joined_thread(data.read, requested)
+            if len(piece) != requested:
+                raise OSError("drive upload source changed")
+            remaining -= len(piece)
+            yield piece
+        if await joined_thread(data.read, 1):
+            raise OSError("drive upload source changed")
+
+
+def _identity_length(response: httpx.Response) -> int | None:
+    if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+        raise ValueError("unsupported response encoding")
+    length = response.headers.get("Content-Length")
+    if length is None:
+        return None
+    if not length.isdecimal():
+        raise ValueError("invalid content length")
+    return int(length)
+
+
+def _response_mime(response: httpx.Response) -> str:
+    return response.headers.get("Content-Type", "").partition(";")[0].strip().lower()
+
+
+async def _bounded_body(
+    response: httpx.Response, limit: int, length: int | None, oversize: Exception
+) -> bytearray:
+    if length is not None and length > limit:
+        raise oversize
+    body = bytearray()
+    async for chunk in response.aiter_bytes(chunk_size=65536):
+        if len(body) + len(chunk) > limit:
+            raise oversize
+        body.extend(chunk)
+    if length is not None and len(body) != length:
+        raise ValueError("truncated reply")
+    return body
+
+
+async def _drive_rest_json(response: httpx.Response) -> Obj:
+    if _response_mime(response) != "application/json":
+        raise ValueError("invalid Drive JSON response")
+    return _decode(
+        await _bounded_body(
+            response,
+            _METADATA_BYTES,
+            _identity_length(response),
+            ValueError("oversize Drive JSON response"),
+        )
+    )
+
+
+def _drive_rest_status(
+    response: httpx.Response, *success: int, finalizing: bool = False
+) -> None:
+    status = response.status_code
+    if status in success:
+        return
+    if status == 401:
+        raise _Unauthorized
+    retry = workspace_retry_at(response.headers.get("Retry-After"))
+    if finalizing:
+        raise WorkspaceError("uncertain", retry_at=retry)
+    if status == 429:
+        raise WorkspaceError("rate_limited", retry_at=retry)
+    if status == 403:
+        raise WorkspaceError("denied")
+    if status == 404:
+        raise WorkspaceError("not_found")
+    raise WorkspaceError("temporary" if status >= 500 else "invalid_response")
+
+
 def _provider_error(
     error: Obj, product: Product, write: bool, retry: datetime | None
 ) -> WorkspaceError:
@@ -879,7 +959,7 @@ def _provider_error(
 
 
 class WorkspaceMcpClient:
-    """Only typed host dispatchers may call Workspace MCP and Docs REST."""
+    """Only typed host dispatchers may call Workspace MCP and REST."""
 
     def __init__(
         self,
@@ -947,6 +1027,196 @@ class WorkspaceMcpClient:
             with tempfile.TemporaryFile(dir=directory) as output:
                 yield output
 
+    @asynccontextmanager
+    async def _stream(
+        self,
+        verb: str,
+        url: str | httpx.URL,
+        headers: dict[str, str],
+        *,
+        params: dict[str, str] | None = None,
+        request: Obj | None = None,
+        content: AsyncIterator[bytes] | None = None,
+        transfer_bytes: int = 0,
+        before_send: Fence | None = None,
+        on_transmission: Callable[[], None] | None = None,
+    ) -> AsyncIterator[httpx.Response]:
+        # Allow 30 seconds of provider work plus one second per wire MiB.
+        seconds = max(60.0, 30.0 + transfer_bytes / (1024 * 1024))
+        async with (
+            workspace_http_attempt(
+                seconds, before_send, on_transmission=on_transmission
+            ),
+            self._http.stream(
+                verb,
+                url,
+                params=params,
+                headers=headers,
+                json=request,
+                content=content,
+                follow_redirects=False,
+                timeout=60,
+            ) as response,
+        ):
+            yield response
+
+    async def _create_blob(
+        self,
+        args: Obj,
+        headers: dict[str, str],
+        upload: tuple[Path, int],
+        before_send: Fence | None,
+    ) -> Obj:
+        path, size = upload
+        parent = args["parentId"]
+        mime = cast(str, args["contentMimeType"])
+        transmitted = False
+
+        def transmitting() -> None:
+            nonlocal transmitted
+            transmitted = True
+
+        try:
+            async with self._stream(
+                "GET",
+                _DRIVE_FILES + "/generateIds",
+                headers,
+                params={"count": "1", "space": "drive"},
+            ) as response:
+                _drive_rest_status(response, 200)
+                ids = _items((await _drive_rest_json(response)).get("ids"))
+                if (
+                    len(ids) != 1
+                    or not isinstance(file_id := ids[0], str)
+                    or re.fullmatch(DRIVE_ID_PATTERN, file_id) is None
+                    or file_id in (parent, "root", "appDataFolder")
+                ):
+                    raise ValueError("invalid generated Drive id")
+            async with self._stream(
+                "POST",
+                _DRIVE_UPLOAD,
+                headers
+                | {"X-Upload-Content-Type": mime, "X-Upload-Content-Length": str(size)},
+                params={
+                    "uploadType": "resumable",
+                    "fields": "id",
+                    "supportsAllDrives": "true",
+                },
+                request={
+                    "id": file_id,
+                    "name": args["title"],
+                    "parents": [parent],
+                    "mimeType": mime,
+                },
+                before_send=before_send,
+            ) as response:
+                _drive_rest_status(response, 200)
+                location = response.headers.get("Location", "")
+                if len(location) > 8192:
+                    raise ValueError("oversize Drive upload session")
+                session = httpx.URL(location)
+                upload_ids = session.params.get_list("upload_id")
+                if (
+                    session.scheme != "https"
+                    or session.host != "www.googleapis.com"
+                    or session.port is not None
+                    or session.userinfo
+                    or session.fragment
+                    or session.raw_path.split(b"?", 1)[0] != _DRIVE_UPLOAD_PATH.encode()
+                    or len(upload_ids) != 1
+                    or re.fullmatch(r"[A-Za-z0-9._~-]+", upload_ids[0]) is None
+                    or set(session.params) - {"upload_id", "uploadType"}
+                    or session.params.get_list("uploadType") not in ([], ["resumable"])
+                ):
+                    raise ValueError("invalid Drive upload session")
+
+            # Opening a resumable session does not create a file. The final
+            # upload may do so and needs a fresh authority and audience check.
+            async with self._stream(
+                "PUT",
+                session,
+                headers | {"Content-Type": mime, "Content-Length": str(size)},
+                content=_upload_chunks(path, size),
+                transfer_bytes=size,
+                before_send=before_send,
+                on_transmission=transmitting,
+            ) as response:
+                _drive_rest_status(response, 200, 201, finalizing=True)
+                if (await _drive_rest_json(response)).get("id") != file_id:
+                    raise ValueError("mismatched Drive creation acknowledgement")
+                return {"id": file_id}
+        except WorkspaceError as error:
+            if not transmitted:
+                error.known_no_effect = True
+            raise
+        except asyncio.CancelledError:
+            raise WorkspaceError(
+                "uncertain" if transmitted else "cancelled",
+                known_no_effect=not transmitted,
+            ) from None
+        except (httpx.RequestError, OSError, TimeoutError):
+            raise WorkspaceError(
+                "uncertain" if transmitted else "temporary",
+                known_no_effect=not transmitted,
+            ) from None
+        except (httpx.InvalidURL, KeyError, ValueError, RecursionError, TypeError):
+            raise WorkspaceError(
+                "uncertain" if transmitted else "invalid_response",
+                known_no_effect=not transmitted,
+            ) from None
+
+    async def _download_blob(
+        self,
+        file_id: str,
+        headers: dict[str, str],
+        download: tuple[BinaryIO, int],
+        before_send: Fence | None,
+    ) -> Obj:
+        output, maximum = download
+        try:
+            async with self._stream(
+                "GET",
+                f"{_DRIVE_FILES}/{file_id}",
+                headers,
+                params={"alt": "media", "supportsAllDrives": "true"},
+                transfer_bytes=maximum,
+                before_send=before_send,
+            ) as response:
+                _drive_rest_status(response, 200)
+                length = _identity_length(response)
+                if length is not None and length > maximum:
+                    raise WorkspaceError("too_large")
+                mime = _response_mime(response)
+                if (
+                    re.fullmatch(DRIVE_MIME_PATTERN, mime) is None
+                    or "Content-Range" in response.headers
+                ):
+                    raise ValueError("invalid Drive media response")
+                await joined_thread(output.seek, 0)
+                await joined_thread(output.truncate)
+                size = 0
+                digest = hashlib.sha256()
+                async for chunk in response.aiter_bytes(chunk_size=65536):
+                    size += len(chunk)
+                    if size > maximum:
+                        raise WorkspaceError("too_large")
+                    digest.update(chunk)
+                    await joined_thread(output.write, chunk)
+                if length is not None and size != length:
+                    raise ValueError("truncated Drive media response")
+                await joined_thread(output.flush)
+                await joined_thread(output.seek, 0)
+                return {
+                    "id": file_id,
+                    "mimeType": mime,
+                    "size": size,
+                    "sha256": digest.hexdigest(),
+                }
+        except (httpx.RequestError, OSError, TimeoutError):
+            raise WorkspaceError("temporary") from None
+        except (ValueError, TypeError):
+            raise WorkspaceError("invalid_response") from None
+
     async def _rpc(
         self,
         product: Product,
@@ -966,6 +1236,16 @@ class WorkspaceMcpClient:
             "Content-Type": "application/json",
             "Accept-Encoding": "identity",
         }
+        if product == "drive" and name == "create_file" and upload is not None:
+            return await self._create_blob(
+                _obj(params["arguments"]), headers, upload, before_send
+            )
+        if product == "drive" and download is not None:
+            args = _obj(params["arguments"])
+            if "exportMimeType" not in args:
+                return await self._download_blob(
+                    cast(str, args["fileId"]), headers, download, before_send
+                )
         verb = "POST"
         query: dict[str, str] | None = None
         request: Obj | None
@@ -1031,17 +1311,8 @@ class WorkspaceMcpClient:
 
             async def request_body() -> AsyncIterator[bytes]:
                 yield prefix
-                with path.open("rb") as data:
-                    remaining = size
-                    while remaining:
-                        requested = min(remaining, _BINARY_CHUNK_BYTES)
-                        piece = await joined_thread(data.read, requested)
-                        if len(piece) != requested:
-                            raise OSError("drive upload source changed")
-                        remaining -= len(piece)
-                        yield base64.b64encode(piece)
-                    if await joined_thread(data.read, 1):
-                        raise OSError("drive upload source changed")
+                async for piece in _upload_chunks(path, size):
+                    yield base64.b64encode(piece)
                 yield suffix
 
             content = request_body()
@@ -1051,25 +1322,18 @@ class WorkspaceMcpClient:
             nonlocal transmitted
             transmitted = True
 
-        # A streaming attempt still shares its invocation's cumulative deadline.
-        # Allow 30 seconds of provider work plus one second per wire MiB.
-        seconds = max(60.0, 30.0 + transfer_bytes / (1024 * 1024))
         try:
-            async with (
-                workspace_http_attempt(
-                    seconds, before_send, on_transmission=transmitting
-                ),
-                self._http.stream(
-                    verb,
-                    url,
-                    params=query,
-                    headers=headers,
-                    json=request if upload is None else None,
-                    content=content,
-                    follow_redirects=False,
-                    timeout=60,
-                ) as response,
-            ):
+            async with self._stream(
+                verb,
+                url,
+                headers,
+                params=query,
+                request=request if upload is None else None,
+                content=content,
+                transfer_bytes=transfer_bytes,
+                before_send=before_send,
+                on_transmission=transmitting,
+            ) as response:
                 status = response.status_code
                 retry = workspace_retry_at(response.headers.get("Retry-After"))
                 if status == 401:
@@ -1077,41 +1341,21 @@ class WorkspaceMcpClient:
                 if product == "docs" and status >= 500:
                     raise WorkspaceError("uncertain" if write else "temporary")
                 if not 200 <= status < 300 and (
-                    response.headers.get("content-type", "").partition(";")[0].lower()
-                    != "application/json"
+                    _response_mime(response) != "application/json"
                 ):
                     if status == 429 and not write:
                         raise WorkspaceError("rate_limited", retry_at=retry)
                     if status == 403 and not write:
                         raise WorkspaceError("denied")
                     raise WorkspaceError("uncertain" if write else "temporary")
-                if (
-                    response.headers.get("Content-Encoding", "identity").lower()
-                    != "identity"
-                ):
-                    raise ValueError("unsupported response encoding")
                 successful_download = download is not None and 200 <= status < 300
                 if download is not None and not successful_download:
                     cap = _METADATA_BYTES
-                advertised = response.headers.get("content-length")
-                if advertised is not None:
-                    if not advertised.isdecimal():
-                        raise ValueError("invalid content length")
-                    if int(advertised) > cap:
-                        raise WorkspaceError(
-                            "too_large"
-                            if successful_download
-                            else "uncertain"
-                            if write
-                            else "partial"
-                        )
-                mime = (
-                    response.headers.get("content-type", "")
-                    .partition(";")[0]
-                    .strip()
-                    .lower()
-                )
+                advertised = _identity_length(response)
+                mime = _response_mime(response)
                 if download is not None and successful_download:
+                    if advertised is not None and advertised > cap:
+                        raise WorkspaceError("too_large")
                     # Both raw carriers may exist. At most one text presentation
                     # needs unescaping into a second encoded spool.
                     inner_cap = _METADATA_BYTES + 4 * ((download[1] + 2) // 3)
@@ -1124,7 +1368,7 @@ class WorkspaceMcpClient:
                                     raise WorkspaceError("too_large")
                                 await joined_thread(spool.write, chunk)
                             if not seen or (
-                                advertised is not None and seen != int(advertised)
+                                advertised is not None and seen != advertised
                             ):
                                 raise ValueError("truncated reply")
                             await joined_thread(spool.flush)
@@ -1137,13 +1381,12 @@ class WorkspaceMcpClient:
                                 directory,
                             )
                 else:
-                    body = bytearray()
-                    async for chunk in response.aiter_bytes(chunk_size=65536):
-                        if len(body) + len(chunk) > cap:
-                            raise WorkspaceError("uncertain" if write else "partial")
-                        body.extend(chunk)
-                    if advertised is not None and len(body) != int(advertised):
-                        raise ValueError("truncated reply")
+                    body = await _bounded_body(
+                        response,
+                        cap,
+                        advertised,
+                        WorkspaceError("uncertain" if write else "partial"),
+                    )
                     if not 200 <= status < 300:
                         error_envelope = _decode(body)
                         if product != "docs" and "jsonrpc" in error_envelope:
@@ -1319,6 +1562,14 @@ class WorkspaceMcpClient:
         ):
             raise WorkspaceError("denied")
         write = tool in _WRITES
+        create_blob = (
+            product == "drive" and tool == "create_file" and upload is not None
+        )
+        download_blob = (
+            product == "drive"
+            and tool == "download_file_content"
+            and "exportMimeType" not in arguments
+        )
         if background and write and tool != "unlabel_message":
             raise WorkspaceError("denied")
         generation = self._generation(grant_id, product)
@@ -1336,6 +1587,37 @@ class WorkspaceMcpClient:
                 set(arguments) != keys
                 or not isinstance(document_id, str)
                 or re.fullmatch(DRIVE_ID_PATTERN, document_id) is None
+            ):
+                raise WorkspaceError("unsupported")
+        elif create_blob:
+            title = arguments.get("title")
+            parent = arguments.get("parentId")
+            mime = arguments.get("contentMimeType")
+            if (
+                set(arguments)
+                != {
+                    "title",
+                    "parentId",
+                    "contentMimeType",
+                    "disableConversionToGoogleType",
+                }
+                or before_send is None
+                or not isinstance(title, str)
+                or not title
+                or not isinstance(parent, str)
+                or re.fullmatch(DRIVE_ID_PATTERN, parent) is None
+                or not isinstance(mime, str)
+                or re.fullmatch(DRIVE_MIME_PATTERN, mime) is None
+                or mime.startswith("application/vnd.google-apps.")
+                or arguments["disableConversionToGoogleType"] is not True
+            ):
+                raise WorkspaceError("unsupported")
+        elif download_blob:
+            file_id = arguments.get("fileId")
+            if (
+                set(arguments) != {"fileId"}
+                or not isinstance(file_id, str)
+                or re.fullmatch(DRIVE_ID_PATTERN, file_id) is None
             ):
                 raise WorkspaceError("unsupported")
         else:
@@ -1371,7 +1653,7 @@ class WorkspaceMcpClient:
         ).encode()
         if len(encoded) > _MAX_REQUEST_BYTES or max_response_bytes <= 0:
             raise WorkspaceError("unsupported")
-        if download is not None:
+        if download is not None and not download_blob:
             max_response_bytes = _METADATA_BYTES + 2 * 4 * ((download[1] + 2) // 3)
         params: Obj = {"name": tool, "arguments": _decode(encoded)}
         rejected = None
@@ -1437,7 +1719,7 @@ class WorkspaceMcpClient:
                     rejected = credential.access_token
                     continue
                 rejected = None
-                if product == "docs" and write:
+                if write and (product == "docs" or create_blob):
                     # Acknowledgements go straight to custody. Readback is fenced.
                     return result
                 if product in {"drive", "docs"}:
@@ -1453,7 +1735,7 @@ class WorkspaceMcpClient:
                             else:
                                 raise WorkspaceError("uncertain") from None
                         raise
-                if product == "docs":
+                if product == "docs" or download_blob:
                     return result
                 if result.get("resultType") == "complete":
                     try:

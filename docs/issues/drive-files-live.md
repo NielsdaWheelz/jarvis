@@ -67,13 +67,39 @@ reopened `live-rollout-stale-02/facts.json` has sha256
 
 the third integrated run verified the native pdf export and stopped during the 100 mib
 create before a validated acknowledgement. the exact synthetic file was
-absent from the folder when checked. this leaves the result uncertain and
+absent from the folder when checked in drive. this leaves the result uncertain and
 does not establish a provider size limit. record the upload status separately
 from the acknowledgement and byte-verifying readback on the next run. the
 folder was verified in trash, both grants were disconnected, and google
 accepted revocation. the reopened `live-rollout-03/facts.json` under
 `~/.local/state/jarvis/qualification/adr0120-integrated-provider/` has sha256
 `e62e272cb3e6be27718f5a505f33c721fba6545ee3d7dda569d1233013008ea5`.
+
+the isolated mcp retry yielded all 139,810,646 wire bytes. google returned
+http 400 and an unstructured tool error before an acknowledgement. the
+standard drive api on the same grant uploaded exactly 104,857,600 decoded
+bytes in 36.2 seconds. a separate download in 8.7 seconds matched the
+sha-256 and file version. both disposable folders were verified in trash
+and google accepted both revocations. reopened receipts in the same
+directory are `live-rollout-max-01/facts.json` with sha256
+`ab7c09bf3ca72ffaa14e6c1dd66bfc83e70c095471747917e9ece04751c6644f` and
+`live-rollout-rest-01/facts.json` with sha256
+`8657e2b622484fea1ae6029fd7b9a3d9929cb0f75700e1889effa7a9e81fd64c`.
+[0129](../decisions/0129-drive-blob-rest.md) selects the standard byte path.
+the matched jarvis client, binary revision boundary and installed cut
+remain to be qualified.
+
+the 100 mib mcp revision also received http 400 after all 139,810,632
+wire bytes were sent. the exact preceding etag survived. the standard
+drive v3 api returned neither a metadata nor a media etag on the test
+blob, so its test attempted no conditional update. both fixtures were
+verified in trash and the test grants revoked. the reopened receipts are
+`live-rollout-max-revision-01/provider/facts.json` with sha256
+`b1bd142dc5ae31fb83dbb3bc291fc2c6a6d99249f6a6751aac39e83a91f0cdcc` and
+`live-rollout-rest-conditional-01/facts.json` with sha256
+`af7bdb07e8353b7b639a4f980943a9877b9af3cdeae3742d3ea01da90c032551`.
+keep revision gated pending a provider-enforced condition at the full
+attachment size.
 
 ### earlier retired probes
 

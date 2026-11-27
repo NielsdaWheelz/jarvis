@@ -299,8 +299,8 @@ async def fetch_binary(
         raise WorkspaceError("invalid_response")
     if (
         material["id"] != id
-        or material["title"] != original.name
         or material["mimeType"] != (export_type or original.mime)
+        or (export_type is not None and material["title"] != original.name)
     ):
         raise WorkspaceError("source_changed")
     if not original.native and original.size is not None and size != original.size:

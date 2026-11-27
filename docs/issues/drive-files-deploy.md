@@ -22,6 +22,13 @@ rehashed. verify it again with the actual stopped snapshot. production still hol
 the separate inactive `26f9588` candidate. the installer would prune it;
 confirm its disposition when ready to stage this release.
 
+the macbook systemd guest is ready. it passed a synthetic postgres 16.16
+and pgvector 0.8.6 restore and loopback-only ssh after reboot. the named
+evidence is under `~/.local/state/jarvis/qualification/adr0120-systemd-guest.w0FtiW05/`.
+the stopped production snapshot still needs its own restore and compatibility
+check. locate or provision the separate list-and-read credential for the
+retired attachment bucket before taking the hold.
+
 the production google project now has the four drive/docs services enabled.
 the activation wrapper carries the private `drive-cut.json` beside its receipt
 and reuses the same verified pair on retry. offline red, green and cleanup

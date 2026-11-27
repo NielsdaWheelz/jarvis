@@ -2,7 +2,7 @@
 Description=Jarvis direct Neon inference adapter
 After=network-online.target
 Wants=network-online.target
-StopWhenUnneeded=yes
+PartOf=jarvis-codex-contained-neon.service
 ConditionPathExists=!/var/lib/jarvis-cutover/held/jarvis-codex-contained.service
 
 [Service]

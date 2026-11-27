@@ -85,7 +85,6 @@ from jarvis.kernel import (
     build_kernel_runtime,
     main_provider_configuration,
     resolve_neon_provider,
-    resolve_paid_provider,
     resolve_role_providers,
 )
 from jarvis.mail_editor import MailEditor
@@ -634,7 +633,6 @@ async def _serve(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=host.endpoints,
                         neon_origin=host.google_neon.adapter_origin,
-                        antigravity_endpoint=host.agy_neon.socket,
                     )
                     composition, definitions, agents = await _compose_main(
                         owner=owner,
@@ -673,9 +671,6 @@ async def _serve(
                         agent_runtime,
                         host,
                         paid_ready=lambda: neon_paid_ready(owner, neon_control),
-                        paid_provider=lambda route: resolve_paid_provider(
-                            agent_runtime, route
-                        ),
                     )
 
                     compactor = MemoryWorker(
@@ -1191,7 +1186,6 @@ async def check_activation(
                         provider_state_root=settings.runtime_state_directory,
                         codex_endpoints=selected_host.endpoints,
                         neon_origin=selected_host.google_neon.adapter_origin,
-                        antigravity_endpoint=selected_host.agy_neon.socket,
                     )
                     resources.push_async_callback(agent_runtime.close)
                     memory = await resources.enter_async_context(

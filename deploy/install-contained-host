@@ -67,26 +67,13 @@ print(mapping.personal.host_user)
 print(mapping.personal.account_home)
 print(mapping.google_neon.host_user)
 print(mapping.google_neon.host_home)
-print(mapping.agy_neon.host_user)
-print(mapping.agy_neon.host_home)
-print(mapping.agy_neon.binary)
 PYCODE
 )
-[[ "${#layout[@]}" == 9 ]]
+[[ "${#layout[@]}" == 6 ]]
 host_user="${layout[0]}"
-agy_user="${layout[6]}"
-[[ "${layout[7]}" == /run/jarvis-agy-host/home ]]
-for group in jarvis-agy-control jarvis-agy-exec; do
-  getent group "$group" >/dev/null || sudo -n groupadd --system "$group"
-done
-if ! id "$agy_user" >/dev/null 2>&1; then
-  sudo -n useradd --system --gid jarvis-agy-control --no-create-home \
-    --home-dir "${layout[7]}" --shell /usr/sbin/nologin "$agy_user"
-fi
-[[ "$(id -Gn "$agy_user")" == jarvis-agy-control ]]
 sudo -n env "JARVIS_CODEX_HOST_CONFIG_PATH=$candidate" \
   "$release/.venv/bin/python" "$release/deploy/codex-host" render "$remote"
-for ((i=2; i<6; i+=2)); do
+for ((i=2; i<${#layout[@]}; i+=2)); do
   account_user="${layout[i]}"
   account_home="${layout[i+1]}"
   if ((i == 2)); then
@@ -95,7 +82,7 @@ for ((i=2; i<6; i+=2)); do
     sudo -n test ! -e "$account_home/auth.json"
   fi
   sudo -n -u jarvis test ! -r "$account_home/auth.json"
-  for j in 2 4 6; do
+  for ((j=2; j<${#layout[@]}; j+=2)); do
     if ((i != j)); then
       sudo -n -u "${layout[j]}" test ! -x "$account_home"
     fi
@@ -147,15 +134,14 @@ PYCODE
 for unit in "${NATIVE_HOST_UNITS[@]}"; do units+=("$remote/$unit"); done
 sed "s|/opt/jarvis/current|$release|g" "$release/deploy/jarvis.service" >"$remote/jarvis.service"
 getent group jarvis-neon-control >/dev/null || sudo -n groupadd --system jarvis-neon-control
+sudo -n install -d -m 0750 -o jarvis -g codex-clients /var/cache/jarvis /var/cache/jarvis/files
 sudo -n systemd-analyze verify "${units[@]}" "$remote/jarvis.service"
-sudo -n apparmor_parser --skip-kernel-load "$remote/jarvis-antigravity-localharness"
 if [[ "$change" != bootstrap ]]; then
   "$release/deploy/cutover-hold" close-native "$change"
   if sudo -n grep -q '^JARVIS_CODEX_PROFILE_KEY=' /etc/jarvis/jarvis.env; then
     printf 'remove the retired JARVIS_CODEX_PROFILE_KEY under stopped custody before publication\n' >&2
     exit 1
   fi
-
 fi
 if [[ "$change" == bootstrap ]]; then
   # This installer owns only the dedicated production distribution, never an account's CLI.
@@ -198,8 +184,6 @@ SUMS
     verify_stock "$stock_dir"
   fi
   sudo -n install -d -m 02750 -o jarvis -g codex-clients /run/jarvis-codex-cognition
-  sudo -n install -d -m 0750 -o jarvis -g codex-clients \
-    /var/cache/jarvis /var/cache/jarvis/files
   if ! sudo -n test -e /var/lib/jarvis-notes; then
     sudo -n install -d -m 02750 -o "$host_user" -g codex-clients /var/lib/jarvis-notes
   fi
@@ -238,29 +222,9 @@ SUMS
 fi
 notes=/var/lib/jarvis-notes
 incoming="$notes/.git/jarvis-mail/incoming"
-[[ -f "$notes/.git/config" && ! -L "$notes/.git/config" ]]
-[[ ! -e "$notes/.git/commondir" && ! -L "$notes/.git/commondir" ]]
-git_authority=0
-git config --file "$notes/.git/config" --no-includes \
-  --get-regexp '^(include\.path|includeif\..*\.path|core\.hookspath)$' >/dev/null || git_authority=$?
-[[ "$git_authority" == 1 ]] || {
-  printf 'the shared git checkout has redirected authority or unreadable config\n' >&2
-  exit 1
-}
-for directory in "$notes/.git/hooks" "$notes/.git/info"; do
-  [[ -d "$directory" && ! -L "$directory" ]]
-done
-# Add only the new writer to the existing access and inheritance policy.
-sudo -n find "$notes" -path "$incoming" -prune -o -type d \
-  -exec setfacl -n -m "u:$agy_user:rwx,d:u:$agy_user:rwx" -- {} +
-sudo -n find "$notes" -path "$incoming" -prune -o -type f -path "$notes/.git/objects/*" \
-  -exec setfacl -n -m "u:$agy_user:r--" -- {} +
-sudo -n find "$notes" -path "$incoming" -prune -o -type f ! -path "$notes/.git/objects/*" \
-  -exec setfacl -n -m "u:$agy_user:rwX" -- {} +
-sudo -n setfacl -n -m "u:$agy_user:rwx" -- "$incoming"
 primary_author=
 primary_committer=
-for i in 2 4 6; do
+for ((i=2; i<${#layout[@]}; i+=2)); do
   account_user="${layout[i]}"
   sudo -n -u "$account_user" -g codex-clients test -w "$incoming"
   sudo -n -u "$account_user" -g codex-clients test -x "$incoming"
@@ -274,8 +238,6 @@ for i in 2 4 6; do
     printf 'an existing notes path lacks native writer access for %s\n' "$account_user" >&2
     exit 1
   fi
-  # The SDK host uses the same checkout identity with an offline Git policy.
-  if [[ "$account_user" == "$agy_user" ]]; then continue; fi
   sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" rev-parse --show-toplevel >/dev/null
   author="$(sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" var GIT_AUTHOR_IDENT)"
   committer="$(sudo -n -H -u "$account_user" -g codex-clients git -C "$notes" var GIT_COMMITTER_IDENT)"
@@ -309,10 +271,10 @@ sudo -n env "JARVIS_CODEX_HOST_CONFIG_PATH=$candidate" \
   "$release/.venv/bin/python" "$release/deploy/codex-host" verify-notes-acl
 for directory in "$notes" "$notes/.git" "$notes/.git/objects" "$notes/.git/refs" \
   "$notes/.git/jarvis-pages" "$notes/.git/jarvis-mail"; do
-  for i in 2 4 6; do
+  for ((i=2; i<${#layout[@]}; i+=2)); do
     probe_file="$directory/.jarvis-native-acl-$(cat /proc/sys/kernel/random/uuid)"
     sudo -n -u "${layout[i]}" -g codex-clients bash -c 'umask 077; set -C; : > "$1"' acl-probe "$probe_file"
-    for j in 2 4 6; do
+    for ((j=2; j<${#layout[@]}; j+=2)); do
       if ! sudo -n -u "${layout[j]}" -g codex-clients test -r "$probe_file" ||
           ! sudo -n -u "${layout[j]}" -g codex-clients test -w "$probe_file"; then
         printf 'a new notes file lacks the inherited native writer ACL\n' >&2
@@ -329,54 +291,21 @@ for directory in "$notes" "$notes/.git" "$notes/.git/objects" "$notes/.git/refs"
   done
 done
 
-# The injected file contains only checkout identity and the exact safe directory.
-"$release/.venv/bin/python" - "$remote/antigravity-gitconfig" "$notes" "$primary_author" "$primary_committer" <<'PYCODE'
-import re
-import subprocess
-import sys
-
-output, notes, author, committer = sys.argv[1:]
-for key, value in (
-    ("safe.directory", notes), ("credential.helper", ""), ("core.hooksPath", "/dev/null")
-):
-    subprocess.run(["git", "config", "--file", output, key, value], check=True)
-for kind, identity in (("author", author), ("committer", committer)):
-    match = re.fullmatch(r"(.+) <([^<>]+)>", identity)
-    if match is None:
-        raise SystemExit("missing checkout Git identity")
-    for key, value in (("name", match[1]), ("email", match[2])):
-        subprocess.run(["git", "config", "--file", output, kind + "." + key, value], check=True)
-PYCODE
-
 # Only the existing named hold (or virgin bootstrap) may publish the staged layout.
 stock_paid_unit="${CODEX_HOST_UNITS[1]}"
-declare -A optional_states
-for unit in "$stock_paid_unit" "$AGY_HOST_UNIT"; do
-  optional_states[$unit]="$(systemctl is-enabled "$unit" 2>/dev/null || true)"
-  if [[ "$(systemctl show -p LoadState --value "$unit")" == not-found ]]; then
-    optional_states[$unit]=
-  fi
-done
+if [[ "$(systemctl show -p LoadState --value "$stock_paid_unit")" == not-found ]]; then
+  paid_state=
+else
+  paid_state="$(systemctl is-enabled "$stock_paid_unit" || true)"
+fi
 sudo -n install -m 0644 -o root -g root "$remote/codex-neon-requirements.toml" \
   /etc/jarvis/codex-neon-requirements.toml
-sudo -n install -m 0644 -o root -g root "$remote/antigravity-gitconfig" \
-  /etc/jarvis/antigravity-gitconfig
-sudo -n install -m 0644 -o root -g root "$remote/jarvis-antigravity-localharness" \
-  /etc/apparmor.d/jarvis-antigravity-localharness
-sudo -n chgrp jarvis-agy-exec "${layout[8]}"
-sudo -n chmod 0750 "${layout[8]}"
-sudo -n apparmor_parser -r /etc/apparmor.d/jarvis-antigravity-localharness
-for profile in jarvis-antigravity-localharness jarvis-antigravity-tool; do
-  sudo -n grep -qFx "$profile (enforce)" /sys/kernel/security/apparmor/profiles
-done
-sudo -n -u "$agy_user" -g codex-clients env GIT_CONFIG_GLOBAL=/etc/jarvis/antigravity-gitconfig \
-  git -C "$notes" rev-parse --show-toplevel >/dev/null
 sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json
 for unit in "${NATIVE_HOST_UNITS[@]}"; do
-  case "${optional_states[$unit]:-}" in masked|masked-runtime) continue ;; esac
+  if [[ "$unit" == "$stock_paid_unit" && "$paid_state" == masked* ]]; then continue; fi
   sudo -n install -m 0644 -o root -g root "$remote/$unit" "/etc/systemd/system/$unit"
 done
-sync -f /etc/jarvis /etc/systemd/system /etc/apparmor.d
+sync -f /etc/jarvis /etc/systemd/system
 sudo -n systemctl daemon-reload
 sudo -n systemctl enable "${CODEX_HOST_UNITS[0]}"
 if [[ "$change" != bootstrap ]]; then
@@ -384,23 +313,20 @@ if [[ "$change" != bootstrap ]]; then
 fi
 sudo -n systemctl start "${CODEX_HOST_UNITS[0]}"
 verify_native_account "$release" personal
-for unit in "$stock_paid_unit" "$AGY_HOST_UNIT"; do
-  case "${optional_states[$unit]}" in
-    masked|masked-runtime|disabled)
-      printf '%s retains its operator-disabled state\n' "$unit"
-      continue
-      ;;
-    "") sudo -n systemctl enable "$unit" ;;
-  esac
-  if sudo -n systemctl start "$unit"; then
-    if [[ "$unit" == "$AGY_HOST_UNIT" ]]; then
-      verify_agy_endpoint "$release" && continue
-    elif systemctl is-active --quiet "$NEON_GATEWAY_UNIT" &&
-         verify_native_account "$release" google_neon; then
-      continue
+case "$paid_state" in
+  masked|masked-runtime|disabled)
+    printf '%s retains its operator-disabled state\n' "$stock_paid_unit"
+    ;;
+  *)
+    if [[ -z "$paid_state" ]]; then sudo -n systemctl enable "$stock_paid_unit"; fi
+    if sudo -n systemctl start "$stock_paid_unit" &&
+        systemctl is-active --quiet "$NEON_GATEWAY_UNIT" &&
+        verify_native_account "$release" google_neon; then
+      printf 'paid native binding verified; billing is checked separately\n'
+    else
+      sudo -n systemctl stop "$stock_paid_unit"
+      printf '%s remains enabled but is unavailable. installed containment verification requires repair.\n' "$stock_paid_unit" >&2
     fi
-  fi
-  sudo -n systemctl stop "$unit"
-  printf '%s remains enabled but is unavailable. installed containment verification requires repair.\n' "$unit" >&2
-done
+    ;;
+esac
 printf 'contained binding installation completed for %s; jarvis remains stopped\n' "$commit"

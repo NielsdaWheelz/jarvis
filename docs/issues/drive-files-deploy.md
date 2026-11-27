@@ -43,12 +43,11 @@ against the stopped snapshot, so changing it inside that hold would
 invalidate the rehearsal inputs. qualify the enrollment sequence before
 opening the production hold.
 
-the combined target also calls `verify-agy` before taking custody. the
-selected host has the stock-only v7 mapping and
-`kernel.apparmor_restrict_unprivileged_unconfined=0`. the target requires
-the v8 mapping and `1`. resolve the separately held [0111](../decisions/0111-native-antigravity-neon.md)
-host adoption before selecting this combined release, or qualify a release
-that carries only the approved host composition.
+the owner selected the stock-only [0131](../decisions/0131-stock-drive-rollout.md)
+release and a separate permission step. qualify the `0025` bridge and the
+stock-only `0027` candidate. preserve the selected v7 host mapping bytes
+through the stopped migration. [0111](../decisions/0111-native-antigravity-neon.md)
+remains separate.
 
 the production google project now has the four drive/docs services enabled.
 the activation wrapper carries the private `drive-cut.json` beside its receipt

@@ -7,9 +7,8 @@ import logging
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from functools import partial
 from itertools import takewhile
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 from uuid import UUID, uuid4
@@ -29,7 +28,6 @@ from llm_agent_kernel import (
     NativeSubmissionConflict,
     NativeUncertain,
     NoNewInput,
-    OwnerPermit,
     Preempt,
     ProviderSessionLease,
     input_batch,
@@ -52,12 +50,10 @@ from llm_tools import (
 from provider_runtime.agent_runtime import (
     AgentMessage,
     AgentNotSubmitted,
-    AgentRuntimeDefect,
     AgentRuntimeError,
     AgentSubmissionRejected,
     AgentTerminal,
     AgentToolUse,
-    InvalidAgentRequest,
     NativeTerminalEvidence,
     OutputSchemaMismatch,
 )
@@ -107,7 +103,6 @@ from jarvis.native_journal import (
     never_submitted,
     park_unadmitted_input,
     recover_sealed_turn,
-    settle_undispatched_antigravity,
     yield_workspace_input,
 )
 from jarvis.native_protocol import (
@@ -524,16 +519,11 @@ class NativeRunner:
                 return NativeRunOutcome(
                     "blocked", min(retry_at, outcome.retry_at or retry_at)
                 )
-            if outcome is None:
-                all_deferred = False
-            else:
-                if first_deferral is None:
-                    first_deferral = self.route_selector.describe_deferral(
-                        outcome, pinned
-                    )
-                deadline = outcome.reset_at
-                if deadline is not None and deadline > datetime.now(UTC):
-                    retry_at = deadline if retry_at is None else min(retry_at, deadline)
+            if first_deferral is None:
+                first_deferral = self.route_selector.describe_deferral(outcome, pinned)
+            deadline = outcome.reset_at
+            if deadline is not None and deadline > datetime.now(UTC):
+                retry_at = deadline if retry_at is None else min(retry_at, deadline)
             excluded.append(pinned)
 
     async def _run_selected(
@@ -542,7 +532,7 @@ class NativeRunner:
         selected: SelectedRoute,
         pinned: NativeRoute | None,
         cancellation: CancellationToken,
-    ) -> NativeRunOutcome | DeferredRoute | None:
+    ) -> NativeRunOutcome | DeferredRoute:
         profile = _opening_profile(pending[0])
         match profile:
             case "foreground_recovery":
@@ -567,6 +557,7 @@ class NativeRunner:
         as_of = datetime.now(UTC)
         attempt_id = str(uuid4())
         permit = self.owner.permit("jarvis-native:" + attempt_id)
+        definition = with_main_provider(template, selected.provider)
         try:
             async with self.opening_reads.begin() as connection:
                 await connection.execute(
@@ -574,58 +565,41 @@ class NativeRunner:
                         "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
                     )
                 )
-                while True:
-                    definition = with_main_provider(template, selected.provider)
+                inputs, projected, fit = await fit_native_inputs(
+                    self.owner,
+                    self.store,
+                    definition,
+                    pending,
+                    as_of,
+                    prefix=source,
+                    exclude_ids=(),
+                    connection=connection,
+                )
+                if fit.fits:
+                    await self.owner.require_current(permit)
+                    if cancellation.cancelled or await self.store.paused(
+                        self.owner.scope_id
+                    ):
+                        return NativeRunOutcome("stopped")
                     try:
-                        projection = await fit_native_inputs(
-                            self.owner,
-                            self.store,
-                            definition,
-                            pending,
-                            as_of,
-                            prefix=source,
-                            exclude_ids=(),
-                            connection=connection,
+                        self._session = await self.kernel.provider.acquire_native(
+                            definition, plan, permit, None
                         )
-                    except InvalidAgentRequest:
-                        if selected.route != "agy_neon":
-                            raise
-                        projection = None
-                    if projection is not None and projection[2].fits:
-                        await self.owner.require_current(permit)
-                        if cancellation.cancelled or await self.store.paused(
-                            self.owner.scope_id
-                        ):
-                            return NativeRunOutcome("stopped")
-                        if await self._acquire_route(
-                            selected, definition, plan, permit
-                        ):
-                            break
-                    if pinned is not None or selected.route != "agy_neon":
-                        break
-                    next_route = await self.route_selector.choose_route(
-                        "main", after=selected
-                    )
-                    if isinstance(next_route, DeferredRoute):
-                        return (
-                            DeferredRoute.opening_failure(selected.route)
-                            if projection is not None and projection[2].fits
-                            else None
+                    except (AgentRuntimeError, OSError) as error:
+                        self.route_selector.opening_failed(selected.route)
+                        LOGGER.warning(
+                            "native opening blocked: route=%s type=%s",
+                            selected.route,
+                            type(error).__name__,
                         )
-                    selected = next_route
-            overflow = None if projection is None else projection[2].overflow
-            if projection is None or overflow is not None:
-                reason = "antigravity cannot carry this input intact"
-                if overflow is not None:
-                    actual, limit, unit = overflow
-                    reason = f"the opening needed {actual} {unit}, limit {limit}"
+                        return DeferredRoute.opening_failure(selected.route)
+            if fit.overflow is not None:
+                actual, limit, unit = fit.overflow
+                reason = f"the opening needed {actual} {unit}, limit {limit}"
                 parked = await park_unadmitted_input(self.owner, pending[0].id, reason)
                 if parked:
                     self.notify_delivery()
                 return NativeRunOutcome("progressed" if parked else "blocked")
-            if self._session is None:
-                return DeferredRoute.opening_failure(selected.route)
-            inputs, projected, _ = projection
             request = NativeRequest(
                 attempt_id,
                 permit,
@@ -638,7 +612,7 @@ class NativeRunner:
                 None,
                 Checkpoint(str(inputs[-1].input_id)),
             )
-            outcome = await self._run_opened(
+            return await self._run_opened(
                 selected,
                 definition,
                 request,
@@ -646,60 +620,10 @@ class NativeRunner:
                 pinned,
                 cancellation,
             )
-            if outcome != "retry_stock":
-                return outcome
-            fallback = await self.route_selector.choose_route("main", after=selected)
-            if isinstance(fallback, DeferredRoute):
-                return DeferredRoute.opening_failure(selected.route)
-            definition = with_main_provider(template, fallback.provider)
-            if not native_request_fit(definition, projected).fits:
-                return None
-            attempt_id = str(uuid4())
-            permit = self.owner.permit("jarvis-native:" + attempt_id)
-            request = replace(request, attempt_id=attempt_id, permit=permit)
-            await self.owner.require_current(permit)
-            if cancellation.cancelled or await self.store.paused(self.owner.scope_id):
-                return NativeRunOutcome("stopped")
-            if not await self._acquire_route(fallback, definition, plan, permit):
-                return DeferredRoute.opening_failure(fallback.route)
-            outcome = await self._run_opened(
-                fallback,
-                definition,
-                request,
-                cutoff,
-                pinned,
-                cancellation,
-            )
-            if outcome == "retry_stock":
-                raise NativeDefect("stock returned an Antigravity non-entry")
-            return outcome
         finally:
             session, self._session = self._session, None
             if session is not None:
                 await self.kernel.provider.discard(session)
-
-    async def _acquire_route(
-        self,
-        selected: SelectedRoute,
-        definition: NativeDefinition,
-        plan: FrozenToolPlan,
-        permit: OwnerPermit,
-    ) -> bool:
-        try:
-            self._session = await self.kernel.provider.acquire_native(
-                definition, plan, permit, None
-            )
-        except (AgentRuntimeDefect, AgentRuntimeError, OSError) as error:
-            if isinstance(error, AgentRuntimeDefect) and selected.route != "agy_neon":
-                raise
-            self.route_selector.opening_failed(selected.route)
-            LOGGER.warning(
-                "native opening blocked: route=%s type=%s",
-                selected.route,
-                type(error).__name__,
-            )
-            return False
-        return True
 
     async def _run_opened(
         self,
@@ -709,7 +633,7 @@ class NativeRunner:
         cutoff: int,
         pinned: NativeRoute | None,
         cancellation: CancellationToken,
-    ) -> NativeRunOutcome | DeferredRoute | Literal["retry_stock"]:
+    ) -> NativeRunOutcome | DeferredRoute:
         session = self._session
         if session is None:
             raise NativeDefect("supervision requires an acquired native session")
@@ -720,7 +644,6 @@ class NativeRunner:
         terminal = None
         native_inputs = None
         observations = None
-        antigravity = None
         try:
             try:
                 ref = session.session.ref
@@ -730,11 +653,6 @@ class NativeRunner:
                     definition.provider.transport,
                 ):
                     raise NativeDefect("acquired session changed the selected route")
-                antigravity = (
-                    self.kernel.runtime.antigravity_lease(session.session)
-                    if selected.route == "agy_neon"
-                    else None
-                )
                 journal = PostgresNativeJournal(
                     self.owner.database,
                     definition=definition,
@@ -742,7 +660,6 @@ class NativeRunner:
                     owner=self.owner,
                     memory=self.memory,
                     neon_control=self.neon_control,
-                    antigravity=antigravity,
                     on_armed=self.presence.arm,
                     workspace_grant=(
                         self.workspace.enrollment()
@@ -760,11 +677,7 @@ class NativeRunner:
                     memory_cutoff=cutoff,
                     cancellation=cancellation,
                     maximum_batch_size=self.settings.maximum_batch_size,
-                    accept_steers=(
-                        pinned is None
-                        and profile == "main"
-                        and selected.route != "agy_neon"
-                    ),
+                    accept_steers=pinned is None and profile == "main",
                     workspace=self.workspace,
                 )
                 dispatcher = self.dispatcher_factory(native_inputs, journal)
@@ -793,11 +706,6 @@ class NativeRunner:
                     messages=self,
                     cancellation=cancellation,
                     on_stock_tool=stock_tool,
-                    on_child=(
-                        None
-                        if antigravity is None
-                        else partial(journal.record_neon_child, request)
-                    ),
                 )
             except DeploymentOwnershipDefect:
                 raise
@@ -806,14 +714,6 @@ class NativeRunner:
             except NeonOpeningUnavailable:
                 self.route_selector.opening_failed(selected.route)
                 LOGGER.warning("paid native control unavailable before submission")
-                if (
-                    pinned is None
-                    and selected.route == "agy_neon"
-                    and not cancellation.cancelled
-                    and self.neon_control is not None
-                    and await self.neon_control.available()
-                ):
-                    return "retry_stock"
                 return DeferredRoute.opening_failure(selected.route)
             except StaleCatchupInventory:
                 parked = await park_unadmitted_input(
@@ -850,16 +750,6 @@ class NativeRunner:
                 if deferred is not None:
                     # Recheck admission on the next pass. Personal may have reset.
                     return NativeRunOutcome("progressed")
-            if (
-                pinned is None
-                and isinstance(terminal, AgentNotSubmitted)
-                and antigravity is not None
-                and antigravity.joined
-                and journal is not None
-                and journal.sdk_upstream_entries == 0
-                and await settle_undispatched_antigravity(self.owner, request)
-            ):
-                return "retry_stock"
             if (
                 terminal is None
                 or isinstance(terminal, AgentNotSubmitted | AgentSubmissionRejected)

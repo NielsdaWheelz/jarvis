@@ -358,8 +358,15 @@ if [[ -f "$stored_mapping" ]]; then
 elif [[ "$incoming_mapping" != none ]]; then
   mapping_source="$incoming_mapping"
 fi
-JARVIS_CODEX_HOST_CONFIG_PATH="$mapping_source" \
-  "$release/.venv/bin/python" "$release/deploy/codex-host" verify-agy
+cmp -s "$mapping" "$mapping_source" || refuse "release mapping differs from the installed stock mapping"
+"$release/.venv/bin/python" - "$mapping_source" <<'PYCODE'
+import sys
+from pathlib import Path
+
+from jarvis.codex_config import CodexHostConfig
+
+CodexHostConfig.load(Path(sys.argv[1]))
+PYCODE
 mapping_digest="$(sha256sum "$mapping_source" | cut -d' ' -f1)"
 digest="$mapping_digest"
 stored_reader="$held/reader-$change.json"
@@ -453,12 +460,6 @@ if [[ "$agent_client" != none ]]; then
 else
   printf '%s\n' '{"authority_changes":[]}' >"$scratch/authority.json"
 fi
-preflight_release="$release"
-if ! cmp -s "$mapping" "$mapping_source"; then
-  # This is the last stopped check against the predecessor's own account
-  # contract. The target's stopped check follows publication of its mapping.
-  preflight_release="$source_release"
-fi
 if [[ "$source_schema" != "$target_schema" ]]; then
   qualification="$held/qualification-$change.json"
   drive_cut="$held/drive-cut.json"
@@ -491,7 +492,7 @@ if [[ "$source_schema" != "$target_schema" ]]; then
 elif [[ "$phase" == held && "$repair_of" == none ]]; then
   if [[ -f "$held/preflight-$change.json" ]]; then
     cp -- "$held/preflight-$change.json" "$scratch/source-check.json"
-  elif ! check_maintenance "$preflight_release" "$scratch/authority.json" "$scratch/source-check.json"; then
+  elif ! check_maintenance "$release" "$scratch/authority.json" "$scratch/source-check.json"; then
     if [[ -s "$scratch/source-check.json" ]]; then cat "$scratch/source-check.json"; fi
     if safe_source_return "$scratch/source-check.json" && check_source_activation "$source_release"; then
       "$custody" not-applied "$change" --evidence "$scratch/source-check.json"

@@ -9,7 +9,6 @@ from typing import Any, Literal, Never
 
 from llm_agent_kernel import (
     CODEX_NATIVE_OPTIONS,
-    AntigravityProviderConfiguration,
     CancellationToken,
     CodexProvider,
     ProviderConfiguration,
@@ -28,25 +27,19 @@ from provider_runtime.agent_runtime import (
     CodexUnixEndpoint,
     CredentialRef,
     PermissionPolicy,
-    SessionUnavailable,
     UnsafeConfirmation,
 )
 from provider_runtime.types import Present
 
 from jarvis.codex_config import (
-    PAID_ROUTES,
     CodexHostConfig,
     NativeRoute,
-    PaidRoute,
     canonical_absolute_path,
 )
 from jarvis.definitions import load_session_manifest, verify_runtime_dependencies
 
 LOGGER = logging.getLogger(__name__)
 type CodexRole = Literal["main", "compactor", "dreamer"]
-type NativeProviderConfiguration = (
-    ProviderConfiguration | AntigravityProviderConfiguration
-)
 INCLUDED_EXHAUSTED = frozenset({"included_exhausted", "credits_available"})
 _OPENING_FAILED = "opening_failed"
 
@@ -54,7 +47,7 @@ _OPENING_FAILED = "opening_failed"
 @dataclass(frozen=True, slots=True)
 class SelectedRoute:
     route: NativeRoute
-    provider: NativeProviderConfiguration
+    provider: ProviderConfiguration
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,13 +71,10 @@ class RouteSelector:
         host: CodexHostConfig,
         *,
         paid_ready: Callable[[], Awaitable[DeferredRoute | None]] | None = None,
-        paid_provider: Callable[[PaidRoute], Awaitable[NativeProviderConfiguration]]
-        | None = None,
     ) -> None:
         self._runtime = runtime
         self._primary = host.personal
         self._paid_ready = paid_ready
-        self._paid_provider = paid_provider
         self._primary_available: tuple[datetime, int, int] | None = None
         self._last_personal: CodexAllowance | DeferredRoute | None = None
         self._status: dict[tuple[CodexRole, NativeRoute | None], tuple[str, str]] = {}
@@ -165,18 +155,11 @@ class RouteSelector:
         role: CodexRole,
         *,
         pinned: NativeRoute | None = None,
-        after: SelectedRoute | None = None,
     ) -> SelectedRoute | DeferredRoute:
-        if role != "main" and (pinned not in {None, "personal"} or after is not None):
-            raise ValueError("only main can open on paid routes")
-        if after is not None:
-            if pinned is not None or after.route != "agy_neon":
-                raise ValueError(
-                    "a paid opening can only continue after a fresh agy selection"
-                )
-            result = await self._resolve_paid("google_neon")
-        elif pinned is not None and pinned != "personal":
-            result = await self._select_paid((pinned,))
+        if pinned == "google_neon":
+            if role != "main":
+                raise ValueError("only main can open on google_neon")
+            result = await self._select_paid()
         else:
             evidence = await self.observe_personal()
             if isinstance(evidence, DeferredRoute):
@@ -186,7 +169,7 @@ class RouteSelector:
                 and pinned is None
                 and evidence.state in INCLUDED_EXHAUSTED
             ):
-                result = await self._select_paid(PAID_ROUTES)
+                result = await self._select_paid()
             elif evidence.state in {"available", "available_with_credits"} or (
                 evidence.state == "unavailable"
                 and self._primary_grace(evidence.observed_at)
@@ -227,30 +210,22 @@ class RouteSelector:
             )
         return result
 
-    async def _select_paid(
-        self, routes: tuple[PaidRoute, ...]
-    ) -> SelectedRoute | DeferredRoute:
+    async def _select_paid(self) -> SelectedRoute | DeferredRoute:
         if self._paid_ready is None:
-            return DeferredRoute(routes[0], "route_unavailable", datetime.now(UTC))
+            return DeferredRoute("google_neon", "route_unavailable", datetime.now(UTC))
         try:
             blocked = await self._paid_ready()
         except (AgentRuntimeDefect, AgentRuntimeError, OSError, ValueError):
-            return DeferredRoute(routes[0], "capacity_unverified", datetime.now(UTC))
+            return DeferredRoute(
+                "google_neon", "capacity_unverified", datetime.now(UTC)
+            )
         if blocked is not None:
-            return replace(blocked, route=routes[0])
-        first = await self._resolve_paid(routes[0])
-        if isinstance(first, DeferredRoute) and len(routes) == 2:
-            return await self._resolve_paid(routes[1])
-        return first
-
-    async def _resolve_paid(self, route: PaidRoute) -> SelectedRoute | DeferredRoute:
-        if self._paid_provider is None:
-            return DeferredRoute(route, "route_unavailable", datetime.now(UTC))
+            return blocked
         try:
-            candidate = await self._paid_provider(route)
+            candidate = await resolve_neon_provider(self._runtime)
         except (AgentRuntimeDefect, AgentRuntimeError, OSError, ValueError):
-            return DeferredRoute(route, "catalog_unverified", datetime.now(UTC))
-        return SelectedRoute(route, candidate)
+            return DeferredRoute("google_neon", "catalog_unverified", datetime.now(UTC))
+        return SelectedRoute("google_neon", candidate)
 
     def _primary_grace(self, observed_at: datetime) -> bool:
         if self._primary_available is None:
@@ -296,23 +271,6 @@ async def resolve_neon_provider(runtime: AgentRuntime) -> ProviderConfiguration:
     } or len(row.reasoning) != len(contract.child_efforts):
         raise ValueError("neon catalog child efforts differ from the release pin")
     return provider
-
-
-async def resolve_paid_provider(
-    runtime: AgentRuntime, route: PaidRoute
-) -> NativeProviderConfiguration:
-    if route == "google_neon":
-        return await resolve_neon_provider(runtime)
-    if not await runtime.antigravity_ready():
-        raise SessionUnavailable("Antigravity host preflight unavailable")
-    contract = load_session_manifest().agy_neon
-    return AntigravityProviderConfiguration(
-        auth=CredentialRef("host_managed", route),
-        model_key=contract.model,
-        reasoning=contract.effort,
-        agent_definition_revision=contract.capability_revision,
-        workspace_tools=False,
-    )
 
 
 def _catalog_provider(
@@ -387,7 +345,6 @@ def build_agent_runtime(
     provider_state_root: Path,
     codex_endpoints: Mapping[str, Path],
     neon_origin: str | None = None,
-    antigravity_endpoint: Path | None = None,
 ) -> AgentRuntime:
     verify_runtime_dependencies()
     return AgentRuntime(
@@ -398,7 +355,6 @@ def build_agent_runtime(
             },
             max_turn_seconds=300.0,
             codex_neon_origin=neon_origin,
-            antigravity_endpoint=antigravity_endpoint,
         )
     )
 

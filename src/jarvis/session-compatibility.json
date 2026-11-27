@@ -1,22 +1,5 @@
 {
-  "agy_neon": {
-    "backend": "antigravity",
-    "capability_revision": "antigravity-sdk-neon-v1",
-    "child_context": "fresh",
-    "child_depth": 2,
-    "child_effort": "inherit",
-    "context_window": "512k",
-    "effort": "high",
-    "executable_sha256": "110d5e035156c0b2e686fb829bee5c60370178bdc7ad73424f9cac29face7a89",
-    "input_utf8_bytes": 190000,
-    "model": "gemini-4-neon",
-    "model_version": "gemini-4-neon",
-    "sdk_version": "0.1.24",
-    "shell_network": "disabled",
-    "transport": "antigravity_sdk",
-    "wheel_sha256": "678c5c56a4efa8d94b90df808a93b339cf3ead498b01898272d5833c8c9ad13f"
-  },
-  "application_session_contract_revision": "jarvis-native-antigravity-neon-v1",
+  "application_session_contract_revision": "jarvis-native-stock-codex-v1",
   "dependencies": {
     "llm-agent-kernel": "89a14b14c2e8e157d8657f58c2534569d83b93d7",
     "llm-tools": "37b7688381161d398b8094795d43bb7c87ca1885",
@@ -52,5 +35,5 @@
       "revision": "jarvis-main-cited-sources-v31"
     }
   },
-  "schema_version": "jarvis-session-compatibility.v6"
+  "schema_version": "jarvis-session-compatibility.v7"
 }

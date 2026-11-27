@@ -560,7 +560,15 @@ on a newly restored host it starts absent. stopped enrollment after
 invalidation issues a fresh epoch. drafts linked before the restore remain
 readable as history. the isolated backup reader has no editor connection.
 
-the [drive files cut](decisions/0120-drive-files.md) uses a separate read-only enrollment on the same standard client. run `jarvis owner-drive-enroll` while stopped and consent as the enrolled workspace subject. it writes `drive-oauth.json`. `owner-drive-disconnect` fences only those reads. enroll the optional agent scope with `jarvis workspace-enroll --drive` under the named cut and the account decision in [0127](decisions/0127-drive-prototype-qualification.md). check both paths in the rehearsal and keep tokens out of evidence.
+the [drive files cut](decisions/0120-drive-files.md) uses the separate
+permission step in [0131](decisions/0131-stock-drive-rollout.md). select
+the compatible `0025` release first. run `jarvis workspace-enroll --drive`
+under named stopped custody. preserve the installed grant identity and
+pending label. run `jarvis owner-drive-enroll` with the separate standard
+desktop client and the same google subject. it writes `drive-oauth.json`.
+finish enrollment and verify both grants before taking the schema snapshot.
+keep tokens out of evidence. `owner-drive-disconnect` fences only the human
+drive reader.
 
 after the named release hold gives you the stopped snapshot, use the macbook restore. run `deploy/drive-export` against that read-only predecessor with a list-and-read credential for only the retired bucket, the stopped spool and the chosen private folder. record exact held, orphan and retained object dispositions. the export issues no deletes. if the export reports a terminal uncertain action, add its approved `retired_actions` entry to the inventory with `id` and `disposition` equal to `verified_under_original_contract` or `owner_accepted_unknown`. approve and hash the resulting inventory, then run `deploy/drive-import` with the disposable `drive.file` grant, the export and the approved digest. reopen both reader lanes on the verified ids and close the operator grant. the frozen import map permits retry of the same id only.
 

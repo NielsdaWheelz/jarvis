@@ -9,8 +9,7 @@ if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
     <"${BASH_SOURCE[0]%/*}/native-host-units"
 fi
 CODEX_HOST_UNITS=("${NATIVE_HOST_UNITS[@]:0:2}")
-AGY_HOST_UNIT="${NATIVE_HOST_UNITS[2]}"
-NEON_GATEWAY_UNIT="${NATIVE_HOST_UNITS[3]}"
+NEON_GATEWAY_UNIT="${NATIVE_HOST_UNITS[2]}"
 # shellcheck disable=SC2034
 CODEX_SOCKET_ROOTS=(/run/jarvis-contained /run/jarvis-contained-neon)
 CODEX_SOCKET_PROPERTIES=(
@@ -32,38 +31,6 @@ verify_native_account() {
     "--property=RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" \
     --property=Environment=JARVIS_CODEX_HOST_CONFIG_PATH=/etc/jarvis/codex-host.json \
     "$release/.venv/bin/python" "$release/deploy/codex-host" verify "$profile" </dev/null
-}
-
-verify_agy_endpoint() {
-  local release="$1"
-  systemd-run --quiet --wait --pipe --collect \
-    --property=Type=oneshot --property=User=jarvis --property=Group=jarvis-agy-control \
-    --property=ProtectHome=true --property=ProtectSystem=strict \
-    --property=PrivateTmp=true --property=NoNewPrivileges=true \
-    --property=RestrictAddressFamilies=AF_UNIX \
-    "$release/.venv/bin/python" - <<'PYCODE'
-import asyncio
-from pathlib import Path
-
-from jarvis.codex_config import CodexHostConfig
-from provider_runtime.agent_runtime import AgentRuntime, AgentRuntimeConfig
-
-
-async def check():
-    mapping = CodexHostConfig.load(Path("/etc/jarvis/codex-host.json"))
-    async with AgentRuntime(
-        AgentRuntimeConfig(Path("/tmp"), antigravity_endpoint=mapping.agy_neon.socket)
-    ) as runtime:
-        try:
-            async with asyncio.timeout(10):
-                while not await runtime.antigravity_ready():
-                    await asyncio.sleep(0.2)
-        except TimeoutError:
-            raise SystemExit("contained Antigravity host is unavailable") from None
-
-
-asyncio.run(check())
-PYCODE
 }
 
 require_no_cutover_hold() {
@@ -159,7 +126,7 @@ PYCODE
 
 prune_releases() {
   local candidate="${1:-}" selected='' release main_pid
-  local host_unit host_path host_state host_pid host_control_pid host_executable host_release entrypoint
+  local host_unit host_path host_state host_pid host_control_pid host_executable host_release
   require_no_cutover_hold || return 1
   if [[ -n "$candidate" && ! "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
     printf 'invalid staged release commit\n' >&2
@@ -214,13 +181,11 @@ if value["type"] != "a(sasbttttuii)" or len(value["data"]) != 1:
     raise SystemExit("contained host has an unsupported loaded ExecStart")
 print(value["data"][0][0])
 ')" || return 1
-    entrypoint=python
-    if [[ "$host_unit" == "$AGY_HOST_UNIT" ]]; then entrypoint=provider-runtime-antigravity-host; fi
-    if [[ ! "$host_executable" =~ ^/opt/jarvis/releases/[0-9a-f]{40}/\.venv/bin/$entrypoint$ ]]; then
+    if [[ ! "$host_executable" =~ ^/opt/jarvis/releases/[0-9a-f]{40}/\.venv/bin/python$ ]]; then
       printf 'contained host does not select an installed release; refusing cleanup\n' >&2
       return 1
     fi
-    host_release="${host_executable%/.venv/bin/*}"
+    host_release="${host_executable%/.venv/bin/python}"
     if [[ "$host_release" != "$selected" && "${host_release##*/}" != "$candidate" ]]; then
       printf 'contained host still selects an unretained release; refusing cleanup\n' >&2
       return 1

@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
-"""Systemd entry points and release layout for contained cognition hosts."""
+"""Systemd entry points for the separate contained Codex hosts."""
 
 from __future__ import annotations
 
 import asyncio
 import grp
-import hashlib
-import importlib.metadata
 import json
 import os
-import platform
 import pwd
 import re
 import stat
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 import httpx
@@ -35,9 +31,6 @@ from jarvis.codex_config import (
 )
 
 type StockHost = CodexAccount | NeonHost
-
-AGY_RUNTIME = Path("/run/jarvis-agy-host")
-AGY_PROFILE = "jarvis-antigravity-localharness"
 
 
 def host_home(host: StockHost) -> str:
@@ -470,7 +463,7 @@ def verify_notes_acl(config: CodexHostConfig) -> None:
         f"user:{pwd.getpwnam(config.jarvis_user).pw_uid}:r-x",
         *(
             f"user:{pwd.getpwnam(host.host_user).pw_uid}:rwx"
-            for host in (config.personal, config.google_neon, config.agy_neon)
+            for host in (config.personal, config.google_neon)
         ),
     }
     for path, directories, _ in notes.walk():
@@ -499,66 +492,6 @@ def verify_notes_acl(config: CodexHostConfig) -> None:
             )
 
 
-def verify_agy_host(config: CodexHostConfig, release: Path) -> None:
-    from jarvis.definitions import load_session_manifest
-
-    pin = load_session_manifest().agy_neon
-    binary = Path(config.agy_neon.binary)
-    distribution = importlib.metadata.distribution("google-antigravity")
-    bundle = Path(distribution.locate_file("google/antigravity/bin/localharness"))
-    if (
-        sys.platform != "linux"
-        or platform.machine() != "x86_64"
-        or distribution.version != pin.sdk_version
-        or binary != bundle
-        or binary.resolve(strict=True) != binary
-        or not binary.is_relative_to(release / ".venv")
-    ):
-        raise RuntimeError("Antigravity requires its pinned release-owned Linux bundle")
-    for setting, expected in (
-        ("/sys/module/apparmor/parameters/enabled", "Y"),
-        ("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"),
-        ("/proc/sys/kernel/apparmor_restrict_unprivileged_unconfined", "1"),
-    ):
-        try:
-            value = Path(setting).read_text(encoding="ascii").strip()
-        except (OSError, UnicodeError):
-            raise RuntimeError(
-                f"Antigravity cannot read required AppArmor setting {setting}"
-            ) from None
-        if value != expected:
-            raise RuntimeError(
-                f"Antigravity requires AppArmor setting {setting}={expected}"
-            )
-    metadata = binary.stat()
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_uid != 0
-        or stat.S_IMODE(metadata.st_mode) not in (0o700, 0o750)
-        or (
-            stat.S_IMODE(metadata.st_mode) == 0o750
-            and metadata.st_gid != grp.getgrnam("jarvis-agy-exec").gr_gid
-        )
-    ):
-        raise RuntimeError("Antigravity executable requires its private launch grant")
-    with binary.open("rb") as executable:
-        digest = hashlib.file_digest(executable, "sha256").hexdigest()
-    if digest != pin.executable_sha256:
-        raise RuntimeError("Antigravity executable digest differs from its pin")
-    with (release / "uv.lock").open("rb") as lock:
-        packages = tomllib.load(lock)["package"]
-    wheels = [
-        wheel["hash"]
-        for package in packages
-        if package["name"] == "google-antigravity"
-        and package["version"] == pin.sdk_version
-        for wheel in package["wheels"]
-        if wheel["url"].endswith("-manylinux_2_17_x86_64.musllinux_1_1_x86_64.whl")
-    ]
-    if wheels != ["sha256:" + pin.wheel_sha256]:
-        raise RuntimeError("Antigravity Linux wheel digest differs from its pin")
-
-
 def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
     release = Path(__file__).resolve().parent.parent
     primary = config.personal
@@ -573,8 +506,6 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
         or (primary.socket, config.google_neon.socket) != expected_sockets
         or config.cognition_cwd_parent != "/run/jarvis-codex-cognition"
         or config.notes_repository != "/var/lib/jarvis-notes"
-        or config.agy_neon.socket != AGY_RUNTIME / "control.sock"
-        or Path(config.agy_neon.host_home) != AGY_RUNTIME / "home"
     ):
         raise RuntimeError("contained hosts require the fixed deployment layout")
     uids = {pwd.getpwnam(config.jarvis_user).pw_uid, 0}
@@ -607,25 +538,6 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
                 or stat.S_IMODE(auth.st_mode) != 0o600
             ):
                 raise RuntimeError("personal Codex enrollment must be private")
-    agy = config.agy_neon
-    agy_user = pwd.getpwnam(agy.host_user)
-    agy_group = grp.getgrnam("jarvis-agy-control")
-    agy_exec = grp.getgrnam("jarvis-agy-exec")
-    if (
-        agy_user.pw_uid in uids
-        or agy_user.pw_gid != agy_group.gr_gid
-        or agy_user.pw_dir != agy.host_home
-        or agy_user.pw_shell != "/usr/sbin/nologin"
-        or set(agy_group.gr_mem) - {agy.host_user}
-        or agy_exec.gr_mem
-        or any(
-            user.pw_gid == agy_exec.gr_gid
-            or (user.pw_gid == agy_group.gr_gid and user.pw_uid != agy_user.pw_uid)
-            for user in pwd.getpwall()
-        )
-    ):
-        raise RuntimeError("Antigravity requires a private non-login uid and group")
-    verify_agy_host(config, release)
     notes = Path(config.notes_repository)
     if notes.exists() or notes.is_symlink():
         metadata = notes.lstat()
@@ -652,11 +564,7 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
             quote(f"-{home}/{name}") for name in ("AGENTS.override.md", "AGENTS.md")
         ]
         inaccessible.extend(
-            (
-                quote(f"-{other_home}"),
-                quote(f"-{NEON_CONTROL_SOCKET.parent}"),
-                quote(f"-{AGY_RUNTIME}"),
-            )
+            (quote(f"-{other_home}"), quote(f"-{NEON_CONTROL_SOCKET.parent}"))
         )
         paid_dependency = (
             "Requires=jarvis-neon-adapter.service\nAfter=jarvis-neon-adapter.service\n"
@@ -751,37 +659,6 @@ def render_units(config: CodexHostConfig, mapping: Path, output: Path) -> None:
     }.items():
         adapter = adapter.replace(marker, value)
     (output / "jarvis-neon-adapter.service").write_text(adapter)
-    if load_session_manifest().agy_neon.model_version != manifest.model_version:
-        raise RuntimeError("both Neon harnesses require the same enrolled served model")
-    sdk_unit = (release / "deploy/jarvis-antigravity-contained.service").read_text()
-    for marker, value in {
-        "@HOST_USER@": agy.host_user,
-        "@RELEASE@": str(release),
-        "@HOME@": agy.host_home,
-        "@SOCKET@": str(agy.socket),
-        "@ORIGIN@": neon.adapter_origin,
-        "@INACCESSIBLE@": " ".join(
-            quote(f"-{path}")
-            for path in (
-                primary.account_home,
-                neon.host_home,
-                primary.socket.parent,
-                neon.socket.parent,
-                NEON_CONTROL_SOCKET.parent,
-                "/var/lib/jarvis",
-                "/etc/jarvis/credentials",
-                "/run/jarvis-home",
-                "/run/jarvis-memory",
-                "/run/jarvis-skid-state",
-            )
-        ),
-    }.items():
-        sdk_unit = sdk_unit.replace(marker, value)
-    (output / "jarvis-antigravity-contained.service").write_text(sdk_unit)
-    profile = (release / "deploy/antigravity.apparmor").read_text()
-    (output / AGY_PROFILE).write_text(
-        profile.replace("@BINARY@", agy.binary).replace("@RELEASE@", str(release))
-    )
 
 
 def stock_unit(key: str) -> str:
@@ -796,16 +673,13 @@ if __name__ == "__main__":
     if len(sys.argv) not in (2, 3):
         raise SystemExit(
             "usage: codex-host start|publish|verify|cleanup|bootstrap-notes PROFILE"
-            " | render DIR | verify-notes-acl | verify-agy"
+            " | render DIR | verify-notes-acl"
         )
     command, *arguments = sys.argv[1:]
     mapping = Path(
         os.environ.get("JARVIS_CODEX_HOST_CONFIG_PATH", "/etc/jarvis/codex-host.json")
     )
     config = CodexHostConfig.load(mapping)
-    if command == "verify-agy" and not arguments:
-        verify_agy_host(config, Path(__file__).resolve().parent.parent)
-        raise SystemExit(0)
     if command == "verify-notes-acl" and not arguments:
         verify_notes_acl(config)
         raise SystemExit(0)

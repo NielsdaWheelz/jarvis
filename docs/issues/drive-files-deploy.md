@@ -19,8 +19,10 @@ archive, restore proof and reopened hashes are under
 `~/.local/state/jarvis/qualification/adr0125-reader-0027.8m64TgcY/`.
 the exact reader archive was copied into the private recovery kit and
 rehashed. verify it again with the actual stopped snapshot. production still holds
-the separate inactive `26f9588` candidate. the installer would prune it;
-confirm its disposition when ready to stage this release.
+the separate inactive `26f9588` candidate. its published tag
+`jarvis-native-antigravity-neon-adr0111-rc1` retains the exact tree. the
+candidate has no loaded unit, active process or hold referencing its
+directory. ordinary installer pruning can reclaim the inactive release.
 
 the macbook systemd guest is ready. it passed a synthetic postgres 16.16
 and pgvector 0.8.6 restore and loopback-only ssh after reboot. the named
@@ -28,17 +30,32 @@ evidence is under `~/.local/state/jarvis/qualification/adr0120-systemd-guest.w0F
 the stopped production snapshot still needs its own restore and compatibility
 check. the deployment host derived a five-minute credential scoped to
 `ListObjectsV2` and `GetObject` on the retired bucket. cloudflare accepted a
-list request that returned zero keys. the local credential was removed.
+zero-key list request. the local credential was removed.
 reopened evidence under `~/.local/state/jarvis/qualification/adr0120-r2-session.zcIRRBqj/`
 has sha256 `5a9b97ca70a0f64eb9c7323c1d55eb12920aab0eb6ab3203d4245928f1ceea4d`.
 derive a fresh credential for the stopped export.
+
+### pre-stop ordering and host checks
+
+the installed `0025` cli has neither drive enrollment command. the
+target cli requires `0027`. the named migration checks the agent grant
+against the stopped snapshot, so changing it inside that hold would
+invalidate the rehearsal inputs. qualify the enrollment sequence before
+opening the production hold.
+
+the combined target also calls `verify-agy` before taking custody. the
+selected host has the stock-only v7 mapping and
+`kernel.apparmor_restrict_unprivileged_unconfined=0`. the target requires
+the v8 mapping and `1`. resolve the separately held [0111](../decisions/0111-native-antigravity-neon.md)
+host adoption before selecting this combined release, or qualify a release
+that carries only the approved host composition.
 
 the production google project now has the four drive/docs services enabled.
 the activation wrapper carries the private `drive-cut.json` beside its receipt
 and reuses the same verified pair on retry. offline red, green and cleanup
 evidence is in `~/.local/state/jarvis/qualification/adr0120-cut-transport-cOHjIP/`.
 
-1. finish [live qualification](drive-files-live.md) under [0127](../decisions/0127-drive-prototype-qualification.md). keep the byte and edit gates closed until their live proofs pass.
+1. use the [matched live qualification](drive-files-live.md) under [0127](../decisions/0127-drive-prototype-qualification.md). hold activation for any change to the qualified byte and revision paths until its live proof passes.
 2. stage the matched host, web shell, signed android client, and backup reader. follow the [operator runbook](../operations.md) under named stopped custody. verify and hash the private import map before applying the migration. hold on an unexplained row or an unsettled old effect.
 3. record installed old and new links, uploads, mail staging, publisher and workspace checks, and a separate database restore. repair forward after adoption. retain the old bucket through installed verification and dispose of it only under separate authority.
 

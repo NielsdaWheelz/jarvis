@@ -134,6 +134,28 @@ verified in trash and grants revoked. reopened evidence is
 `live-rollout-rest-v2-in-flight-01/facts.json` with sha256
 `e6a26fb05fbb2c1bd7ff9ab691b3288a034e9518f0a60b2aa5d8f2f3274cfc29`.
 
+### matched connector qualification
+
+the default jarvis composition at `a93e83bd18950f78587e5c043a72422908822680`
+passed the owner-account fixture. the 100 mib pdf filed and both readers
+matched its bytes. a separate 100 mib revision used the tag returned by
+`drive.get` and verified the exact acknowledged head and bytes. a small
+revision changed the mime with name and parent preserved. a stale put
+returned the expected refused precondition and kept the newer bytes.
+search, recent, permissions, text, copy, empty blobs, native pdf export,
+docs reads, edit and suggestion passed in the same run.
+
+the fixture was verified in trash, both grants disconnected and google
+accepted revocation. the detached checkout and temporary connector probes
+were removed. named evidence under `live-rollout-jarvis-conditional-01/`
+has `provider/facts.json` sha256
+`9ea0d77743fe3fac9faf46ae42685acc538f9cb919512f20534104a0a92dbb12`
+and `retired-probes.json` sha256
+`bd87f0ead1a7adf9aea1e92ce18b3f1ce9f3f52fa878357265743b980928c9c2`.
+the package check also passed and its scratch was removed. the signed
+handset, stopped export, production restore and installed journeys remain
+open in the [cut issue](drive-files-deploy.md).
+
 ### earlier retired probes
 
 both disposable folders were confirmed in trash. google accepted project

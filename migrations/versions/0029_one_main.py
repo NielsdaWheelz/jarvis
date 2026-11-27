@@ -132,6 +132,7 @@ def upgrade() -> None:
             state text NOT NULL,
             grant_id uuid,
             operation_ref jsonb NOT NULL,
+            verified_receipt jsonb,
             revision bigint NOT NULL DEFAULT 1,
             retry_at timestamptz,
             updated_at timestamptz NOT NULL,
@@ -158,6 +159,14 @@ def upgrade() -> None:
                     'denied','superseded')),
             CONSTRAINT ck_workspace_block_ref CHECK
                 (jsonb_typeof(operation_ref) = 'object'),
+            CONSTRAINT ck_workspace_block_verified_receipt CHECK
+                (verified_receipt IS NULL OR ((origin_kind = 'verification'
+                 AND state = 'resolved' AND reason = 'target_observed'
+                 AND jsonb_typeof(verified_receipt) = 'object'
+                 AND verified_receipt->>'verification' = 'verified'
+                 AND verified_receipt->>'action_id' = origin_id::text
+                 AND (grant_id IS NULL
+                      OR verified_receipt->>'grant_id' = grant_id::text)) IS TRUE)),
             CONSTRAINT ck_workspace_block_revision CHECK (revision > 0)
         );
         CREATE UNIQUE INDEX uq_workspace_block_open_origin
@@ -165,7 +174,7 @@ def upgrade() -> None:
             WHERE state IN ('waiting','needs_owner','checking');
         GRANT SELECT, INSERT ON workspace_block TO jarvis_runtime;
         GRANT UPDATE(reason, remedy, state, grant_id, operation_ref, revision,
-                     retry_at, updated_at, notice_anchor)
+                     retry_at, updated_at, notice_anchor, verified_receipt)
             ON workspace_block TO jarvis_runtime;
         DO $$ BEGIN
             IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'jarvis_backup') THEN

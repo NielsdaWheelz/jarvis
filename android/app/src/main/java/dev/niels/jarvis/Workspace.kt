@@ -167,7 +167,7 @@ internal fun WorkspaceBlockEntry(block: JSONObject) {
     var feedback by remember(id, revision) { mutableStateOf<String?>(null) }
     Text("$product · $operation", style = ChatApparatus)
     Text(feedback ?: when (state) {
-        "resolved" -> "resolved"
+        "resolved" -> if (reason == "target_observed") "google verified the change" else "resolved"
         "checking" -> "checking with google"
         "waiting" -> if (reason == "approval_busy") "another google choice is open. this will retry after it closes"
             else retryAt?.let { "retrying " + DateTimeFormatter.ofPattern("h:mm a").withZone(ZoneId.systemDefault()).format(Instant.parse(it)) }

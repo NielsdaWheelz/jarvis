@@ -758,7 +758,7 @@ function apparatus(rows) {
 function workspaceBlock(block) {
   const group = el("section", undefined, "proposal");
   const state = {
-    resolved: "resolved",
+    resolved: block.reason === "target_observed" ? "google verified the change" : "resolved",
     checking: "checking with google",
     superseded: {
       consent_expired: "google’s request expired",

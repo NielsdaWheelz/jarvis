@@ -370,6 +370,7 @@ workspace_block = Table(
     Column("state", Text, nullable=False),
     Column("grant_id", UUID(as_uuid=True)),
     Column("operation_ref", JSONB(none_as_null=True), nullable=False),
+    Column("verified_receipt", JSONB(none_as_null=True)),
     Column("revision", BigInteger, nullable=False, server_default=text("1")),
     Column("retry_at", DateTime(timezone=True)),
     Column("updated_at", DateTime(timezone=True), nullable=False),
@@ -396,6 +397,16 @@ workspace_block = Table(
         name="state",
     ),
     CheckConstraint("jsonb_typeof(operation_ref) = 'object'", name="ref"),
+    CheckConstraint(
+        "verified_receipt IS NULL OR ((origin_kind = 'verification' "
+        "AND state = 'resolved' AND reason = 'target_observed' "
+        "AND jsonb_typeof(verified_receipt) = 'object' "
+        "AND verified_receipt->>'verification' = 'verified' "
+        "AND verified_receipt->>'action_id' = origin_id::text "
+        "AND (grant_id IS NULL OR verified_receipt->>'grant_id' = grant_id::text)) "
+        "IS TRUE)",
+        name="verified_receipt",
+    ),
     CheckConstraint("revision > 0", name="revision"),
 )
 Index(

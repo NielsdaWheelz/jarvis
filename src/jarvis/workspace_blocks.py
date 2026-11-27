@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Coroutine
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import Text, func, insert, select, update
@@ -28,6 +28,11 @@ from jarvis.home_notices import enqueue_notice
 from jarvis.messages import append_waking_input
 from jarvis.ownership import Database, lock_conversation
 from jarvis.workspace_mcp import Product, WorkspaceError, WorkspaceRequest
+
+if TYPE_CHECKING:
+    from jarvis.workspace_write_models import UncertainVerification
+    from jarvis.write_connectors import WorkspaceReceipt
+
 
 Origin = Literal["read", "write", "verification", "source"]
 _OPEN = ("waiting", "needs_owner", "checking")
@@ -108,9 +113,10 @@ class WorkspaceBlocks:
         self.notify_source: Callable[[], None] = lambda: None
         self.approval_busy: Callable[[], bool] = lambda: False
         self.is_live_round: Callable[[str], bool] = lambda _: False
-        self.verify_action: Callable[[UUID, bool], Awaitable[object | None]] | None = (
-            None
-        )
+        self.verify_action: (
+            Callable[[UUID, bool], Awaitable[WorkspaceReceipt | UncertainVerification]]
+            | None
+        ) = None
         self.current_grant: Callable[[], UUID | None] | None = None
 
     async def observe(
@@ -1031,13 +1037,62 @@ class WorkspaceBlocks:
         action_id = UUID(ref["action_id"])
         marker = verifying_workspace.set(block["id"])
         try:
-            confirmed = await self.verify_action(
-                action_id, ref.get("claim_id") is not None
-            )
-        except WorkspaceError as error:
+            claim = ref.get("claim_id")
+            error = None
+            try:
+                confirmed = await self.verify_action(action_id, claim is not None)
+            except WorkspaceError as exc:
+                confirmed = None
+                error = exc
             async with self._database.begin() as conn:
                 await lock_conversation(conn, self._scope)
-                if error.kind in _LOCAL_INTERRUPTION | {"consent_expired"}:
+                granted = block["grant_id"]
+                if (
+                    granted is None
+                    and confirmed is not None
+                    and not isinstance(confirmed, str)
+                ):
+                    granted = confirmed.grant_id
+                current = (
+                    self.current_grant() if self.current_grant is not None else granted
+                )
+                if current is not None and granted is not None and current != granted:
+                    await self._close_replaced_grants(conn, current)
+
+                owned = workspace_block.c.revision == block["revision"]
+                interrupted = (
+                    error is not None
+                    and error.kind in _LOCAL_INTERRUPTION | {"consent_expired"}
+                )
+                if claim is not None:
+                    # Provider consent advances the same claim's revision.
+                    form_updated = (
+                        workspace_block.c.reason == "consent_required"
+                    ) & workspace_block.c.operation_ref["round_id"].as_string().is_not(
+                        None
+                    )
+                    if interrupted:
+                        form_updated = form_updated | (
+                            (workspace_block.c.state == "needs_owner")
+                            & (workspace_block.c.reason == "consent_expired")
+                        )
+                    owned = (
+                        workspace_block.c.operation_ref["claim_id"].as_string() == claim
+                    ) & (owned | form_updated)
+                states = _OPEN if error is not None else ("waiting", "checking")
+                if (
+                    await conn.scalar(
+                        select(workspace_block.c.id).where(
+                            workspace_block.c.id == block["id"],
+                            workspace_block.c.state.in_(states),
+                            owned,
+                        )
+                    )
+                    is None
+                ):
+                    return
+
+                if interrupted:
                     # The original verification owns the next attempt. The
                     # expired provider form remains visible as dated evidence.
                     await conn.execute(
@@ -1059,7 +1114,7 @@ class WorkspaceBlocks:
                             revision=workspace_block.c.revision + 1,
                         )
                     )
-                if error.kind in _LOCAL_INTERRUPTION:
+                if error is not None and error.kind in _LOCAL_INTERRUPTION:
                     await self._set_state(
                         conn,
                         block["id"],
@@ -1068,37 +1123,61 @@ class WorkspaceBlocks:
                         remedy=block["remedy"],
                     )
                     return
-                await self.record(
-                    conn,
-                    origin="verification",
-                    origin_id=action_id,
-                    ref=ref,
-                    product=cast(Product, block["product"]),
-                    operation=block["operation"],
-                    key=block["target_key"],
-                    grant_id=block["grant_id"],
-                    reason=error.kind if error.kind in _REASONS else "invalid_response",
-                    retry_at=error.retry_at,
-                )
-        else:
-            async with self._database.begin() as conn:
-                await lock_conversation(conn, self._scope)
-                if self.current_grant is not None and block["grant_id"] is not None:
-                    current = self.current_grant()
-                    if current is not None and current != block["grant_id"]:
-                        await self._close_replaced_grants(conn, current)
-                        return
-                if confirmed is None or isinstance(confirmed, str):
-                    reason = (
-                        confirmed
-                        if confirmed in {"target_observed", "target_differs"}
-                        else "uncertain"
-                    )
-                    await self._set_state(
-                        conn, block["id"], "superseded", reason=reason
+                if error is not None:
+                    await self.record(
+                        conn,
+                        origin="verification",
+                        origin_id=action_id,
+                        ref=ref,
+                        product=cast(Product, block["product"]),
+                        operation=block["operation"],
+                        key=block["target_key"],
+                        grant_id=block["grant_id"],
+                        reason=error.kind
+                        if error.kind in _REASONS
+                        else "invalid_response",
+                        retry_at=error.retry_at,
                     )
                 else:
-                    await self._set_state(conn, block["id"], "resolved")
+                    assert confirmed is not None
+                    receipt = None
+                    if granted is not None and current != granted:
+                        state, reason = "superseded", "source_changed"
+                    elif isinstance(confirmed, str):
+                        state = "superseded"
+                        reason = (
+                            confirmed
+                            if confirmed in {"target_observed", "target_differs"}
+                            else "uncertain"
+                        )
+                    elif (
+                        confirmed.action_id != action_id
+                        or confirmed.grant_id != granted
+                    ):
+                        state, reason = "denied", "invalid_response"
+                    elif confirmed.verification != "verified":
+                        state = "denied"
+                        reason = (
+                            confirmed.reason
+                            if confirmed.reason in _REASONS
+                            else "invalid_response"
+                        )
+                    else:
+                        state, reason = "resolved", "target_observed"
+                        receipt = confirmed.model_dump(mode="json")
+                    await conn.execute(
+                        update(workspace_block)
+                        .where(workspace_block.c.id == block["id"])
+                        .values(
+                            state=state,
+                            reason=reason,
+                            remedy="none",
+                            retry_at=None,
+                            verified_receipt=receipt,
+                            updated_at=datetime.now(UTC),
+                            revision=workspace_block.c.revision + 1,
+                        )
+                    )
         finally:
             verifying_workspace.reset(marker)
         self.notify_delivery()

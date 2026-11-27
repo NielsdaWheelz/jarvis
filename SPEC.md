@@ -2287,6 +2287,8 @@ after successful activation, only the release selected by `/opt/jarvis/current`
 MUST remain installed. installation MAY temporarily retain that release and one
 candidate; it removes abandoned candidates before preparing another. installation,
 activation and explicit pruning serialize through `/opt/jarvis/.deploy.lock`.
+an interrupted named release may retain its bound source and target plus one
+forward-repair candidate under the existing hold.
 activation removes old releases only after its existing startup checks pass.
 rollback and one-time migration releases are rebuilt from their exact commits
 when needed, then removed after use; they are not retained as recovery copies.

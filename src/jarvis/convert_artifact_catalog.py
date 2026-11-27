@@ -10,7 +10,6 @@ import sys
 from hashlib import sha256
 from pathlib import Path
 
-from jarvis._atomic_json import replace_bytes
 from jarvis.config import decode_config_json
 from jarvis.home_pages import (
     DEFAULT_EXPORT,
@@ -24,6 +23,7 @@ from jarvis.home_pages import (
     publication_lock,
     read_catalog,
     read_export,
+    replace_publication,
     validate_current,
 )
 
@@ -124,7 +124,7 @@ def _convert(
     elif command == "check-plan" and live == source:
         status = "verified source"
     elif command == "apply" and live == source:
-        replace_bytes(path, target, 0o640)
+        replace_publication(path, target)
         if path.read_bytes() != target:
             raise ValueError("reopened catalog differs from the bound target")
         status = "applied"

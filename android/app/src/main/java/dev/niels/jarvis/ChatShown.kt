@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 internal data class ChatStamp(val id: String, val at: Instant) : Comparable<ChatStamp> {
@@ -42,6 +43,7 @@ internal class ChatMessage(val json: JSONObject) {
     val stamp = ChatStamp(json.getString("id"), Instant.parse(json.getString("at")))
     val id get() = stamp.id
     private val source = json.getString("source")
+    val owner = json.getString("role") == "owner"
     val tracked = json.getString("role") == "assistant" && source != "native_progress"
     val terminal = source == "native_final" || source == "native_failure"
 }
@@ -152,14 +154,18 @@ internal class ChatPage(page: JSONObject) {
 }
 
 internal suspend fun readChatPage(
-    api: HomeApi, notices: PhoneNotices, before: String?, timeoutMillis: Long? = null,
+    api: HomeApi, notices: PhoneNotices, before: String?, timeoutMillis: Long?,
+    confirm: suspend () -> Boolean,
 ): ChatPage {
     val active = notices.snapshot()
     val path = "/api/messages" + (before?.let { "?before=${Uri.encode(it)}" } ?: "")
     return ChatPage(api.read(path, timeoutMillis) ?: throw IOException("conversation unavailable")).also {
+        if (!confirm()) throw ChatPageDeferred()
         notices.sweep(active, it)
     }
 }
+
+internal class ChatPageDeferred : IOException()
 
 internal data class ChatRead(val finals: List<String>, val arrivals: Set<String>)
 
@@ -169,6 +175,8 @@ internal class ChatHistory(
     private val notices: PhoneNotices,
 ) {
     private val reads = Mutex()
+    private val receiptAuthority = Mutex()
+    private var onReceipt: (() -> Unit)? = null
     private val clearing = Mutex()
     private var newIds by mutableStateOf(emptySet<String>())
     private var serverTotal by mutableIntStateOf(0)
@@ -186,6 +194,8 @@ internal class ChatHistory(
     private var awayThrough: Instant? = null
 
     var rows by mutableStateOf(emptyList<ChatMessage>())
+        private set
+    var crossing by mutableIntStateOf(0)
         private set
     var owed by mutableStateOf(emptyList<String>())
         private set
@@ -217,6 +227,33 @@ internal class ChatHistory(
             (isNew(message) || (detached && rows.none { it.id == message.id }))
 
     fun learnedAt(id: String) = learned.getOrPut(id, SystemClock::elapsedRealtime)
+
+    fun observeReceipt(observer: () -> Unit): () -> Unit {
+        onReceipt = observer
+        return { if (onReceipt === observer) onReceipt = null }
+    }
+
+    fun accept(row: ChatMessage) {
+        rows = mergeRows(rows, listOf(row))
+        crossing++
+    }
+
+    fun notifyReceipt() { onReceipt?.invoke() }
+
+    suspend fun admitReceipt(epoch: Int, settle: suspend () -> Unit): Boolean = receiptAuthority.withLock {
+        if (epoch != authorizationEpoch) return false
+        settle()
+        true
+    }
+
+    private fun mergeRows(older: List<ChatMessage>, newer: List<ChatMessage>) =
+        (older + newer).associateBy(ChatMessage::id).values.sortedBy(ChatMessage::stamp)
+
+    private fun insertionsSince(previous: List<ChatMessage>): List<ChatMessage> {
+        if (rows === previous) return emptyList()
+        val known = previous.mapTo(mutableSetOf(), ChatMessage::id)
+        return rows.filter { it.id !in known }
+    }
 
     fun attend(value: Boolean) {
         if (value == attending) return
@@ -273,11 +310,12 @@ internal class ChatHistory(
 
             val updated = retained.asReversed().flatMap { it.messages }
             if (initial) before = current.before
-            rows = when {
+            val projected = when {
                 initial -> updated
                 reloadRetained -> updated.filter { retainedEdge == null || it.stamp >= retainedEdge }
-                else -> (previous + updated).associateBy { it.id }.values.sortedBy { it.stamp }
+                else -> mergeRows(previous, updated)
             }
+            rows = mergeRows(projected, insertionsSince(previous))
             val accepted = rows.mapTo(mutableSetOf()) { it.id }
             newIds = ((newIds - updated.map { it.id }.toSet()) + retained.flatMap { it.new }).intersect(accepted)
             rows.forEach { learnedAt(it.id) }
@@ -296,8 +334,8 @@ internal class ChatHistory(
         }
     }
 
-    suspend fun rejectAccess(error: SignInRequired) = reads.withLock {
-        applyRead { throw error }
+    suspend fun rejectAccess(error: IOException) = reads.withLock {
+        loseAuthority(error)
     }
 
     suspend fun earlier(page: suspend (String?) -> ChatPage): String? = reads.withLock {
@@ -305,7 +343,7 @@ internal class ChatHistory(
         var nearest: String? = null
         applyRead {
             val older = page(cursor)
-            rows = older.messages + rows
+            rows = mergeRows(older.messages, rows)
             newIds = newIds + older.new
             older.messages.forEach { learnedAt(it.id) }
             before = older.before
@@ -325,12 +363,25 @@ internal class ChatHistory(
         })
     }
 
-    private suspend fun applyRead(read: suspend () -> ChatRead?): Boolean {
-        val paired = latest.refresh(read)
-        if (latest.authorityLost) {
-            reports.reset()
-        }
-        if (latest.authorityLost && received) {
+    private suspend fun applyRead(read: suspend () -> ChatRead?): Boolean = try {
+        val result = read()
+        latest.refresh { result }
+    } catch (error: SignInRequired) {
+        loseAuthority(error)
+    } catch (error: ViewerUpdateRequired) {
+        loseAuthority(error)
+    } catch (error: IOException) {
+        latest.refresh { throw error }
+    } catch (error: JSONException) {
+        latest.refresh { throw error }
+    }
+
+    private suspend fun loseAuthority(error: IOException): Boolean = receiptAuthority.withLock {
+        val newLoss = !latest.authorityLost || received || rows.isNotEmpty()
+        latest.refresh { throw error }
+        authorizationEpoch++
+        reports.reset()
+        if (newLoss) {
             rows = emptyList()
             owed = emptyList()
             newIds = emptySet()
@@ -345,9 +396,8 @@ internal class ChatHistory(
             learned.clear()
             marked.clear()
             timings.clear()
-            authorizationEpoch++
         }
-        return paired
+        false
     }
 
     fun clear(through: ChatStamp) {

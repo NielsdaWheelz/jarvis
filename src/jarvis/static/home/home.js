@@ -2,12 +2,12 @@ import { bindArtifacts } from "./artifacts.js";
 import { el, button, link } from "./home-dom.js";
 import { draftPreview, openEditor } from "./mail-editor.js";
 import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
-import { chatAttention, instant, tracked } from "./chat-attention.js";
+import { chatAttention, instant, precedingArticle, tracked } from "./chat-attention.js";
 
 import { address } from "./home-address.js";
 import { linkedText, parseMessage, renderMarkdown, showTableControls, updateCitations } from "./chat-reader.js";
 import { bindInspection } from "./inspection.js";
-import { bindPresence } from "./presence.js";
+import { bindPresence, stampDigits, time as stampTime } from "./presence.js";
 
 const $ = (id) => document.getElementById(id);
 function creationPath(messageId, created) {
@@ -35,6 +35,7 @@ function label(ref) {
 const mobile = matchMedia("(max-width:720px)");
 const presence = bindPresence({
   request,
+  receiptPending: () => Boolean(activeSend) || draft.uncertain,
   async openOwed(href, control) {
     if (href) {
       if (address(href)?.kind === "message") navigate(href);
@@ -47,16 +48,7 @@ const presence = bindPresence({
     if (document.activeElement === landing && !$("workspace-approval").hidden)
       $("workspace-approval").querySelector("button")?.focus();
   },
-  keepBottom(change) {
-    const anchor = chatAnchor();
-    const atEnd = pinned && !selectedMessage && !pendingOpening && !isDetail(location.pathname) &&
-      chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 2;
-    attention.beforeLayoutChange();
-    change();
-    if (atEnd) scrollChat(chat.scrollHeight);
-    else restoreChatAnchor(anchor);
-    attention.update();
-  },
+  keepBottom: preservePage,
 });
 const draftKey = "jarvis.home.draft";
 let reloadReading = null;
@@ -64,8 +56,7 @@ let chatReturn = null;
 const newDraft = () => ({ id: null, text: "", ref: null, files: [], uncertain: false });
 let draft = JSON.parse(sessionStorage.getItem(draftKey) || "null") || newDraft();
 let armed = null,
-  pendingSend = false,
-  checkingReceipt = false,
+  activeSend = null,
   receiptMissing = false,
   staging = 0,
   reselect = null,
@@ -99,8 +90,11 @@ const time = (at, zone) =>
 const chat = $("chat");
 const transcript = $("messages");
 let pinned = true, scrollTarget = null, heldPosition = null, pendingOpening = null;
-let sentPlacement = null;
+let advance = null, receiptSequence = 0;
+let fontLoad = "waiting", fontOpening = null;
 let reread = true, visitOpening = true, placeVisit = true, earlierRead = null;
+const fine = matchMedia("(pointer: fine)");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const attention = chatAttention({
   chat,
   list: transcript,
@@ -108,7 +102,8 @@ const attention = chatAttention({
   sidebarOpen: $("sidebar-open"),
   icon: $("chat-icon"),
   live: $("chat-live"),
-  formatTime: time,
+  formatTime: stampTime,
+  advancing: () => Boolean(advance),
   stopAttending() { placeVisit = pinned; },
   newVisit() {
     reread = visitOpening = true;
@@ -120,6 +115,8 @@ const attention = chatAttention({
     restoreChatAnchor(anchor);
   },
   place(node) {
+    finishAdvance();
+    fontOpening = null;
     pinned = false;
     scrollChat(insetPosition(node));
   },
@@ -161,6 +158,7 @@ function changeState(values, path = location.href) {
   replaceEntry({ ...history.state, ...values }, path);
 }
 function setPanel() {
+  finishAdvance();
   const open = Boolean(history.state?.panel);
   if (!open && mobile.matches && chat.clientHeight) heldPosition = chatAnchor();
   document.body.dataset.panel = open ? "open" : "closed";
@@ -174,8 +172,8 @@ function setPanel() {
   attention.update();
 }
 mobile.addEventListener("change", setPanel);
-function openSidebar(origin) {
-  armed = null;
+function openSidebar(origin, keepPresentation = false) {
+  if (!keepPresentation) armed = null;
   if (mobile.matches && !history.state?.panel) {
     rememberOverview(origin);
     files.remember(origin);
@@ -201,33 +199,50 @@ $("sidebar-open").onclick = () => {
 $("sidebar-close").onclick = closeSidebar;
 
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  clearDrag();
-  if (mobile.matches && history.state?.panel) closeSidebar();
+  if (e.key !== "Escape" || e.isComposing) return;
+  if (dragDepth) clearDrag();
+  else if (!$("discard-choice").hidden) $("keep").click();
+  else if (!$("draft-choice").hidden) {
+    preservePage(() => { $("draft-choice").hidden = true; });
+    $("message").focus({ preventScroll: true });
+  } else if (mobile.matches && history.state?.panel) closeSidebar();
 });
-function oldUpload() {
-  return draft.uncertain && draft.files.some((entry) => !entry.sha256);
-}
 function canStage() {
-  return !pendingSend && !checkingReceipt && (!draft.uncertain || (receiptMissing && !oldUpload()));
+  return !activeSend && (!draft.uncertain || receiptMissing) && $("discard-choice").hidden;
+}
+function fitMessage() {
+  const field = $("message");
+  const scroll = field.scrollTop;
+  field.style.height = "auto";
+  field.style.height = field.scrollHeight + "px";
+  field.scrollTop = scroll;
 }
 function updateComposer() {
-  if ($("message").value !== draft.text) $("message").value = draft.text;
-  const editable = !pendingSend && !draft.uncertain;
-  $("message").readOnly = !editable;
-  $("files").disabled = !canStage();
-  $("context").hidden = !draft.ref;
-  $("ref-label").textContent = draft.ref ? draft.refLabel || label(draft.ref) : "";
-  $("remove-ref").disabled = !editable;
-  for (const control of $("file-list").querySelectorAll("button")) {
-    control.hidden = draft.uncertain;
-    control.disabled = !editable || Boolean(staging);
-  }
-  const missing = draft.files.some((entry) => !entry.file);
-  $("uncertain-help").hidden = !draft.uncertain || pendingSend || (!missing && !oldUpload());
-  $("send").textContent = draft.uncertain ? "retry send" : "send";
-  $("send").disabled =
-    !canStage() || Boolean(staging) || missing || (!draft.text.trim() && !draft.files.length);
+  preservePage(() => {
+    const field = $("message");
+    if (field.value !== draft.text) field.value = draft.text;
+    fitMessage();
+    const editable = !activeSend && !draft.uncertain;
+    field.readOnly = !editable;
+    $("composer").toggleAttribute("data-sending", Boolean(activeSend));
+    $("composer").toggleAttribute("data-held", draft.uncertain && !activeSend);
+    $("files").disabled = !canStage();
+    $("context").hidden = !draft.ref;
+    $("ref-label").textContent = draft.ref ? "about · " + (draft.refLabel || label(draft.ref)) : "";
+    $("remove-ref").hidden = !editable;
+    for (const control of $("file-list").querySelectorAll("button")) {
+      const restore = control.dataset.reselect !== undefined;
+      control.hidden = !editable && !(restore && canStage());
+      control.disabled = Boolean(staging);
+    }
+    const missing = draft.files.some((entry) => !entry.file);
+    $("attach").hidden = $("send").hidden = !editable;
+    $("retry-send").hidden = Boolean(activeSend) || !draft.uncertain;
+    $("send").disabled = !editable || Boolean(staging) || missing || (!draft.text.trim() && !draft.files.length);
+    $("retry-send").disabled = Boolean(staging) || missing;
+    $("discard").hidden = $("retry-send").hidden;
+    $("discard").disabled = Boolean(staging);
+  });
 }
 $("remove-ref").onclick = () => {
   draft.ref = null;
@@ -238,30 +253,38 @@ $("remove-ref").onclick = () => {
 function showFiles() {
   const rows = draft.files.map((entry, index) => {
     const row = el("div", undefined, "draft-file");
-    if (entry.preview) row.append(entry.preview);
-    row.append(el("span", entry.name + (entry.file ? "" : " · needs original file")));
+    const thumbnail = el("span", undefined, "draft-thumbnail");
+    thumbnail.setAttribute("aria-hidden", "true");
+    if (entry.preview) thumbnail.append(entry.preview);
+    else thumbnail.textContent = entry.name.includes(".") ? entry.name.split(".").at(-1).slice(0, 5) : "file";
+    const name = el("span", entry.name, "draft-name");
+    name.title = entry.name;
+    row.append(thumbnail, name, el("small", entry.size < 1024 ? entry.size + " b"
+      : entry.size < 1024 ** 2 ? (entry.size / 1024).toFixed(1) + " kib"
+      : (entry.size / 1024 ** 2).toFixed(1) + " mib"));
     if (!entry.file) {
       const choose = button("reselect", () => {
         reselect = entry;
         $("files").multiple = false;
         $("files").click();
       });
+      choose.dataset.reselect = "";
       choose.setAttribute("aria-label", "reselect " + entry.name);
       row.append(choose);
     }
-    const remove = button("remove", () => {
+    const remove = button("×", () => {
       draft.files.splice(index, 1);
       $("file-problem").textContent = "";
       save();
       showFiles();
       const next = $("file-list").children[index] || $("file-list").lastChild;
-      (next?.lastChild || $("files")).focus();
+      (next?.lastChild || $("files")).focus({ preventScroll: true });
     });
     remove.setAttribute("aria-label", "remove " + entry.name);
     row.append(remove);
     return row;
   });
-  $("file-list").replaceChildren(...rows);
+  preservePage(() => { $("file-list").replaceChildren(...rows); });
   updateComposer();
 }
 const rasterType = /^image\/(png|jpeg|gif|webp|bmp|avif)$/i;
@@ -279,7 +302,8 @@ async function attachBytes(entry, file) {
     canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     canvas.setAttribute("aria-hidden", "true");
     entry.preview = canvas;
-    $("file-list").children[draft.files.indexOf(entry)]?.prepend(canvas);
+    $("file-list").children[draft.files.indexOf(entry)]
+      ?.querySelector(".draft-thumbnail").replaceChildren(canvas);
   } catch {
     // The filename remains usable when this browser cannot decode a thumbnail.
   } finally {
@@ -303,15 +327,19 @@ async function restoreFiles(files, missing) {
   const matches = [];
   for (const file of files) {
     const candidates = missing.filter((entry) => entry.size === file.size);
-    const hash = candidates.some((entry) => entry.sha256) ? await digest(file) : null;
+    const hash = await digest(file);
     const match = candidates.find((entry) =>
-      entry.sha256 ? entry.sha256 === hash : entry.name === fileName(file)
-    );
+      entry.sha256 === hash || (!draft.uncertain && !entry.sha256 && entry.name === fileName(file)));
+
     if (!match) throw new Error(fileName(file) + " does not match a missing original file.");
     missing.splice(missing.indexOf(match), 1);
-    matches.push(match);
+    matches.push({ entry: match, hash, file });
   }
-  matches.forEach((entry, i) => attachBytes(entry, files[i]));
+  for (const {entry, hash, file} of matches) {
+    entry.sha256 = hash;
+    attachBytes(entry, file);
+  }
+  save();
 }
 let additions = Promise.resolve();
 function stage(files, target = null) {
@@ -330,11 +358,11 @@ function stage(files, target = null) {
         const bytes = [...draft.files, ...files].reduce((total, file) => total + file.size, 0);
         if (bytes + new TextEncoder().encode(draft.text).length > 90 * 1024 * 1024)
           throw new Error("the message and files exceed 90 mib.");
-        for (const file of files) {
-          const entry = { name: fileName(file), size: file.size };
-          draft.files.push(entry);
-          attachBytes(entry, file);
-        }
+        const entries = [];
+        for (const file of files)
+          entries.push({ name: fileName(file), size: file.size, sha256: await digest(file) });
+        draft.files.push(...entries);
+        for (const [i, entry] of entries.entries()) attachBytes(entry, files[i]);
         save();
       }
       showFiles();
@@ -380,47 +408,53 @@ $("message").onpaste = (e) => stageTransfer(e, e.clipboardData);
 let dragDepth = 0;
 function clearDrag() {
   dragDepth = 0;
-  $("composer").classList.remove("dragging");
+  $("sidebar").classList.remove("dragging");
 }
 function fileDrag(e) {
   return e.dataTransfer?.types.includes("Files");
 }
-$("composer").ondragenter = (e) => {
+$("sidebar").ondragenter = (e) => {
   if (!fileDrag(e)) return;
   e.preventDefault();
   dragDepth++;
-  $("composer").classList.toggle("dragging", canStage());
+  $("sidebar").classList.toggle("dragging", canStage());
 };
-$("composer").ondragover = (e) => {
+$("sidebar").ondragover = (e) => {
   if (!fileDrag(e)) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = canStage() ? "copy" : "none";
 };
-$("composer").ondragleave = () => {
+$("sidebar").ondragleave = () => {
   if (--dragDepth <= 0) clearDrag();
 };
-$("composer").ondrop = (e) => {
+$("sidebar").ondrop = (e) => {
   clearDrag();
   stageTransfer(e, e.dataTransfer);
 };
+for (const kind of ["dragover", "drop"]) document.addEventListener(kind, (e) => {
+  if (!fileDrag(e) || (e.target instanceof Element && e.target.closest("#sidebar"))) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "none";
+  clearDrag();
+});
 window.addEventListener("dragend", clearDrag);
 window.addEventListener("blur", clearDrag);
 function discuss(ref, title, origin) {
-  openSidebar(origin);
-  const choice = $("draft-choice");
-  choice.hidden = true;
-  if (pendingSend || draft.uncertain) {
-    $("receipt").textContent = "recover the previous submission first.";
-    refresh();
+  const blocked = activeSend || draft.uncertain;
+  openSidebar(origin, blocked);
+  if (blocked) {
+    preservePage(() => { $("file-problem").textContent = "settle the earlier message first."; });
     return;
   }
+  const choice = $("draft-choice");
+  choice.hidden = true;
   const use = () => {
     draft.ref = ref;
     draft.refLabel = title || label(ref);
     save();
     updateComposer();
     choice.hidden = true;
-    $("message").focus();
+    $("message").focus({ preventScroll: true });
   };
   if (
     !draft.ref ||
@@ -428,16 +462,16 @@ function discuss(ref, title, origin) {
   )
     return use();
   const keep = button("keep draft", () => {
-    choice.hidden = true;
-    $("message").focus();
+    preservePage(() => { choice.hidden = true; });
+    $("message").focus({ preventScroll: true });
   });
   choice.replaceChildren(
     "change the reference to " + (title || label(ref)) + "? ",
     keep,
     button("use this item", use),
   );
-  choice.hidden = false;
-  keep.focus();
+  preservePage(() => { choice.hidden = false; });
+  keep.focus({ preventScroll: true });
 }
 async function request(path, { allowServerError = false, ...options } = {}) {
   const headers = new Headers(options.headers);
@@ -496,155 +530,246 @@ function showConnection() {
     button(login ? "sign in" : upgrade ? "reload" : "retry", login || upgrade ? () => location.reload() : refresh),
   );
 }
-function accepted(id, submission) {
-  if (draft.id !== submission) return;
-  failures.delete("receipt");
-  showConnection();
-  if (armed?.submission === submission) armed.request = id;
-  if (sentPlacement?.submission === submission) {
-    if ($("msg-" + id)) {
-      scrollChat(chat.scrollHeight);
-      sentPlacement = null;
-    } else sentPlacement.request = id;
-  }
+function caption(text) {
+  const node = $("receipt");
+  if (node.textContent !== text) preservePage(() => { node.textContent = text; });
+}
+function resetDraft() {
   draft = newDraft();
-  $("file-problem").textContent = "";
   receiptMissing = false;
   save();
   resetPicker();
-  showFiles();
+  $("file-problem").textContent = "";
   $("receipt").textContent = "";
+  $("discard-choice").hidden = $("draft-choice").hidden = true;
+  $("compose-actions").hidden = false;
+  showFiles();
+}
+$("discard").onclick = () => {
+  preservePage(() => {
+    $("compose-actions").hidden = true;
+    $("discard-choice").hidden = false;
+  });
+  $("keep").focus({ preventScroll: true });
+};
+$("keep").onclick = () => {
+  preservePage(() => {
+    $("discard-choice").hidden = true;
+    $("compose-actions").hidden = false;
+  });
+  $("discard").focus({ preventScroll: true });
+};
+$("confirm-discard").onclick = () => {
+  if (activeSend || !draft.uncertain) return;
+  if (armed?.submission === draft.id) armed = null;
+  failures.delete("receipt");
+  failures.delete("send");
+  showConnection();
+  preservePage(resetDraft);
+  $("message").focus({ preventScroll: true });
+  refresh();
+};
+function finishAdvance() {
+  advance?.cancel();
+  advance = null;
+}
+function accepted(receipt, submission) {
+  if (loginRequired) return;
+  if (draft.id !== submission && $("msg-" + receipt.id)) return;
+  receiptSequence++;
+  finishAdvance();
+  if (draft.id !== submission) {
+    merge([receipt.message]);
+    return;
+  }
+  const focused = $("composer").contains(document.activeElement);
+  const follow = pinned && chat.clientHeight && chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 2;
+  const anchor = chatAnchor();
+  const last = transcript.querySelector(":scope > article:last-child");
+  const offset = last && chatOffset(last);
+  const scroll = chat.scrollTop;
+  failures.delete("receipt");
+  failures.delete("send");
+  showConnection();
+  if (armed?.submission === submission) armed.request = receipt.id;
+  resetDraft();
+  merge([receipt.message]);
   presence.accepted();
+  if (follow) scrollChat(chat.scrollHeight);
+  else restoreChatAnchor(anchor);
+  if (focused) $("message").focus({ preventScroll: true });
+  if (follow && last && scroll !== chat.scrollTop && !document.hidden && !reducedMotion.matches) {
+    const dy = offset - chatOffset(last);
+    if (dy) {
+      attention.beforeLayoutChange();
+      advance = $("chat-page").animate([{ transform: "translateY(" + dy + "px)" }, { transform: "none" }],
+        { duration: Math.min(420, 140 + .5 * Math.abs(dy)), easing: "cubic-bezier(.2,0,0,1)" });
+      advance.onfinish = () => { advance = null; };
+    }
+  }
   present();
 }
-async function recover() {
-  if (!draft.uncertain) return false;
+function validReceipt(receipt) {
+  if (!receipt?.id || receipt.message?.id !== receipt.id) throw new Error("invalid send receipt");
+  return receipt;
+}
+async function findReceipt(id, signal) {
+  const receipt = await read("/api/submissions/" + id, { signal });
+  return receipt && validReceipt(receipt);
+}
+async function reconcile() {
   const id = draft.id;
-  checkingReceipt = true;
-  updateComposer();
-  try {
-    const receipt = await read("/api/submissions/" + id);
-    if (!draft.uncertain || draft.id !== id) return true;
-    if (receipt) accepted(receipt.id, id);
-    else {
-      receiptMissing = true;
-      $("receipt").textContent = oldUpload()
-        ? "delivery unconfirmed. this earlier upload has no file digest. checking for its receipt."
-        : "delivery unconfirmed. retry the same message.";
-    }
-    return Boolean(receipt);
-  } finally {
-    checkingReceipt = false;
+  const receipt = await findReceipt(id, AbortSignal.timeout(6000));
+  if (activeSend && draft.id === id) return;
+  if (receipt) {
+    accepted(receipt, id);
+    refresh();
+  } else if (draft.id === id && !receiptMissing) {
+    receiptMissing = true;
+    caption("no receipt yet. retry is safe: it cannot arrive twice.");
     updateComposer();
   }
 }
-$("composer").onsubmit = async (e) => {
-  e.preventDefault();
-  if ($("send").disabled) return;
-  pendingSend = true;
+$("stop-waiting").onclick = () => activeSend?.abort();
+$("composer").onsubmit = async (event) => {
+  event.preventDefault();
+  const trigger = $(draft.uncertain ? "retry-send" : "send");
+  if (activeSend || trigger.disabled || !$("discard-choice").hidden) return;
+  if (new TextEncoder().encode(draft.text).length > 16 * 1024) {
+    $("file-problem").textContent = "the caption exceeds 16 kib. shorten it to send.";
+    return;
+  }
+  const retry = draft.uncertain;
+  const id = draft.id ?? crypto.randomUUID();
+  const flight = new AbortController();
+  activeSend = flight;
+  if (failures.delete("send")) showConnection();
+  armed = { submission: id, request: null };
+  draft.id = id;
+  draft.uncertain = true;
+  receiptMissing = false;
+  save();
   $("draft-choice").hidden = true;
   $("file-problem").textContent = "";
+  caption("");
   updateComposer();
-  const retry = draft.uncertain;
-  if (!retry) draft.id = crypto.randomUUID();
-  const id = draft.id;
-  let sending;
+  $("message").focus({ preventScroll: true });
+  attention.sent();
+  fontOpening = pendingOpening = null;
+  pinned = true;
+  scrollChat(chat.scrollHeight);
+  const sending = setTimeout(() => caption("sending…"), 400);
+  const waiting = setTimeout(() => {
+    preservePage(() => { $("stop-waiting").hidden = false; });
+  }, 10000);
+  let receipt;
   try {
-    if (retry && (await recover())) return;
-    if (new TextEncoder().encode(draft.text).length > 16 * 1024) {
-      $("file-problem").textContent = "the caption exceeds 16 kib. shorten it to send.";
-      return;
-    }
-    const message = JSON.stringify({ text: draft.text, ref: draft.ref });
-    const options = { method: "PUT" };
+    if (retry) receipt = await findReceipt(id, flight.signal);
+    if (receipt) return;
+    const descriptor = JSON.stringify({ text: draft.text, ref: draft.ref });
+    const options = { method: "PUT", signal: flight.signal };
     if (draft.files.length) {
       const form = new FormData();
-      form.append("message", message);
-      for (const entry of draft.files) {
-        try {
-          const hash = await digest(entry.file);
-          if (retry && hash !== entry.sha256)
-            throw new Error(entry.name + " has changed. choose its original again.");
-          entry.sha256 = hash;
-        } catch (error) {
-          delete entry.file;
-          delete entry.preview;
-          $("file-problem").textContent = error.message;
-          showFiles();
-          return;
-        }
-        form.append("file", entry.file, entry.name);
-      }
+      form.append("message", descriptor);
+      for (const entry of draft.files) form.append("file", entry.file, entry.name);
       options.body = form;
     } else {
       options.headers = { "Content-Type": "application/json" };
-      options.body = message;
+      options.body = descriptor;
     }
-    attention.sent();
     await attention.flush();
-    if (loginRequired) return;
-    if (!retry) armed = { submission: id, request: null };
-    receiptMissing = false;
-    draft.uncertain = true;
-    save();
-    updateComposer();
-    $("receipt").textContent = "";
-    sending = setTimeout(() => { $("receipt").textContent = "sending…"; }, 400);
-    pendingOpening = null;
-    pinned = true;
-    sentPlacement = { submission:id, request:null };
-    scrollChat(chat.scrollHeight);
+    if (loginRequired) {
+      caption("checking whether your message arrived…");
+      return;
+    }
     const response = await request("/api/messages/" + id, options);
-    if (response.ok) accepted((await response.json()).id, id);
+    if (response.ok) receipt = validReceipt(await response.json());
     else if (response.status === 409) {
-      $("receipt").textContent = "this submission was already used. review the conversation.";
+      caption("a different message already used this send. it is in the conversation.");
       armed = null;
       draft.uncertain = false;
       draft.id = null;
       save();
     } else if ([400, 413, 422].includes(response.status)) {
-      // A rejected retry says nothing about the first attempt.
       draft.uncertain = retry;
+      if (!retry) {
+        draft.id = null;
+        armed = null;
+      }
       save();
-      if (!retry) armed = null;
-      const problem = response.status === 400 ? "use the private home address to send."
+      $("file-problem").textContent = response.status === 400 ? "use the private home address to send."
         : response.status === 413 ? "message or files are too large."
         : "check the message, files and reference.";
-      $("file-problem").textContent = problem;
-      $("receipt").textContent = retry ? "checking whether the earlier message arrived…" : "";
-    } else throw new Error("submission unavailable");
+      caption(retry ? "checking whether your message arrived…" : "");
+    } else throw new Error("send unavailable");
   } catch (error) {
-    $("receipt").textContent = "checking whether your message arrived…";
-    failure(error, "receipt");
+    if (error.upgrade && !retry) {
+      draft.uncertain = false;
+      draft.id = null;
+      armed = null;
+      save();
+      caption("");
+    } else {
+      caption("checking whether your message arrived…");
+      if (!flight.signal.aborted) failure(error, "send");
+    }
   } finally {
     clearTimeout(sending);
-    pendingSend = false;
-    updateComposer();
+    clearTimeout(waiting);
+    $("stop-waiting").hidden = true;
+    activeSend = null;
+    if (receipt && !loginRequired) accepted(receipt, id);
+    else updateComposer();
     refresh();
   }
 };
 $("message").onkeydown = (e) => {
-  if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-  // Some IMEs report keyCode 229 even after isComposing clears.
-  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key !== "Enter" || e.altKey || e.isComposing || e.keyCode === 229 ||
+      (!(e.ctrlKey || e.metaKey) && (e.shiftKey || !fine.matches))) return;
+  if ($("message").readOnly) return;
   e.preventDefault();
   if (!e.repeat) $("send").click();
 };
 
-function draftRevisionLink(messageId, actionId) {
-  return link(
-    "open draft revision",
-    "/mail/" + messageId + "/revision/" + actionId,
-    "result draft-revision-link",
-  );
+const localDate = new Intl.DateTimeFormat("en-GB", {
+  weekday: "long", day: "numeric", month: "long", year: "numeric",
+});
+const revisionPath = (id, action) => "/mail/" + id + "/revision/" + action;
+
+function apparatus(rows) {
+  const list = el("div", undefined, "apparatus");
+  let prior;
+  for (const [kind, name, path, note] of rows) {
+    const row = el("div", undefined, "apparatus-row");
+    const heading = el("span", kind === prior ? "" : kind, "apparatus-kind");
+    if (path) heading.setAttribute("aria-hidden", "true");
+    const value = el("span");
+    const entry = path ? link(name, path, path.startsWith("/mail/") ? "draft-revision-link" : undefined) : el("span", name);
+    if (path) entry.setAttribute("aria-label", [kind, name, note].filter(Boolean).join(" · "));
+    value.append(entry);
+    if (note) value.append(el("small", " · " + note));
+    row.append(heading, value);
+    list.append(row);
+    prior = kind;
+  }
+  return list;
 }
+
 function renderMessage(m, existing) {
   const node = existing || el("article");
   node.id = "msg-" + m.id;
   if (!existing) {
+    const date = new Date(m.at);
+    const localDay = [date.getFullYear(), date.getMonth() + 1, date.getDate()]
+      .map((value, index) => String(value).padStart(index ? 2 : 4, "0")).join("-");
     const stamp = el("div", undefined, "stamp");
-    stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis"), el("time", time(m.at)));
+    const when = el("time");
+    when.dateTime = date.toISOString();
+    when.title = localDate.format(date);
+    stampDigits(when, stampTime(m.at));
+    stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis", "sr-only"), when);
     node.append(stamp);
+    Object.assign(node.dataset, { role: m.role, source: m.source, day: localDay });
   }
   if (node.messageText !== m.text) {
     node.parsed = parseMessage(m.text);
@@ -655,77 +780,63 @@ function renderMessage(m, existing) {
     node.reader = reader;
   } else updateCitations(node.reader, m);
   inspection.updateTable(m);
-  const controls = el("div");
-  for (const f of m.files || [])
-    controls.append(
-      link(
-        (f.name || "unnamed file") +
-          " · " +
-          (f.unavailable ? "file unavailable" : originStatus(f.state, f.disposition)),
-        "/f/" + f.id,
-        "file",
-      ),
-    );
-  if (m.ref) {
-    const path = objectPath(m.ref);
-    controls.append(
-      path
-        ? link("discussed · " + label(m.ref), path, "result")
-        : el("small", "discussed · " + label(m.ref)),
-    );
+  const rows = [];
+  if (m.ref) rows.push(["about", label(m.ref), objectPath(m.ref)]);
+  for (const file of m.files)
+    rows.push(["file", file.name || "unnamed file", "/f/" + file.id,
+      file.unavailable ? "file unavailable" : file.state === "filed" ? "filed"
+        : originStatus(file.state, file.disposition)]);
+  for (const draft of [...m.drafts.filter(draft => draft.editable), ...m.drafts.filter(draft => !draft.editable)]) {
+    const subject = draft.subject || "(no subject)";
+    const editable = draft.editable === true;
+    const peers = m.drafts.filter(other => other.editable === draft.editable &&
+      (other.subject || "(no subject)") === subject);
+    const label = editable && peers.length > 1 ? subject + " · " + (peers.indexOf(draft) + 1) : subject;
+    rows.push([editable ? "draft" : "revision", label, creationPath(m.id, draft)]);
   }
-  for (const proposal of m.proposals || []) {
+  const unchecked = m.draft_revision_error === "integrity";
+  const revised = m.draft_revision_id && !m.drafts.some(draft =>
+    !draft.editable && draft.create_action_id === m.draft_revision_id);
+  if (revised || unchecked)
+    rows.push(["revision", "draft revision", revised ? revisionPath(m.id, m.draft_revision_id) : null,
+      unchecked ? "failed integrity checks" : null]);
+
+  const proposals = m.proposals.map(proposal => {
     const group = el("section", undefined, "proposal");
-    group.append(
-      el("strong", proposal.title),
-      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : linkedText(proposal.detail),
-      el("p", proposal.status_label || proposal.status.replaceAll("_", " "), "secondary"),
-    );
-    if (proposal.draft_revision_id) {
-      const revision = draftRevisionLink(m.id, proposal.draft_revision_id);
-      revision.setAttribute("aria-label", "open draft revision · " + proposal.title);
-      group.append(revision);
-    }
+    group.dataset.status = proposal.status;
+    group.append(el("div", proposal.title, "proposal-title"),
+      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : linkedText(proposal.detail));
+    const details = [];
+    if (proposal.draft_revision_id)
+      details.push(["revision", "draft revision", revisionPath(m.id, proposal.draft_revision_id)]);
     if (proposal.decision)
-      group.append(
-        link("owner reply · " + proposal.decision, "/m/" + proposal.owner_message_id, "result"),
-      );
-    const reply = button("reply", () =>
-      discuss(
-        { kind: "proposal", message_id: m.id, action_id: proposal.action_id },
-        proposal.title,
-      ),
-    );
+      details.push(["you", proposal.decision === "approve" ? "approved" : "denied", "/m/" + proposal.owner_message_id]);
+    if (details.length) group.append(apparatus(details));
+    const reply = button("reply", () => discuss(
+      { kind: "proposal", message_id: m.id, action_id: proposal.action_id }, proposal.title));
     reply.dataset.action = proposal.action_id;
-    group.append(reply);
-    controls.append(group);
+    const foot = el("div", undefined, "proposal-foot");
+    foot.append(reply, el("span", proposal.status_label || proposal.status.replaceAll("_", " ")));
+    group.append(foot);
+    return group;
+  });
+  const seen = new Set([
+    ...rows.map(([, , path]) => path),
+    ...[node.reader, ...proposals].flatMap(group => [...group.querySelectorAll("a[href]")].map(a => a.getAttribute("href"))),
+  ]);
+  const refs = m.artifact_links.slice();
+  if (m.present && !["draft", "source"].includes(m.present.ref.kind)) refs.push(m.present.ref);
+  for (const ref of refs) {
+    const path = objectPath(ref);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const file = ref.kind === "file" && m.files.find(file => file.id === ref.id);
+    const kind = ref.kind === "view" ? "artifact" : ref.kind === "todo" ? "todo" : "file";
+    rows.push([kind, file?.name || label({ ...ref, page: null }), path, ref.page ? "page " + ref.page : null]);
   }
-  if (m.draft_revision_error === "integrity")
-    controls.append(el("p", "draft revision failed integrity checks.", "draft-evidence"));
-  if (m.draft_revision_id && !m.drafts?.some(d => d.editable !== true && d.create_action_id === m.draft_revision_id)) {
-    const revision = draftRevisionLink(m.id, m.draft_revision_id);
-    revision.classList.add("draft-evidence");
-    controls.append(revision);
-  }
-  for (const [i, created] of (m.drafts || []).entries()) {
-    const subject = created.subject || "(no subject)";
-    const numbered = m.drafts.filter((other) => other.subject === created.subject).length > 1;
-    const action = created.editable === true ? "open draft" : "open draft revision";
-    const ordinal = m.drafts.slice(0, i + 1).filter(other => other.subject === created.subject).length;
-    const name = action + " · " + subject + (numbered ? " · " + ordinal : "");
-    controls.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
-  }
-  const delivered = new Map((m.artifact_links || []).map(ref => [objectPath(ref), ref]));
-  if (m.present && !["draft", "source"].includes(m.present.ref.kind))
-    delivered.set(objectPath(m.present.ref), m.present.ref);
-  const alreadyLinked = new Set([...node.reader.querySelectorAll("a[href]"), ...controls.querySelectorAll("a[href]")]
-    .map(anchor => anchor.getAttribute("href")));
-  for (const [path, ref] of delivered) {
-    if (!path || alreadyLinked.has(path)) continue;
-    const filename = ref.kind === "file" && m.files?.find(file => file.id === ref.id)?.name;
-    const name = filename ? filename + (ref.page ? " · page " + ref.page : "") : label(ref);
-    controls.append(link("open " + name, path, "result"));
-  }
+  const controls = el("div");
+  if (rows.length) controls.append(apparatus(rows));
+  controls.append(...proposals);
   if (node.controls) node.controls.replaceWith(controls);
   else node.append(controls);
   node.controls = controls;
@@ -739,16 +850,22 @@ function chatOffset(node) {
   return node.getBoundingClientRect().top - chat.getBoundingClientRect().top;
 }
 function insetPosition(node) {
-  const preceding = node.previousElementSibling?.matches("article")
-    ? node.previousElementSibling : node.previousElementSibling?.previousElementSibling;
+  const preceding = precedingArticle(node);
   const line = parseFloat(getComputedStyle(preceding?.reader || node).lineHeight);
   return chat.scrollTop + chatOffset(node) - 4.5 * line;
 }
 function scrollChat(top) {
   if (!chat.clientHeight) return;
+  const target = Math.min(Math.max(0, top), chat.scrollHeight - chat.clientHeight);
   const before = chat.scrollTop;
-  chat.scrollTop = top;
-  if (chat.scrollTop !== before) scrollTarget = chat.scrollTop;
+  if (fontOpening && fontOpening.scrollTop !== before) fontOpening = null;
+  if (Math.abs(before - target) < .02) return;
+  finishAdvance();
+  chat.scrollTop = target;
+  if (chat.scrollTop !== before) {
+    scrollTarget = chat.scrollTop;
+    if (fontOpening) fontOpening.scrollTop = scrollTarget;
+  }
 }
 function chatAnchor() {
   if (!chat.clientHeight) return null;
@@ -757,31 +874,55 @@ function chatAnchor() {
     child.matches("article") && child.getBoundingClientRect().bottom > top);
   return node ? { id:node.id, offset:chatOffset(node) } : null;
 }
+function preservePage(change) {
+  finishAdvance();
+  const anchor = chatAnchor();
+  const bottom = pinned && !pendingOpening && chat.clientHeight &&
+    chat.scrollHeight - chat.scrollTop - chat.clientHeight <= 2;
+  attention.beforeLayoutChange();
+  change();
+  if (bottom) scrollChat(chat.scrollHeight);
+  else restoreChatAnchor(anchor);
+  attention.update();
+}
 function restoreChatAnchor(anchor) {
   const node = anchor && $(anchor.id);
   if (node) scrollChat(chat.scrollTop + chatOffset(node) - anchor.offset);
 }
 function applyOpening() {
-  if (!pendingOpening || !chat.clientHeight) return;
-  const { node, capped } = pendingOpening;
+  if (fontLoad === "waiting" || !pendingOpening || !chat.clientHeight) return;
+  const opening = pendingOpening;
+  const { node, capped, exactOffset } = opening;
   pendingOpening = null;
-  if (selectedMessage || isDetail(location.pathname) || chatReturn) return;
-  scrollChat(capped ? 0 : node ? insetPosition(node) : chat.scrollHeight);
+  if (chatReturn) return;
+  if (exactOffset !== undefined) {
+    if (location.pathname !== "/m/" + selectedMessage || node.id !== "msg-" + selectedMessage) return;
+    scrollChat(chat.scrollTop + chatOffset(node) - exactOffset);
+  } else {
+    if (selectedMessage || isDetail(location.pathname)) return;
+    scrollChat(capped ? 0 : node ? insetPosition(node) : chat.scrollHeight);
+  }
+  if (fontLoad === "fallback") fontOpening = { ...opening, scrollTop: chat.scrollTop };
   return true;
 }
 chat.addEventListener("scroll", () => {
   const programmatic = chat.scrollTop === scrollTarget;
   scrollTarget = null;
   if (programmatic) return;
-  sentPlacement = null;
-  pendingOpening = null;
-  pinned = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48;
+  finishAdvance();
+  fontOpening = pendingOpening = null;
+  const remaining = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  pinned = draft.uncertain ? remaining <= 2 : remaining < 48;
 }, { capture:true, passive:true });
 
+for (const event of ["wheel", "touchstart", "pointerdown", "keydown"])
+  chat.addEventListener(event, finishAdvance, { capture: true, passive: true });
+
 function merge(items) {
+  if (items.some(m => $("msg-" + m.id)?.dataset.version !== JSON.stringify(m))) finishAdvance();
   const anchor = chatAnchor();
   let mutated = false;
-  // The visit separator shares the transcript but is not a message order key.
+  // Only messages participate in the order, including when reading around a day head.
   const ordered = [...transcript.querySelectorAll(":scope > article")];
   for (const m of items) {
     const existing = $("msg-" + m.id);
@@ -825,6 +966,27 @@ function merge(items) {
     transcript.insertBefore(node, ordered[lo] || null);
     ordered.splice(lo, 0, node);
   }
+  if (mutated) {
+    const heads = new Map([...transcript.querySelectorAll(".day-head")].map(node => [node.id, node]));
+    let day;
+    for (const node of ordered) {
+      if (node.dataset.day === day) continue;
+      day = node.dataset.day;
+      const id = "day-" + day;
+      let head = heads.get(id);
+      heads.delete(id);
+      if (!head) {
+        const parts = Object.fromEntries(localDate.formatToParts(new Date(node.dataset.at))
+          .map(({ type, value }) => [type, value]));
+        const caption = [parts.weekday, parts.day, parts.month];
+        if (Number(parts.year) !== new Date().getFullYear()) caption.push(parts.year);
+        head = el("h2", caption.join(" ").toLowerCase(), "day-head");
+        head.id = id;
+      }
+      if (head.nextElementSibling !== node) transcript.insertBefore(head, node);
+    }
+    for (const head of heads.values()) head.remove();
+  }
   attention.update();
   restoreChatAnchor(anchor);
 }
@@ -840,7 +1002,18 @@ async function messagePage(cursor) {
   return { ...data, sequence };
 }
 
+function currentProjection(version) {
+  return version === receiptSequence && !activeSend && !loginRequired && !document.hidden;
+}
+async function settlePage(version) {
+  if (!currentProjection(version)) return false;
+  if (!draft.uncertain) return true;
+  const id = draft.id;
+  await reconcile();
+  return currentProjection(version) && (!draft.uncertain || draft.id === id);
+}
 async function messages(ver, paired) {
+  const version = receiptSequence;
   const initial = latest === null;
   const allPages = initial || reread;
   reread = false;
@@ -850,7 +1023,8 @@ async function messages(ver, paired) {
   let latestId;
   function keepReadState(error) {
     reread ||= allPages || !foundOldest;
-    if (ver !== routeVersion || document.hidden || error.upgrade || !pages.length) return;
+    if (ver !== routeVersion || !currentProjection(version) || draft.uncertain ||
+        error.upgrade || !pages.length) return;
     for (const page of pages) attention.page(page, page.sequence, true);
     attention.update();
   }
@@ -878,6 +1052,10 @@ async function messages(ver, paired) {
       cursor = data.next_before;
     } while (cursor && (!foundLatest || !foundOldest ||
       initial && pages.length < 3 && (seenNew < data.new_total || needContext)));
+    if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) {
+      reread ||= allPages;
+      return;
+    }
   } catch (error) {
     keepReadState(error);
     throw error;
@@ -904,13 +1082,13 @@ async function messages(ver, paired) {
     let origin;
     try {
       origin = await read("/api/messages/" + returning.messageId, { signal: AbortSignal.timeout(6000) });
+      if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) {
+        reread ||= allPages;
+        return;
+      }
     } catch (error) {
       keepReadState(error);
       throw error;
-    }
-    if (ver !== routeVersion || document.hidden) {
-      reread ||= allPages;
-      return;
     }
     if (origin) {
       rows.unshift(origin);
@@ -926,8 +1104,7 @@ async function messages(ver, paired) {
     (initial || instant(m.at) + m.id > $("msg-" + latest)?.dataset.order)).map((m) => m.id);
   const before = chat.scrollTop;
   const follow = pinned && !selectedMessage && !isDetail(location.pathname) && !chatReturn;
-  const anchor = chatAnchor();
-  $("older").hidden = !earliest;
+  if ($("older").hidden !== !earliest) preservePage(() => { $("older").hidden = !earliest; });
   for (const page of pages) attention.page(page, page.sequence);
   attention.announce(added);
   merge(rows);
@@ -937,7 +1114,6 @@ async function messages(ver, paired) {
     chatToken = paired.chat;
     lastArrivingTerminal = paired.you ? arriving?.id || null : null;
   } else if (arriving) lastArrivingTerminal = arriving.id;
-  restoreChatAnchor(anchor);
   latest = latestId ?? latest;
   if (initial || visitOpening) {
     const boundary = [...transcript.querySelectorAll("article")].find((node) =>
@@ -951,10 +1127,8 @@ async function messages(ver, paired) {
       pendingOpening = { node:$("chat-boundary") || boundary, capped:initial && seenNew < data.new_total };
     visitOpening = false;
   }
-  const sentArrived = sentPlacement?.request && $("msg-" + sentPlacement.request);
-  if (sentArrived) sentPlacement = null;
   if (pendingOpening) applyOpening();
-  else if ((follow || sentArrived) && added.length && !initial) {
+  else if (follow && added.length && !initial) {
     const arriving = $("msg-" + added[0]);
     if (!attention.attending()) pinned = false;
     else if (chat.clientHeight) {
@@ -966,7 +1140,7 @@ async function messages(ver, paired) {
       }) || arriving;
       scrollChat(Math.max(before, insetPosition(first)));
     }
-  } else if (sentArrived || follow && !initial && rows.length && chat.clientHeight &&
+  } else if (follow && !initial && rows.length && chat.clientHeight &&
     chat.scrollHeight - before - chat.clientHeight < 48) scrollChat(chat.scrollHeight);
   if (!isDetail(location.pathname)) restoreChatReturn();
   if (arriving) refreshChat(ver, true);
@@ -974,20 +1148,18 @@ async function messages(ver, paired) {
 
 async function earlierMessages() {
   if (!earliest || earlierRead) return false;
-  const before = earliest, ver = routeVersion;
+  const before = earliest, ver = routeVersion, version = receiptSequence;
   $("older").disabled = earlierRead = true;
   try {
     const data = await messagePage(before);
-    if (ver !== routeVersion || document.hidden) return false;
+    if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) return false;
     earliest = data.next_before;
     oldest = data.items[0]?.id ?? oldest;
-    const anchor = chatAnchor();
-    $("older").hidden = !earliest;
+    if ($("older").hidden !== !earliest) preservePage(() => { $("older").hidden = !earliest; });
     attention.page(data, data.sequence);
     for (const row of data.items)
       if (row.source === "native_final" || row.source === "native_failure") knownTerminals.add(row.id);
     merge(data.items);
-    restoreChatAnchor(anchor);
     return data.items.length > 0;
   } catch (error) {
     failure(error);
@@ -1162,6 +1334,7 @@ function startRoute(previousEntry) {
   }
   inspection.close();
   routeVersion++;
+  fontOpening = null;
   failures.delete("canvas");
   failures.delete("detail");
   showConnection();
@@ -1646,8 +1819,9 @@ async function detailRead(ver) {
   const route = address(location.href);
   if (route?.kind === "message") {
     const { id } = route;
+    const version = receiptSequence;
     const m = await read("/api/messages/" + id, { signal: AbortSignal.timeout(6000) });
-    if (ver !== routeVersion || document.hidden) return;
+    if (!(await settlePage(version)) || !currentProjection(version) || ver !== routeVersion) return;
     $("message-unavailable").hidden = Boolean(m);
     if (!m) return;
     attention.remember(m);
@@ -1656,11 +1830,11 @@ async function detailRead(ver) {
     selectedMessage = id;
     merge([m]);
     if (alreadySelected) return;
-    pendingOpening = null;
     pinned = false;
     const node = $("msg-" + id);
     node.classList.add("selected");
-    scrollChat(chat.scrollTop + chatOffset(node) - (restore ? reloadReading.offset : 0));
+    pendingOpening = { node, exactOffset: restore ? reloadReading.offset : 0 };
+    applyOpening();
     reloadReading = null;
     restoreChatReturn();
   }
@@ -1741,7 +1915,7 @@ function refresh() {
   if (!$("chat").hidden && (!mobile.matches || history.state?.panel)) {
     poll("workspace approval", workspaceApproval);
   }
-  if (!pendingSend && !staging && !checkingReceipt && draft.uncertain) poll("receipt", recover);
+  if (!activeSend && !staging && draft.uncertain) poll("receipt", reconcile);
 }
 
 async function workspaceApproval(ver) {
@@ -1787,10 +1961,43 @@ async function workspaceApproval(ver) {
   node.dataset.round = approval.id;
   node.hidden = false;
 }
+let fieldWidth = 0;
 new ResizeObserver(() => {
+  const width = $("message").clientWidth;
+  if (width && width !== fieldWidth) {
+    fieldWidth = width;
+    preservePage(fitMessage);
+  }
   showTableControls();
   restoreChatReturn();
 }).observe($("chat"));
+const typeDeadline = setTimeout(() => {
+  fontLoad = "fallback";
+  applyOpening();
+}, 1500);
+Promise.allSettled([
+  Promise.all([document.fonts.load("400 1rem Literata"), document.fonts.load("italic 400 1rem Literata")]),
+  Promise.all([
+    document.fonts.load('400 1rem "Cormorant Garamond"'),
+    document.fonts.load('italic 400 1rem "Cormorant Garamond"'),
+  ]),
+]).then(results => {
+  clearTimeout(typeDeadline);
+  // A compositor can scroll before the corresponding DOM event is delivered.
+  if (fontOpening?.scrollTop === chat.scrollTop) pendingOpening ||= fontOpening;
+  fontOpening = null;
+  const [reading, display] = results.map(result =>
+    result.status === "fulfilled" && result.value.every(matches => matches.length > 0));
+  preservePage(() => {
+    const sidebar = $("sidebar");
+    sidebar.toggleAttribute("data-literata", reading);
+    sidebar.toggleAttribute("data-cormorant", display);
+    fontLoad = "settled";
+    fitMessage();
+  });
+  if (applyOpening()) attention.update();
+});
+if (draft.uncertain) $("receipt").textContent = "checking whether your message arrived…";
 showFiles();
 startRoute();
 window.addEventListener("pagehide", () => {
@@ -1803,6 +2010,7 @@ window.addEventListener("pagehide", () => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
+    finishAdvance();
     armed = null;
     pendingChat = null;
     presence.suspend();

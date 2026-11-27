@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -56,8 +55,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -196,7 +193,7 @@ internal data class PresenceTail(
     val mark get() = if (frozen == null && lastHeard == null) shape else PresenceMark.NONE
 }
 
-internal class Presence {
+internal class Presence(private val receiptPending: () -> Boolean) {
     var tail by mutableStateOf<PresenceTail?>(null)
         private set
     var handoff by mutableStateOf<String?>(null)
@@ -228,7 +225,7 @@ internal class Presence {
         sample?.work?.forOwner == true -> PresenceMark.OWNER
         sample?.phase in setOf(Phase.STANDBY, Phase.RETRYING) -> PresenceMark.REST
         sample?.work != null || (sample?.workers ?: 0) > 0 -> PresenceMark.QUIET
-        sample?.owner?.phase == Phase.QUEUED -> PresenceMark.RECEIVED
+        sample?.owner?.phase == Phase.QUEUED && !receiptPending() -> PresenceMark.RECEIVED
         else -> PresenceMark.NONE
     }
     val legend get() = when (mark) {
@@ -352,7 +349,7 @@ internal class Presence {
         return checked
     }
 
-    suspend fun poll(api: HomeApi, history: ChatHistory, notices: PhoneNotices) {
+    suspend fun poll(api: HomeApi, history: ChatHistory, page: suspend (String?, Long?) -> ChatPage) {
         unsupported = false
         var readVisit: Int? = null
         var pairedToken: String? = null
@@ -360,9 +357,9 @@ internal class Presence {
             val began = elapsedRealtime()
             val sampledEpoch = receiptEpoch
             val checked = confirm(api, history)
-            val settling = checked != null && checked.owner == null && tail != null && sampledEpoch == receiptEpoch
+            val settling = checked != null && checked.owner == null && tail != null && sampledEpoch == receiptEpoch && !receiptPending()
             if (settling) tail = tail?.let { it.copy(frozen = it.frozen ?: elapsedRealtime()) }
-            if (checked?.owner != null && sampledEpoch == receiptEpoch) {
+            if (checked?.owner != null && sampledEpoch == receiptEpoch && !receiptPending()) {
                 handoff = null
                 val hasOwnerWork = checked.work?.forOwner == true
                 val shape = when (checked.owner.phase) {
@@ -380,7 +377,7 @@ internal class Presence {
             val tokenChanged = checked != null && checked.chat != pairedToken
             refreshAll = false
             val paired = history.refresh(revisit, recheckRetained = tokenChanged) { before ->
-                readChatPage(api, notices, before, readMillis)
+                page(before, readMillis)
             }
             var arrivals = emptySet<String>()
             if (paired) {
@@ -411,19 +408,19 @@ internal class Presence {
     }
 }
 
-private fun shortTime(at: Instant): String =
+internal fun shortTime(at: Instant): String =
     DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(at)
 
 private fun lastHeardWords(at: Instant?): String = at?.let { "last heard ${shortTime(it)}" } ?: "not connected"
 
 @Composable
-internal fun rememberPresence(api: HomeApi, authRevision: Int, history: ChatHistory, notices: PhoneNotices): Presence {
+internal fun ObservePresence(
+    api: HomeApi, presence: Presence, history: ChatHistory, page: suspend (String?, Long?) -> ChatPage,
+) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val presence = remember(authRevision) { Presence() }
-    LaunchedEffect(lifecycle, api, presence, history, notices) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { presence.poll(api, history, notices) }
+    LaunchedEffect(lifecycle, api, presence, history, page) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { presence.poll(api, history, page) }
     }
-    return presence
 }
 
 // Presence supplies its own reduced-motion durations, including at system scale zero.
@@ -440,11 +437,6 @@ internal fun <T> rememberPresenceTransition(target: T, label: String): Transitio
     }
     return transition
 }
-
-private val cormorant = FontFamily(
-    Font(R.font.cormorant_garamond_regular),
-    Font(R.font.cormorant_garamond_italic, style = FontStyle.Italic),
-)
 
 @Composable
 internal fun PresenceWordmark(
@@ -466,7 +458,7 @@ internal fun PresenceWordmark(
             contentAlignment = Alignment.Center,
         ) {
             Text("jarvis", modifier = Modifier.alpha(wordmarkOpacity),
-                style = MaterialTheme.typography.titleLarge.copy(fontFamily = cormorant))
+                style = MaterialTheme.typography.titleLarge.copy(fontFamily = ChatDisplay))
         }
         val control = if (mark == PresenceMark.NONE) Modifier else Modifier.onFocusChanged { reveal(it.isFocused) }
             .clickable(role = Role.Button, onClick = activate)
@@ -489,7 +481,7 @@ internal fun PresenceDivider(presence: Presence, revealed: Boolean) {
                 .wrapContentHeight(Alignment.CenterVertically, unbounded = true)
                 .background(MaterialTheme.colorScheme.background).padding(horizontal = 4.dp),
                 maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelLarge.copy(fontFamily = cormorant, fontStyle = FontStyle.Italic))
+                style = MaterialTheme.typography.labelLarge.copy(fontFamily = ChatDisplay, fontStyle = FontStyle.Italic))
         }
         // Stable live region; the graphics and their changing descriptions stay quiet.
         Text(presence.announcement, modifier = Modifier.size(1.dp).semantics { liveRegion = LiveRegionMode.Polite },
@@ -503,10 +495,9 @@ internal fun PresenceDivider(presence: Presence, revealed: Boolean) {
 private fun PresencePoint(mark: PresenceMark, beat: Long) {
     val reduced = !ValueAnimator.areAnimatorsEnabled()
     val colors = MaterialTheme.colorScheme
-    val rubric = Color(if (isSystemInDarkTheme()) 0xFFEE9A83 else 0xFFA33B25)
     rememberPresenceTransition(mark, "presence shape").Crossfade(animationSpec = tween(if (reduced) 120 else 240)) { shape ->
         if (shape == PresenceMark.OWED) {
-            Text("¶", color = rubric, style = MaterialTheme.typography.titleLarge.copy(fontFamily = cormorant))
+            Text("¶", color = rubric(), style = MaterialTheme.typography.titleLarge.copy(fontFamily = ChatDisplay))
         } else {
             val scale = remember { Animatable(1f) }
             val echo = remember { Animatable(0f) }
@@ -576,14 +567,8 @@ internal fun ProvisionalReply(tail: PresenceTail, beat: Long) {
     val seconds = tail.started?.let { ((tail.frozen ?: now) - it) / 1000 }
     val reduced = !ValueAnimator.areAnimatorsEnabled()
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("jarvis", style = MaterialTheme.typography.labelMedium)
-            if (seconds != null && seconds >= 20) {
-                val digits = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
-                Text(digits, modifier = Modifier.alpha(if (tail.lastHeard != null) .55f else 1f),
-                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"))
-            }
-        }
+        val digits = if (seconds != null && seconds >= 20) "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}" else ""
+        MessageStamp("jarvis", digits, timeAlpha = if (tail.lastHeard != null) .55f else 1f)
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (tail.mark == PresenceMark.NONE) Spacer(Modifier.size(24.dp))
             else PresencePoint(tail.mark, beat)
@@ -592,7 +577,7 @@ internal fun ProvisionalReply(tail: PresenceTail, beat: Long) {
                     fadeOut(tween(if (reduced) 120 else 140))).using(null)
             }) {
                 Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = cormorant, fontStyle = FontStyle.Italic))
+                    style = ChatMurmur)
             }
         }
         tail.lastHeard?.let {

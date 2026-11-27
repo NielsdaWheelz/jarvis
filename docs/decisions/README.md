@@ -166,13 +166,14 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0125](0125-new-shown-and-owed.md) | new, shown and owed in chat | accepted. device-local rehearsal precedes shared receipts. |
 | [0126](0126-presence.md) | show when jarvis is working | implemented. additive presence read, web and android mark. installed acceptance open. |
 | [0127](0127-drive-prototype-qualification.md) | qualify drive on the owner's account | accepted. keep changes in a fresh synthetic fixture and defer the data-use review. |
+| [0127](0127-the-daybook.md) | the conversation as a daybook | accepted. web and android share the reading design and authoritative receipt. |
 | [0128](0128-docs-rest.md) | use the standard docs api | accepted. direct owner-account proof covers revisions, edits and suggestions. |
 | [0129](0129-drive-blob-rest.md) | transfer drive blobs through the standard drive api | matched owner-account proof passed at 100 mib. installed qualification remains open. |
 | [0130](0130-drive-conditional-revision.md) | condition drive revisions on the exact file tag | matched 100 mib revision and stale rejection passed. installed qualification remains open. |
 | [0131](0131-stock-drive-rollout.md) | roll out drive and chat on the current stock host | accepted. use a separate stopped enrollment before the verified migration. |
 
 The two published ADRs numbered 0078 retain their distinct titles and paths.
-the two decisions numbered 0114 likewise retain their distinct titles and paths.
+the decisions numbered 0114 and 0127 likewise retain their distinct titles and paths.
 
 To supersede an ADR, add a new ADR that names it, provides observed evidence,
 documents migration impact, and updates the normative specification and current

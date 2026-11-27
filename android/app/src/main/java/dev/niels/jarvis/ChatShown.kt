@@ -54,6 +54,7 @@ internal class ShownReports private constructor(context: Context) {
     private val writes = Mutex()
     private val reports = mutableStateMapOf<String, State>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var authority = 0L
     private var retry: Job? = null
     var problem by mutableStateOf<String?>(null)
         private set
@@ -82,6 +83,7 @@ internal class ShownReports private constructor(context: Context) {
     fun startVisit() { reports.entries.removeAll { it.value == State.DROPPED } }
 
     fun reset() {
+        authority++
         reports.clear()
         problem = null
     }
@@ -94,6 +96,7 @@ internal class ShownReports private constructor(context: Context) {
                 val ids = reports.asSequence().filter { it.value == State.PENDING }.map { it.key }.take(200).toList()
                 if (ids.isEmpty()) return@withLock
                 val revision = notices.revisionBeforeWrite()
+                val writingUnder = authority
                 val acknowledged = try {
                     api.writeShown("/api/shown", JSONObject().put("ids", JSONArray(ids)))
                     true
@@ -103,9 +106,10 @@ internal class ShownReports private constructor(context: Context) {
                 } catch (_: ViewerUpdateRequired) {
                     false
                 } catch (_: IOException) {
-                    problem = "could not save shown messages"
+                    if (writingUnder == authority) problem = "could not save shown messages"
                     return@withLock
                 }
+                if (writingUnder != authority) return@withLock
                 val outcome = if (acknowledged) State.ACKNOWLEDGED else State.DROPPED
                 ids.filter { it in reports }.forEach { reports[it] = outcome }
                 problem = null

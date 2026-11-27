@@ -848,6 +848,12 @@ async function messages(ver, paired) {
   let data, cursor = null, seenNew = 0, needContext = false;
   let foundLatest = !latest, foundOldest = !allPages || !oldest;
   let latestId;
+  function keepReadState(error) {
+    reread ||= allPages || !foundOldest;
+    if (ver !== routeVersion || document.hidden || error.upgrade || !pages.length) return;
+    for (const page of pages) attention.page(page, page.sequence, true);
+    attention.update();
+  }
   try {
     do {
       data = await messagePage(cursor);
@@ -873,7 +879,7 @@ async function messages(ver, paired) {
     } while (cursor && (!foundLatest || !foundOldest ||
       initial && pages.length < 3 && (seenNew < data.new_total || needContext)));
   } catch (error) {
-    reread ||= allPages;
+    keepReadState(error);
     throw error;
   }
 
@@ -899,7 +905,7 @@ async function messages(ver, paired) {
     try {
       origin = await read("/api/messages/" + returning.messageId, { signal: AbortSignal.timeout(6000) });
     } catch (error) {
-      reread ||= allPages;
+      keepReadState(error);
       throw error;
     }
     if (ver !== routeVersion || document.hidden) {

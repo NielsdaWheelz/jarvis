@@ -27,6 +27,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -182,13 +183,17 @@ internal class Drafts private constructor(private val context: Context) {
         if (locked) throw DraftProblem(SettleEarlier)
         val count = uris.size + if (text != null) 1 else 0
         if (count > FileLimit - current.files.size) throw DraftProblem("at most ten files. remove a file first.")
-        val updated = withContext(Dispatchers.IO) {
-            store.mkdirs()
-            val staging = Files.createTempDirectory(store.toPath(), ".incoming-").toFile()
-            try {
+        val staging = withContext(NonCancellable) {
+            withContext(Dispatchers.IO) {
+                store.mkdirs()
+                Files.createTempDirectory(store.toPath(), ".incoming-").toFile()
+            }
+        }
+        try {
+            val added = withContext(Dispatchers.IO) {
                 var remaining = BodyLimit - current.files.sumOf(DraftFile::size)
                 val firstSlot = (current.files.maxOfOrNull(DraftFile::slot) ?: -1) + 1
-                val added = List(count) { index ->
+                List(count) { index ->
                     val slot = firstSlot + index
                     val uri = uris.getOrNull(index)
                     val isText = index == uris.size
@@ -212,28 +217,31 @@ internal class Drafts private constructor(private val context: Context) {
                     remaining -= original.size
                     original
                 }
-                val result = current.copy(files = current.files + added)
-                try {
-                    for (file in added.filter { it.sha256 != null }) {
-                        val name = "file-${file.slot}"
-                        Files.move(staging.resolve(name).toPath(), store.resolve(name).toPath(), ATOMIC_MOVE)
-                    }
-                    if (added.all { it.problem == null } && encode(result).contentLength() > BodyLimit) {
-                        throw DraftProblem("message and files exceed 90 mib")
-                    }
-                    write(result)
-                    result
-                } catch (e: IOException) {
-                    // The recovered manifest, including a reported write failure, owns private bytes.
-                    reclaim(load() ?: current)
-                    throw e
-                }
-            } finally {
-                staging.deleteRecursively()
             }
+            withContext(NonCancellable) {
+                val result = current.copy(files = current.files + added)
+                withContext(Dispatchers.IO) {
+                    try {
+                        for (file in added.filter { it.sha256 != null }) {
+                            val name = "file-${file.slot}"
+                            Files.move(staging.resolve(name).toPath(), store.resolve(name).toPath(), ATOMIC_MOVE)
+                        }
+                        if (added.all { it.problem == null } && encode(result).contentLength() > BodyLimit) {
+                            throw DraftProblem("message and files exceed 90 mib")
+                        }
+                        write(result)
+                    } catch (e: IOException) {
+                        // The recovered manifest owns private bytes even after a write error.
+                        reclaim(load() ?: current)
+                        throw e
+                    }
+                }
+                draft = result
+                problem = null
+            }
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { staging.deleteRecursively() }
         }
-        draft = updated
-        problem = null
     }
 
     fun remove(slot: Int) {
@@ -263,19 +271,24 @@ internal class Drafts private constructor(private val context: Context) {
         }
     }
 
-    fun send(words: String, api: HomeApi, accepted: (ChatMessage) -> Unit): Boolean {
+    fun send(words: String, api: HomeApi, history: ChatHistory): Boolean {
         val initial = draft ?: return false
-        if (sending || copying > 0 || !initial.canSend(if (initial.held) initial.text else words)) return false
+        if (sending || (initial.held && !receiptChecked) || copying > 0 ||
+            !initial.canSend(if (initial.held) initial.text else words)
+        ) return false
         sendingSince = SystemClock.elapsedRealtime()
         receiptChecked = false
         problem = null
-        transferJob = process.launch {
+        val epoch = history.authorizationEpoch
+        transferJob = process.launch(start = CoroutineStart.LAZY) {
+            val attempt = coroutineContext[Job]
             try {
                 val frozen = writes.withLock {
                     val current = checkNotNull(draft)
                     val updated = if (current.held) current else current.copy(text = words, held = true)
                     val body = encode(updated)
                     if (body.contentLength() > BodyLimit) {
+                        if (!current.held && current.text != words) save(current.copy(text = words))
                         problem = "message or files are too large."
                         return@launch
                     }
@@ -284,9 +297,10 @@ internal class Drafts private constructor(private val context: Context) {
                 }
                 api.submit(initial.id, frozen).let { (code, receipt) ->
                     writes.withLock {
+                        if (transferJob !== attempt) return@withLock
                         val current = checkNotNull(draft)
                         when (code) {
-                            200, 201 -> cross(checkNotNull(receipt), accepted)
+                            200, 201 -> cross(checkNotNull(receipt), history, epoch)
                             409 -> {
                                 save(current.copy(id = UUID.randomUUID().toString(), held = false))
                                 problem = "a different message already used this send. it is in the conversation."
@@ -303,29 +317,41 @@ internal class Drafts private constructor(private val context: Context) {
                         }
                     }
                 }
-            } catch (_: SignInRequired) {
-                problem = "sign in to check whether your message arrived"
+            } catch (lost: SignInRequired) {
+                if (transferJob === attempt) {
+                    problem = "sign in to check whether your message arrived"
+                    history.rejectAccess(lost)
+                }
             } catch (_: IOException) {
-                if (draft?.held != true) problem = "could not save these words"
+                if (transferJob === attempt && draft?.held != true) problem = "could not save these words"
             } finally {
-                sendingSince = null
-                transferJob = null
+                if (transferJob === attempt) {
+                    sendingSince = null
+                    transferJob = null
+                }
             }
         }
+        transferJob?.start()
         return true
     }
 
     fun stopWaiting() {
-        transferJob?.cancel()
+        val job = transferJob ?: return
+        if (draft?.held == true) {
+            transferJob = null
+            sendingSince = null
+        }
+        job.cancel()
     }
 
     // A page taken before this ordered lookup can have no row for a 404.
     // An active PUT must settle first, because its 409 can name someone else's row.
-    suspend fun checkReceipt(api: HomeApi, accepted: (ChatMessage) -> Unit): Boolean = receipts.withLock {
+    suspend fun checkReceipt(api: HomeApi, history: ChatHistory): Boolean = receipts.withLock {
         ready.join()
         val waiting = draft?.takeIf(Draft::held)
         if (sending || draft == null) return false
         if (waiting == null) return true
+        val epoch = history.authorizationEpoch
         val receipt = try {
             api.receipt(waiting.id)
         } catch (e: IOException) {
@@ -333,10 +359,13 @@ internal class Drafts private constructor(private val context: Context) {
             throw e
         }
         writes.withLock {
-            if (sending) return false
+            if (sending || epoch != history.authorizationEpoch) return false
             if (draft?.id != waiting.id) return draft?.held == false
-            if (receipt != null) cross(receipt, accepted) else receiptChecked = true
-            true
+            if (receipt != null) cross(receipt, history, epoch)
+            else {
+                receiptChecked = true
+                true
+            }
         }
     }
 
@@ -355,21 +384,24 @@ internal class Drafts private constructor(private val context: Context) {
         }
     }
 
-    private suspend fun cross(receipt: SubmissionReceipt, accepted: (ChatMessage) -> Unit) = withContext(NonCancellable) {
-        val reset = Draft()
-        withContext(Dispatchers.IO) {
-            write(reset)
-            reclaim(reset)
+    private suspend fun cross(receipt: SubmissionReceipt, history: ChatHistory, epoch: Int) =
+        history.admitReceipt(epoch) {
+            withContext(NonCancellable) {
+                val reset = Draft()
+                withContext(Dispatchers.IO) {
+                    write(reset)
+                    reclaim(reset)
+                }
+                Snapshot.withMutableSnapshot {
+                    draft = reset
+                    problem = null
+                    sendingSince = null
+                    history.accept(receipt.message)
+                }
+            }
         }
-        Snapshot.withMutableSnapshot {
-            draft = reset
-            problem = null
-            sendingSince = null
-            accepted(receipt.message)
-        }
-    }
 
-    private suspend fun save(value: Draft, removeOld: Boolean = false) {
+    private suspend fun save(value: Draft, removeOld: Boolean = false) = withContext(NonCancellable) {
         withContext(Dispatchers.IO) {
             write(value)
             if (removeOld) reclaim(value)

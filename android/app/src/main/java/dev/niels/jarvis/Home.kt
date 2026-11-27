@@ -100,7 +100,8 @@ internal fun JarvisHome(
     entry: Route, onNavigate: (Route) -> Unit, onResolve: (Route) -> Unit,
     todoReads: () -> TodoReads, history: ChatHistory, notices: PhoneNotices, onBack: (() -> Unit)?,
     api: HomeApi, authRevision: Int, presence: Presence, drafts: Drafts,
-    readPage: suspend (String?) -> ChatPage, accept: (ChatMessage) -> Unit,
+    readPage: suspend (String?) -> ChatPage,
+    confirmReceipt: suspend () -> Boolean,
     openDock: Boolean, dockOpened: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -141,9 +142,12 @@ internal fun JarvisHome(
     var resumed by remember { mutableStateOf(lifecycle.currentState == Lifecycle.State.RESUMED) }
     val focused = LocalWindowInfo.current.isWindowFocused
     val haptic = LocalHapticFeedback.current
+    val entryHandoff = remember(presence) { presence.handoff }
     LaunchedEffect(presence, chat) { if (chat) presence.requestChat() }
     LaunchedEffect(presence.handoff) {
-        if (presence.handoff != null && resumed && chat) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (presence.handoff != null && presence.handoff != entryHandoff && resumed && chat) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
     }
     DisposableEffect(lifecycle) {
         val listener = LifecycleEventObserver { _, event ->
@@ -257,7 +261,7 @@ internal fun JarvisHome(
                 if (chat) Conversation(history, readPage, signIn, onNavigate, discuss, presence, refreshPresence,
                     dock = { pressed ->
                         ChatDock(drafts, focusDock, requestedReference, { requestedReference = null }) { words ->
-                            if (drafts.send(words, api, accept)) pressed()
+                            if (drafts.send(words, api, history)) pressed()
                         }
                     }) {
                     WorkspaceApprovalPanel(api, authRevision)
@@ -267,7 +271,8 @@ internal fun JarvisHome(
                         Pane { BodyStatus("opening home") }
                     }
                     Route.Todos, is Route.Todo -> TodoViewer((route as? Route.Todo)?.id, todoReads(), api, reload, signIn, onNavigate, discuss)
-                    is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, discuss, history) { chat = true }
+                    is Route.Message -> MessageDetail(route, api, reload, signIn, onNavigate, discuss, history,
+                        drafts.sending, confirmReceipt) { chat = true }
                     is Route.Source -> SourcePane(route, api, refresh, authRevision, onNavigate, onBack)
                     is Route.Table -> TablePane(route, api, reload, signIn, onNavigate, onBack)
                     Route.Files -> DriveList(null, api, reload, signIn, onNavigate, discuss)
@@ -634,6 +639,7 @@ private fun Conversation(
 private fun MessageDetail(
     route: Route.Message, api: HomeApi, reload: Pair<Int, Int>, signIn: () -> Unit,
     navigate: (Route) -> Unit, discuss: (DiscussionRef?) -> Unit, history: ChatHistory,
+    sending: Boolean, confirmReceipt: suspend () -> Boolean,
     conversation: () -> Unit,
 ) {
     val scroll = rememberScrollState()
@@ -642,7 +648,20 @@ private fun MessageDetail(
         return
     }
     val path = "/api/messages/${route.id}"
-    Read(path, reload, signIn, { api.read(path) }, signInLabel = "sign in to open this reply") { message ->
+    Read(path to sending, reload, signIn, {
+        val epoch = history.authorizationEpoch
+        try {
+            val row = api.read(path)
+            if (!confirmReceipt() || epoch != history.authorizationEpoch) throw ChatPageDeferred()
+            row
+        } catch (lost: SignInRequired) {
+            history.rejectAccess(lost)
+            throw lost
+        } catch (stale: ViewerUpdateRequired) {
+            history.rejectAccess(stale)
+            throw stale
+        }
+    }, signInLabel = "sign in to open this reply") { message ->
         if (message == null) {
             Pane { BodyStatus("this message is no longer available") }
             return@Read
@@ -719,7 +738,7 @@ private fun ChatCard(
 }
 
 private fun JSONObject.deliveries(): List<DiscussionRef> {
-    val links = objects("artifact_links").mapNotNull { DiscussionRef.parse(it) as? DiscussionRef.Artifact }
+    val links = objects("artifact_links").mapNotNull(DiscussionRef::parse)
     val presented = DiscussionRef.parse(optJSONObject("present")?.optJSONObject("ref"))
     return (links + listOfNotNull(presented)).distinct()
 }
@@ -732,20 +751,25 @@ private fun JSONObject.apparatus(deliveries: List<DiscussionRef>, editions: List
     if (reference != null) add(ApparatusEntry("about", reference.label, reference.route()))
     val files = objects("files")
     for (file in files) {
-        val note = if (file.optBoolean("unavailable")) "file unavailable" else originStatus(file)
+        val note = when {
+            file.optBoolean("unavailable") -> "file unavailable"
+            file.string("state") == "filed" -> "filed"
+            else -> originStatus(file)
+        }
         add(ApparatusEntry("file", file.string("name") ?: "unnamed file", Route.File(file.getString("id"), null), note))
     }
     val drafts = objects("drafts")
-    val subjects = drafts.map { it.string("subject").orEmpty().ifBlank { "(no subject)" } }
-    for (editable in listOf(true, false)) {
-        drafts.forEachIndexed { index, draft ->
-            if ((draft.opt("editable") == true) == editable) {
-                val subject = subjects[index]
-                val label = if (subjects.count { it == subject } > 1) "$subject · ${subjects.take(index + 1).count { it == subject }}" else subject
-                add(ApparatusEntry(if (editable) "draft" else "revision", label,
-                    Route.Mail(id, draft.getString("create_action_id"), historical = !editable)))
-            }
-        }
+    fun subject(row: JSONObject) = row.string("subject").orEmpty().ifBlank { "(no subject)" }
+    val repeated = drafts.filter { it.optBoolean("editable") }.groupingBy(::subject).eachCount()
+    val ordinals = mutableMapOf<String, Int>()
+    for (draft in drafts.sortedBy { !it.optBoolean("editable") }) {
+        val editable = draft.optBoolean("editable")
+        val subject = subject(draft)
+        val ordinal = if (editable && repeated.getValue(subject) > 1) {
+            ((ordinals[subject] ?: 0) + 1).also { ordinals[subject] = it }
+        } else null
+        add(ApparatusEntry(if (editable) "draft" else "revision", ordinal?.let { "$subject · $it" } ?: subject,
+            Route.Mail(id, draft.getString("create_action_id"), historical = !editable)))
     }
     val revision = string("draft_revision_id")
     val badRevision = string("draft_revision_error") == "integrity"

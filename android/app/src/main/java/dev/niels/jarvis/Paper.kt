@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -35,6 +37,7 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -129,15 +132,20 @@ internal val ChatMurmur = TextStyle(
 
 @Composable
 internal fun MessageStamp(speaker: String, time: String, owed: Boolean = false, fresh: Boolean = false, timeAlpha: Float = 1f) {
+    val timeStyle = ChatCaps.copy(fontFeatureSettings = "onum", letterSpacing = .04.em, textAlign = TextAlign.Center)
+    val digit = with(LocalDensity.current) { timeStyle.fontSize.toDp() * .72f }
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = timeAlpha)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) {
             if (owed) Text("needs a reply", color = rubric(), style = ChatCaps)
         }
-        Text(time.ifEmpty { " " }, Modifier.clearAndSetSemantics {
+        Row(Modifier.clearAndSetSemantics {
             contentDescription = listOfNotNull("new".takeIf { fresh }, speaker, time.takeIf(String::isNotEmpty)).joinToString(" · ")
-        }, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = timeAlpha), style = ChatCaps.copy(
-            fontFeatureSettings = "onum, tnum", letterSpacing = .04.em,
-        ))
+        }) {
+            for (glyph in time.ifEmpty { " " }) {
+                Text(glyph.toString(), if (glyph.isDigit()) Modifier.width(digit) else Modifier, color = muted, style = timeStyle)
+            }
+        }
     }
 }
 

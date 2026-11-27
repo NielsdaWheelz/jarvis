@@ -88,7 +88,7 @@ internal fun ChatDock(
     val words = input.text.toString()
     val sending = drafts.sending
     val held = draft.held && !sending
-    val ready = !sending && drafts.copying == 0 && draft.canSend(words)
+    val ready = !sending && (!held || drafts.receiptChecked) && drafts.copying == 0 && draft.canSend(words)
     val style = chatBody(owner = true)
     val strokeY = with(LocalDensity.current) { (style.fontSize.toPx() * 1.5f) / 2 }
     val problem = drafts.problem ?: "message or files are too large.".takeIf {

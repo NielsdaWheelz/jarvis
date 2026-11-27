@@ -14,7 +14,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -59,21 +58,30 @@ class MainActivity : ComponentActivity() {
             val authRevision by access.revision.collectAsState()
             val presence = remember(authRevision) { Presence { drafts.locked } }
             val haptic = LocalHapticFeedback.current
-            val accept by rememberUpdatedState<(ChatMessage) -> Unit>({ row ->
-                chat.accept(row)
-                presence.accepted()
-                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-            })
+            DisposableEffect(chat, presence, haptic) {
+                val stop = chat.observeReceipt {
+                    presence.accepted()
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                }
+                onDispose(stop)
+            }
+            val confirmReceipt: suspend () -> Boolean = remember(api, drafts, chat) {
+                { drafts.checkReceipt(api, chat) }
+            }
             val readPage: suspend (String?, Long?) -> ChatPage = remember(api, notices, drafts) {
                 { before, timeout ->
-                    readChatPage(api, notices, before, timeout) { drafts.checkReceipt(api) { accept(it) } }
+                    readChatPage(api, notices, before, timeout, confirmReceipt)
                 }
             }
             ObservePresence(api, presence, chat, readPage)
             LaunchedEffect(drafts.draft?.held, drafts.sending, authRevision) {
                 if (drafts.draft?.held == true && !drafts.sending) {
                     try {
-                        drafts.checkReceipt(api, accept)
+                        confirmReceipt()
+                    } catch (lost: SignInRequired) {
+                        chat.rejectAccess(lost)
+                    } catch (stale: ViewerUpdateRequired) {
+                        chat.rejectAccess(stale)
                     } catch (_: IOException) {
                         // The held draft remains actionable while the receipt is unavailable.
                     }
@@ -132,7 +140,8 @@ class MainActivity : ComponentActivity() {
                     history = chat, notices = notices,
                     onBack = if (trail.size > 1) ::back else null,
                     api = api, authRevision = authRevision, presence = presence,
-                    drafts = drafts, readPage = { readPage(it, null) }, accept = accept,
+                    drafts = drafts, readPage = { readPage(it, null) },
+                    confirmReceipt = confirmReceipt,
                     openDock = openDock, dockOpened = { openDock = false },
                 )
             }

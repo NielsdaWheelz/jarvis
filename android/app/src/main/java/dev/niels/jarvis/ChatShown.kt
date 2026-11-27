@@ -27,6 +27,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.json.JSONException
 import org.json.JSONObject
 
 internal data class ChatStamp(val id: String, val at: Instant) : Comparable<ChatStamp> {
@@ -113,6 +114,8 @@ internal data class ChatRead(val finals: List<String>, val arrivals: Set<String>
 
 internal class ChatHistory(private val shown: ChatShown) {
     private val reads = Mutex()
+    private val receiptAuthority = Mutex()
+    private var onReceipt: (() -> Unit)? = null
     private var outside by mutableStateOf(emptyList<ChatStamp>())
     private val learned = mutableMapOf<String, Long>()
     private val timings = mutableMapOf<String, Dwell>()
@@ -164,9 +167,21 @@ internal class ChatHistory(private val shown: ChatShown) {
 
     fun learnedAt(id: String) = learned.getOrPut(id, SystemClock::elapsedRealtime)
 
+    fun observeReceipt(observer: () -> Unit): () -> Unit {
+        onReceipt = observer
+        return { if (onReceipt === observer) onReceipt = null }
+    }
+
     fun accept(row: ChatMessage) {
         rows = mergeRows(rows, listOf(row))
         crossing++
+        onReceipt?.invoke()
+    }
+
+    suspend fun admitReceipt(epoch: Int, settle: suspend () -> Unit): Boolean = receiptAuthority.withLock {
+        if (epoch != authorizationEpoch) return false
+        settle()
+        true
     }
 
     private fun mergeRows(older: List<ChatMessage>, newer: List<ChatMessage>) =
@@ -263,8 +278,8 @@ internal class ChatHistory(private val shown: ChatShown) {
         }
     }
 
-    suspend fun rejectAccess(error: SignInRequired) = reads.withLock {
-        applyRead { throw error }
+    suspend fun rejectAccess(error: IOException) = reads.withLock {
+        loseAuthority(error)
     }
 
     suspend fun earlier(page: suspend (String?) -> ChatPage) = reads.withLock {
@@ -280,9 +295,23 @@ internal class ChatHistory(private val shown: ChatShown) {
         }
     }
 
-    private suspend fun applyRead(read: suspend () -> ChatRead?): Boolean {
-        val paired = latest.refresh(read)
-        if (latest.authorityLost && received) {
+    private suspend fun applyRead(read: suspend () -> ChatRead?): Boolean = try {
+        val result = read()
+        latest.refresh { result }
+    } catch (error: SignInRequired) {
+        loseAuthority(error)
+    } catch (error: ViewerUpdateRequired) {
+        loseAuthority(error)
+    } catch (error: IOException) {
+        latest.refresh { throw error }
+    } catch (error: JSONException) {
+        latest.refresh { throw error }
+    }
+
+    private suspend fun loseAuthority(error: IOException): Boolean = receiptAuthority.withLock {
+        val newLoss = !latest.authorityLost || received || rows.isNotEmpty()
+        latest.refresh { throw error }
+        if (newLoss) {
             rows = emptyList()
             owed = emptyList()
             outside = emptyList()
@@ -295,7 +324,7 @@ internal class ChatHistory(private val shown: ChatShown) {
             timings.clear()
             authorizationEpoch++
         }
-        return paired
+        false
     }
 
     fun clear(through: ChatStamp) {

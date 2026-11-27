@@ -1,11 +1,9 @@
 import { el } from "./home-dom.js";
 
-const KEY = "jarvis.home.shown";
 const WAIT = 1000;
 const STANDING = 1500;
 const ATTENDING = 120000;
 const VISIT = 300000;
-const LIMIT = 2000;
 
 export const tracked = (message) => message.role === "assistant" && message.source !== "native_progress";
 
@@ -15,7 +13,7 @@ export function instant(at) {
 }
 
 export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, formatTime,
-  stopAttending, newVisit, place, jump, earlier, failure, preservePosition }) {
+  stopAttending, newVisit, place, jump, earlier, request, recheck, failure, preservePosition }) {
   const [newButton, owedButton, undo] = ledge.querySelectorAll("button");
   const separator = el("div", undefined, "new-boundary");
   separator.id = "chat-boundary";
@@ -25,24 +23,19 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
   clear.type = "button";
   separator.append(caption, clear);
 
-  let start = instant(new Date().toISOString());
-  let shown = new Map();
   try {
-    const stored = JSON.parse(localStorage.getItem(KEY));
-    if (stored) {
-      ({ start } = stored);
-      shown = new Map(stored.shown);
-    } else localStorage.setItem(KEY, JSON.stringify({ start, shown: [] }));
-  } catch (error) {
-    failure(error);
-  }
+    localStorage.removeItem("jarvis.home.shown");
+  } catch {}
 
   let known = new Map(), owed = new Set(), samples = new Map(), marks = new Set();
   let previous = 0, lastInput = -Infinity, absentSince = null;
   let wasAttending = false, owedAfter = null, pendingClear = null;
-  let focusTarget = null, restoringFocus = false, nextPaint = Infinity, retryAt = 0;
+  let focusTarget = null, restoringFocus = false, nextPaint = Infinity;
   let lastAnnouncement = -Infinity, arrivals = new Set();
-  let boundary = null;
+  let boundary = null, awaitingClearCount = false;
+  let newTotal = 0, owedTotal = 0, readNumber = 0, newRead = 0, owedRead = 0, clearRead = 0;
+  let reportTimer, reporting = null, writes = 0;
+  const reports = new Map();
 
   const articles = () => [...list.querySelectorAll(":scope > article")];
   const range = document.createRange();
@@ -54,66 +47,146 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       bottom: Math.min(box.bottom, view ? view.offsetTop + view.height : window.innerHeight),
     };
   };
-  const afterStart = (message) => instant(message.at) > start;
-  const isNew = (message) => tracked(message) && afterStart(message) && !shown.has(message.id);
-  const isClearing = (id) => pendingClear && known.get(id) <= pendingClear.through;
-  const fresh = (id) => known.get(id) > start && !shown.has(id) && !isClearing(id);
+  const isClearing = (state) => pendingClear && state.order <= pendingClear.order;
+  const eligible = (id) => {
+    const state = known.get(id);
+    return state && state.new !== false && !reports.has(id) && !isClearing(state);
+  };
+  const fresh = (id) => known.get(id)?.new === true && eligible(id);
   const attending = () => !document.hidden && document.hasFocus() &&
     performance.now() - lastInput < ATTENDING;
 
-  function write(nextStart, nextShown) {
-    try {
-      const persisted = JSON.parse(localStorage.getItem(KEY));
-      if (persisted?.start > nextStart) nextStart = persisted.start;
-      const ordered = [...new Map([...(persisted?.shown || []), ...nextShown])]
-        .filter(([, at]) => at > nextStart);
-      if (ordered.length > LIMIT) {
-        ordered.sort((a, b) => a[1].localeCompare(b[1]));
-        nextStart = ordered[ordered.length - LIMIT - 1][1];
-      }
-      const retained = ordered.filter(([, at]) => at > nextStart);
-      localStorage.setItem(KEY, JSON.stringify({ start:nextStart, shown:retained }));
-      start = nextStart;
-      shown = new Map(retained);
-    } catch (error) {
-      retryAt = performance.now() + WAIT;
-      failure(error);
-      return false;
+  function remember(message) {
+    if (!tracked(message)) return;
+    if (!known.has(message.id))
+      known.set(message.id, { order: instant(message.at) + message.id });
+    return known.get(message.id);
+  }
+
+  function setTotals(data, number) {
+    if (!Number.isSafeInteger(data?.new_total) || data.new_total < 0 ||
+        !Number.isSafeInteger(data.owed_total) || data.owed_total < 0)
+      throw new Error("incomplete conversation state");
+    // A GET issued across a local write cannot tell us whether its count includes
+    // that write. Per-message false values can still be merged permanently.
+    if (!writes && number > newRead) {
+      newRead = number;
+      newTotal = data.new_total;
+      awaitingClearCount = false;
     }
-    for (const [id, at] of known) if (at <= start) known.delete(id);
-    failure(null);
-    return true;
+    if (number > owedRead) {
+      owedRead = number;
+      owedTotal = data.owed_total;
+      if (data.owed) owed = new Set(data.owed);
+    }
+  }
+
+  async function post(path, body) {
+    writes++;
+    try {
+      const response = await request(path, {
+        method: "POST", keepalive: true, signal: AbortSignal.timeout(6000),
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (response.status !== 204) throw new Error("could not record shown messages");
+      newRead = readNumber;
+    } finally {
+      writes--;
+    }
+  }
+
+  function scheduleReport() {
+    if (reportTimer === undefined) reportTimer = setTimeout(flush, WAIT);
+  }
+
+  async function report(ids) {
+    for (const id of ids) reports.set(id, true);
+    try {
+      await post("/api/shown", { ids });
+      let unknown = false;
+      for (const id of ids) {
+        reports.delete(id);
+        const state = known.get(id);
+        if (!state) continue;
+        if (state.new === undefined) unknown = true;
+        if (state.new) newTotal = Math.max(0, newTotal - 1);
+        state.new = false;
+      }
+      if (!reports.size) failure(null, "shown");
+      if (unknown) recheck();
+    } catch (error) {
+      failure(error, "shown");
+      if (error.login || error.upgrade) reports.clear();
+      else {
+        for (const id of ids) if (reports.has(id)) reports.set(id, false);
+        if (reports.size) scheduleReport();
+      }
+    }
+  }
+
+  function flush() {
+    clearTimeout(reportTimer);
+    reportTimer = undefined;
+    const ids = [...reports.keys()].filter(id => !reports.get(id));
+    if (!ids.length) return reporting;
+    const batches = [reporting];
+    for (let i = 0; i < ids.length; i += 200) batches.push(report(ids.slice(i, i + 200)));
+    const complete = Promise.all(batches).then(() => {
+      if (reporting === complete) reporting = null;
+      preservePosition(paint);
+    });
+    reporting = complete;
+    return reporting;
   }
 
   function observe(ids) {
-    const observed = ids.filter(fresh);
-    if (!observed.length || performance.now() < retryAt) return false;
-    if (!write(start, new Map([...shown, ...observed.map((id) => [id, known.get(id)])])))
-      return false;
-    for (const id of observed) samples.delete(id);
+    const observed = ids.filter(eligible);
+    if (!observed.length) return false;
+    for (const id of observed) {
+      reports.set(id, false);
+      samples.delete(id);
+    }
+    scheduleReport();
     return true;
   }
 
-  function settleClear() {
-    if (!pendingClear) return;
-    clearTimeout(pendingClear.timeout);
-    const { through } = pendingClear;
-    pendingClear = null;
-    write(through > start ? through : start, shown);
+  async function settleClear() {
+    const clearing = pendingClear;
+    if (!clearing?.timeout) return;
+    clearTimeout(clearing.timeout);
+    clearing.timeout = null;
+    const affected = [...known.values()].filter((state) => state.order <= clearing.order);
     preservePosition(paint);
+    try {
+      await post("/api/shown/clear", { through: clearing.id });
+      if (pendingClear !== clearing) return;
+      for (const state of affected) state.new = false;
+      clearRead = readNumber;
+      awaitingClearCount = true;
+      failure(null, "clear");
+      recheck(true);
+    } catch (error) {
+      failure(error, "clear");
+    } finally {
+      if (pendingClear === clearing) {
+        pendingClear = null;
+        preservePosition(paint);
+      }
+    }
   }
 
   clear.onclick = () => {
     const newest = articles().findLast((node) => known.has(node.dataset.messageId));
     if (pendingClear || !newest) return;
-    const through = known.get(newest.dataset.messageId);
-    const count = [...known].filter(([id, at]) => at <= through && fresh(id)).length;
-    if (!count) return;
-    pendingClear = { through, count, timeout: setTimeout(settleClear, 5000) };
+    const order = newest.dataset.order;
+    const later = [...known].filter(([id, state]) => state.order > order && fresh(id)).length;
+    const count = newCount() - later;
+    if (count <= 0) return;
+    pendingClear = { id: newest.dataset.messageId, order, count, timeout: setTimeout(settleClear, 5000) };
     preservePosition(paint);
   };
   undo.onclick = () => {
-    if (!pendingClear) return;
+    if (!pendingClear?.timeout) return;
     clearTimeout(pendingClear.timeout);
     pendingClear = null;
     preservePosition(paint);
@@ -171,13 +244,31 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     if (target.textContent !== text) target.textContent = text;
   }
 
+  function newCount() {
+    if (pendingClear || awaitingClearCount) return [...known.keys()].filter(fresh).length;
+    let count = newTotal;
+    for (const id of reports.keys()) if (known.get(id)?.new) count--;
+    return Math.max(0, count);
+  }
+
+  function paintCounts(total) {
+    const state = owedTotal ? "owed" : total ? "new" : "rest";
+    const href = "/static/home/chat-" + state + ".svg";
+    if (icon.getAttribute("href") !== href) icon.setAttribute("href", href);
+    const count = sidebarOpen.querySelector(".chat-count");
+    count.hidden = !total;
+    if (count.textContent !== String(total)) count.textContent = total;
+    const accessibleName = "open chat" + (total ? ", " + total + " new" : "");
+    if (sidebarOpen.getAttribute("aria-label") !== accessibleName)
+      sidebarOpen.setAttribute("aria-label", accessibleName);
+  }
+
   function paint() {
     const now = performance.now();
     nextPaint = Infinity;
     const nodes = articles();
     const loadedNew = [];
-    let total = 0;
-    for (const id of known.keys()) if (fresh(id)) total++;
+    const total = newCount();
     for (const node of nodes) {
       const id = node.dataset.messageId;
       const current = fresh(id);
@@ -185,16 +276,19 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       const marker = node.querySelector(".new-mark");
       if (!marker) continue;
       label.hidden = !owed.has(id);
-      if (current) {
-        loadedNew.push(node);
+      if (eligible(id)) {
         let sample = samples.get(id);
         if (!sample) {
-          sample = { since: now, first: 0, last: 0, focus: 0, visible: [] };
+          sample = { since: null, first: 0, last: 0, focus: 0, visible: [] };
           samples.set(id, sample);
         }
-        const stands = sample.since + STANDING;
-        if (now >= stands) marks.add(id);
-        else nextPaint = Math.min(nextPaint, stands);
+        if (current) {
+          loadedNew.push(node);
+          sample.since ??= now;
+          const stands = sample.since + STANDING;
+          if (now >= stands) marks.add(id);
+          else nextPaint = Math.min(nextPaint, stands);
+        }
       }
       marker.hidden = !marks.has(id);
       marker.classList.toggle("shown", !current);
@@ -208,15 +302,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       clear.setAttribute("aria-disabled", String(total === 0 || Boolean(pendingClear)));
     }
 
-    const state = owed.size ? "owed" : total ? "new" : "rest";
-    const href = "/static/home/chat-" + state + ".svg";
-    if (icon.getAttribute("href") !== href) icon.setAttribute("href", href);
-    const count = sidebarOpen.querySelector(".chat-count");
-    count.hidden = !total;
-    if (count.textContent !== String(total)) count.textContent = total;
-    const accessibleName = "open chat" + (total ? ", " + total + " new" : "");
-    if (sidebarOpen.getAttribute("aria-label") !== accessibleName)
-      sidebarOpen.setAttribute("aria-label", accessibleName);
+    paintCounts(total);
 
     const { above, below } = offscreen(loadedNew.filter((node) => marks.has(node.dataset.messageId)));
     const aboveCount = above.length + Math.max(0, total - loadedNew.length);
@@ -226,7 +312,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       "no new messages off screen");
     const owedLabel = owed.size + (owed.size === 1 ? " needs a reply" : " need a reply");
     ledgeAction(owedButton, owed.size > 0, owedLabel, "nothing needs a reply");
-    ledgeAction(undo, Boolean(pendingClear), pendingClear?.count + " cleared · undo", "undo unavailable");
+    ledgeAction(undo, Boolean(pendingClear?.timeout), pendingClear?.count + " cleared · undo", "undo unavailable");
     ledge.hidden = newButton.hidden && owedButton.hidden && undo.hidden;
 
     if (arrivals.size && now - lastAnnouncement >= 10000 && !document.hidden) {
@@ -295,7 +381,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       const id = node.dataset.messageId;
       const state = samples.get(id);
       if (!state) continue;
-      if (!fresh(id)) {
+      if (!eligible(id)) {
         state.visible = [];
         state.focus = 0;
         continue;
@@ -332,11 +418,15 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
   for (const event of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"])
     document.addEventListener(event, input, { capture:true, passive:true });
   for (const event of ["focus", "blur"]) window.addEventListener(event, update);
+  const leave = () => {
+    settleClear();
+    flush();
+  };
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) settleClear();
+    if (document.hidden) leave();
     update();
   });
-  window.addEventListener("pagehide", settleClear);
+  window.addEventListener("pagehide", leave);
   ledge.addEventListener("focusout", () => queueMicrotask(() => preservePosition(paint)));
   chat.addEventListener("scroll", update, { passive:true });
   const resize = () => {
@@ -364,34 +454,49 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
     observe([article.dataset.messageId]);
     preservePosition(paint);
   }, true);
-  window.addEventListener("storage", (event) => {
-    if (event.key !== KEY || !event.newValue) return;
-    const newest = JSON.parse(event.newValue);
-    if (newest.start > start) start = newest.start;
-    shown = new Map([...shown, ...newest.shown].filter(([, at]) => at > start));
-    preservePosition(paint);
-  });
-
   return {
-    afterStart,
-    isNew,
     attending,
     fresh,
     update,
+    flush,
+    reading() { return ++readNumber; },
+    totals(data, number) {
+      setTotals(data, number);
+      paintCounts(newCount());
+    },
+    page(data, number, loadedOnly = false) {
+      setTotals(data, number);
+      const freshIds = new Set(data.new);
+      for (const message of data.items) {
+        if (loadedOnly && !document.getElementById("msg-" + message.id)) continue;
+        const state = remember(message);
+        if (!state || state.new === false ||
+            state.new && writes && (reports.has(message.id) || isClearing(state))) continue;
+        const current = freshIds.has(message.id);
+        // An earlier read can describe a newly loaded row as new before the clear.
+        if (current && number <= clearRead) continue;
+        state.new = current;
+        if (!state.new) samples.delete(message.id);
+      }
+    },
+    olderStale(total) {
+      return total < articles().filter((node) => known.get(node.dataset.messageId)?.new).length;
+    },
     beforeLayoutChange() {
       for (const state of samples.values()) state.visible = [];
     },
-    receive(rows, added = []) {
-      for (const message of rows)
-        if (tracked(message) && afterStart(message)) known.set(message.id, instant(message.at));
-      for (const id of added) if (fresh(id)) arrivals.add(id);
-    },
-    setOwed(ids) { owed = new Set(ids); },
+    remember,
+    announce(ids) { for (const id of ids) if (fresh(id)) arrivals.add(id); },
     clearProjection() {
       clearTimeout(pendingClear?.timeout);
+      clearTimeout(reportTimer);
+      reportTimer = undefined;
       pendingClear = null;
+      reports.clear();
       known.clear();
       owed.clear();
+      newTotal = owedTotal = 0;
+      awaitingClearCount = false;
       samples.clear();
       marks.clear();
       arrivals.clear();
@@ -439,7 +544,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       const bounds = viewport();
       observe(articles().filter((node) => {
         const box = node.getBoundingClientRect();
-        return fresh(node.dataset.messageId) && box.top >= bounds.top && box.bottom <= bounds.bottom;
+        return eligible(node.dataset.messageId) && box.top >= bounds.top && box.bottom <= bounds.bottom;
       }).map((node) => node.dataset.messageId));
       preservePosition(paint);
     },

@@ -15,16 +15,22 @@ the authenticated web shell accepted a new message and showed its exact
 reply. the installed message api returned owed ids and their count, and
 rejected the stale viewer with 426. a live filing proposal appeared in the
 owed set and left it after the owner approval. firebase accepted the reply
-notice.
-this records provider acceptance. the physical tap is still due.
+notice. signed android v10 upgraded the enrolled s22+. the owner tapped the
+live reply alert and the handset opened that exact message. the handset
+evidence is under
+`~/.local/state/jarvis/operations/adr0131/first-cut/phone-v10/` on macbook.
+the [drive cut](drive-files-deploy.md) verified all imported originals and
+restored the `0027` backup.
 
-- install signed android v10 on the enrolled handset and open chat once.
-  tap a real reply notification and verify that it opens that exact reply.
-  the mac had no connected handset at the installed check.
-- finish the installed [drive files checks](drive-files-deploy.md).
-  then land and qualify the stopped shared-receipt cut, including restore,
-  stale clients and cross-device notification sweeps. the owner reviews
-  remaining new messages before the cut resets those marks. owed labels
-  survive it.
+the second cut implements the `0028` migration, the shared page state,
+the shown writes, and the exact `shown-v1` viewer contract. the migration
+gives every earlier assistant message a cutover receipt. web and android
+drop their device-local stores. a client can report a detached message it
+actually displayed, but only returned pages supply marks and authorize
+cancelling an already posted phone alert.
+
+qualify the exact installed cut, including restore, stale clients and
+cross-device notification sweeps. the owner reviews remaining new messages
+before the cut resets those marks. owed labels survive it.
 
 close after both matched cuts and their installed witnesses are recorded.

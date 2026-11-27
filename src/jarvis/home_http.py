@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from llm_tools import DeclaredToolFailure, canonical_json_bytes
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
@@ -35,9 +35,12 @@ from jarvis.home_pages import (
 )
 from jarvis.home_reads import (
     artifact_discussion,
+    clear_shown,
     conversation,
     eligible_draft,
     mail_revision,
+    record_shown,
+    shown_totals,
     source_slot,
     todo_results,
     visible_message,
@@ -53,6 +56,7 @@ from jarvis.messages import (
 )
 from jarvis.ownership import Database, DeploymentOwnershipDefect
 from jarvis.phone import (
+    CanonicalUUID,
     Enrollment,
     InactivePhone,
     PhoneSlot,
@@ -91,6 +95,18 @@ class WorkspaceChoice(BaseModel):
     choice: str | None = Field(max_length=256)
 
 
+class _ShownReport(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+
+    ids: list[CanonicalUUID] = Field(min_length=1, max_length=200)
+
+
+class _ShownClear(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+
+    through: CanonicalUUID
+
+
 def create_home_app(
     *,
     database: Database,
@@ -125,13 +141,18 @@ def create_home_app(
         ):
             response = JSONResponse({"detail": "invalid origin"}, status_code=400)
         elif (
-            request.url.path in {"/api/messages", "/api/home", "/api/artifacts"}
+            request.url.path
+            in {
+                "/api/messages",
+                "/api/home",
+                "/api/artifacts",
+                "/api/shown",
+                "/api/shown/clear",
+            }
             or request.url.path.startswith(
                 ("/api/messages/", "/api/submissions/", "/api/artifacts/")
             )
-        ) and request.headers.getlist("x-jarvis-viewer-contract") != [
-            "cited-sources-v1"
-        ]:
+        ) and request.headers.getlist("x-jarvis-viewer-contract") != ["shown-v1"]:
             response = JSONResponse(
                 {"detail": "reload the jarvis viewer or update the android app"},
                 status_code=426,
@@ -259,6 +280,9 @@ def create_home_app(
 
     async def history(before: str | None = None) -> dict[str, Any]:
         async with database.connect() as conn:
+            await conn.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            )
             try:
                 return await conversation(
                     conn,
@@ -269,6 +293,21 @@ def create_home_app(
                 )
             except ValueError as exc:
                 raise HTTPException(422, "invalid cursor") from exc
+
+    async def shown() -> dict[str, int]:
+        async with database.connect() as conn:
+            return await shown_totals(conn, scope)
+
+    async def report_shown(body: _ShownReport) -> Response:
+        async with database.begin() as conn:
+            await record_shown(conn, scope, body.ids)
+        return Response(status_code=204)
+
+    async def clear(body: _ShownClear) -> Response:
+        async with database.begin() as conn:
+            if not await clear_shown(conn, scope, body.through):
+                raise HTTPException(422, "clear requires a tracked message")
+        return Response(status_code=204)
 
     async def one_message(identifier: UUID) -> dict[str, Any]:
         async with database.connect() as conn:
@@ -458,6 +497,9 @@ def create_home_app(
     app.add_api_route("/api/submissions/{submission_id}", submission, methods=["GET"])
     app.add_api_route("/api/messages", history, methods=["GET"])
     app.add_api_route("/api/messages/{identifier}", one_message, methods=["GET"])
+    app.add_api_route("/api/shown", shown, methods=["GET"])
+    app.add_api_route("/api/shown", report_shown, methods=["POST"], status_code=204)
+    app.add_api_route("/api/shown/clear", clear, methods=["POST"], status_code=204)
     app.add_api_route("/api/presence", read_presence, methods=["GET"])
     app.add_api_route(
         "/api/messages/{identifier}/sources/{slot}", evidence, methods=["GET"]

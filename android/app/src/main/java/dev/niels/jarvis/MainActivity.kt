@@ -16,15 +16,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import org.json.JSONException
 
 internal class HomeVisits : ViewModel() {
     val todos = mutableMapOf<String, TodoReads>()
     private var chat: ChatHistory? = null
 
-    fun chat(shown: ChatShown) = chat ?: ChatHistory(shown).also { chat = it }
+    fun chat(api: HomeApi, reports: ShownReports, notices: PhoneNotices) =
+        chat ?: ChatHistory(api, reports, notices).also { chat = it }
 }
 
 class MainActivity : ComponentActivity() {
@@ -36,8 +41,30 @@ class MainActivity : ComponentActivity() {
         val visits = ViewModelProvider(this)[HomeVisits::class.java]
         val notices = PhoneNotices.get(this)
         notices.foreground(false)
-        val chat = visits.chat(notices.shown)
+        val api = HomeApi(applicationContext)
+        val reports = ShownReports.get(applicationContext)
+        val chat = visits.chat(api, reports, notices)
         setContent {
+            LaunchedEffect(chat, notices) {
+                if (notices.waitingAtStartup().isNotEmpty()) {
+                    try {
+                        snapshotFlow { chat.latest.settled }.first { it }
+                        val unresolved = notices.waitingAtStartup().toMutableSet()
+                        unresolved.removeAll(chat.rows.map { it.id }.toSet())
+                        var cursor = chat.before
+                        while (cursor != null && unresolved.isNotEmpty()) {
+                            val page = readChatPage(api, notices, cursor, 2_500)
+                            unresolved.removeAll(page.messages.map { it.id }.toSet())
+                            cursor = page.before
+                        }
+                    } catch (_: IOException) {
+                        // Preserve an alert when the server cannot establish whether it was shown.
+                    } catch (_: JSONException) {
+                        // Preserve an alert when the page cannot be read.
+                    }
+                }
+                notices.finishStartup()
+            }
             val start = Routes.url(initial).toString()
             var trail by rememberSaveable {
                 val visits = arrayListOf<String>()
@@ -48,7 +75,6 @@ class MainActivity : ComponentActivity() {
             val holder = rememberSaveableStateHolder()
             val incoming by destination.collectAsState()
             val access = remember { Access.get(this@MainActivity) }
-            val api = remember { HomeApi(this@MainActivity) }
             val authRevision by access.revision.collectAsState()
             val presence = rememberPresence(api, authRevision, chat, notices)
 

@@ -14,6 +14,7 @@ from universal_memory.types import Missing, OpenInput
 POSTGRES_BIN = Path("/usr/lib/postgresql/16/bin")
 STOPPED_TABLE_KEYS = {
     "message": "id",
+    "owner_shown": "message_id",
     "action": "id",
     "model_decision": "decision_id",
     "read_position": 'position COLLATE "C"',
@@ -47,7 +48,7 @@ SEQUENCES = (
     "message_control_sequence",
 )
 # A new app schema can ship before its restore boundary is qualified.
-SCHEMA_REVISION = "0027"
+SCHEMA_REVISION = "0028"
 VECTOR_VERSION = "0.8.6"
 WRITER_ROLES = ("jarvis_migrator", "jarvis_runtime", "jarvis_memory")
 RESTORE_ROLES = (*WRITER_ROLES, "jarvis_backup")

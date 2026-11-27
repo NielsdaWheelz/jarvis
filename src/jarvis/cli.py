@@ -110,6 +110,7 @@ from jarvis.native_runtime import (
     neon_paid_ready,
     recover_native_products,
 )
+from jarvis.owner_gmail_state import owner_drive_tokens
 from jarvis.ownership import (
     DEPLOYMENT_LOCK_KEY,
     MEMORY_LOCK_KEY,
@@ -150,7 +151,7 @@ from jarvis.tool_composition import (
 )
 from jarvis.tool_results import memory_result_size, memory_view_size
 from jarvis.work import WorkStore
-from jarvis.workspace_enrollment import enroll_workspace
+from jarvis.workspace_enrollment import DRIVE_SCOPE, enroll_workspace
 from jarvis.workspace_host import WorkspaceHost, current_workspace_read
 from jarvis.workspace_mcp import WorkspaceError
 from jarvis.workspace_write_models import FrozenCompose
@@ -823,15 +824,33 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
                 print("recorded the verified absence of the named pending label.")
                 return
             tokens = google_tokens(settings, http)
+            if arguments.command == "owner-drive-enroll":
+                current = tokens.enrollment()
+                if current is None:
+                    raise WorkspaceError("grant_unavailable")
+                await enroll_workspace(
+                    owner_drive_tokens(settings, http),
+                    settings.owner_gmail_state_directory / "client.json",
+                    expected_email=current.account,
+                    expected_subject=current.subject,
+                    pending_label_id=None,
+                    confirm=lambda text: input(f"{text}\ntype yes: ") == "yes",
+                    show_url=print,
+                )
+                print("connected the owner drive reader.")
+                return
             if arguments.command == "workspace-enroll":
                 enrollment = await enroll_workspace(
                     tokens,
                     arguments.client,
                     expected_email=arguments.email,
                     pending_label_id=arguments.label,
+                    drive=arguments.drive,
                     confirm=lambda text: input(f"{text}\ntype yes: ") == "yes",
                     show_url=print,
                 )
+                if arguments.drive and DRIVE_SCOPE not in enrollment.scopes:
+                    raise WorkspaceError("scope_missing")
                 print(f"enrolled {enrollment.account} in {enrollment.project_id}.")
                 return
             enrollment = tokens.enrollment()
@@ -1760,6 +1779,10 @@ def _parser() -> argparse.ArgumentParser:
     enrollment.add_argument("--client", required=True, type=Path)
     enrollment.add_argument("--email", required=True)
     enrollment.add_argument("--label")
+    enrollment.add_argument("--drive", action="store_true")
+    commands.add_parser(
+        "owner-drive-enroll", help="connect the stopped owner drive reader"
+    )
     commands.add_parser(
         "workspace-disconnect",
         help="invalidate the local workspace grant while stopped",
@@ -1923,6 +1946,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif arguments.command in {
             "resume-recovery-quota-wait",
             "workspace-enroll",
+            "owner-drive-enroll",
             "workspace-disconnect",
             "workspace-restore-gap",
             "workspace-enroll-arrivals",

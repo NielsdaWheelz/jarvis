@@ -51,7 +51,9 @@ from jarvis.read_tools import (
     Route,
 )
 from jarvis.workspace_enrollment import (
+    DRIVE_SCOPE,
     GOOGLE_TOKEN_ENDPOINT,
+    HumanWorkspaceProduct,
     WorkspaceEnrollment,
     exchange_workspace_code,
     granted_scopes,
@@ -182,6 +184,7 @@ class GoogleTokenManager:
         active_key_version: str,
         single_secret: str,
         project_id: str | None = None,
+        human_product: HumanWorkspaceProduct | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         if not state_path.is_absolute():
@@ -195,6 +198,15 @@ class GoogleTokenManager:
             raise GoogleCredentialDefect(
                 "Google credential configuration is incomplete"
             )
+        self.human_product: HumanWorkspaceProduct | None = human_product
+        self._schema = (
+            f"jarvis.owner-{human_product}-oauth.v1"
+            if human_product
+            else GOOGLE_STATE_SCHEMA
+        )
+        self._aad = (
+            f"jarvis.owner.{human_product}" if human_product else GOOGLE_AAD_NAMESPACE
+        )
         self._state_path = state_path
         self._client = client
         self._client_id = client_id
@@ -254,7 +266,7 @@ class GoogleTokenManager:
             state = read_private_json(self._state_path)
             if (
                 not state
-                or state.get("schema") != GOOGLE_STATE_SCHEMA
+                or state.get("schema") != self._schema
                 or state.get("status") == "disconnected"
                 or not state.get("installation")
                 or state.get("installation") != self._installation
@@ -278,6 +290,7 @@ class GoogleTokenManager:
             or len(account.encode()) > 320
             or not re.fullmatch(r"[^@\s]+@[^@\s]+", account)
             or (label is not None and not isinstance(label, str))
+            or (self.human_product is not None and label is not None)
             or not valid_pending_label(label)
         ):
             raise GoogleCredentialDefect("workspace enrollment identity is invalid")
@@ -286,7 +299,9 @@ class GoogleTokenManager:
             isinstance(v, str) and " " not in v for v in cast(list[object], values)
         ):
             raise GoogleCredentialDefect("workspace enrollment scopes are invalid")
-        scopes = granted_scopes(" ".join(cast(list[str], values)))
+        scopes = granted_scopes(
+            " ".join(cast(list[str], values)), human_product=self.human_product
+        )
         return WorkspaceEnrollment(
             grant, self._project_id, account, subject, label, scopes
         )
@@ -303,7 +318,7 @@ class GoogleTokenManager:
         replace_private_json(
             self._state_path,
             {
-                "schema": GOOGLE_STATE_SCHEMA,
+                "schema": self._schema,
                 "provider": GOOGLE_STATE_PROVIDER,
                 "status": "disconnected",
                 "grant_id": str(grant_id),
@@ -325,11 +340,15 @@ class GoogleTokenManager:
         nonce: str,
         expected_email: str,
         pending_label_id: str | None,
+        incremental_drive: bool = False,
+        expected_subject: str | None = None,
     ) -> WorkspaceEnrollment:
         installation = self._installation
         if (
             not self._project_id
             or not installation
+            or (self.human_product is not None) != (expected_subject is not None)
+            or (self.human_product is not None and pending_label_id is not None)
             or not valid_pending_label(pending_label_id)
         ):
             raise WorkspaceError("grant_unavailable")
@@ -343,20 +362,41 @@ class GoogleTokenManager:
                 nonce=nonce,
                 redirect_uri=redirect_uri,
                 expected_email=expected_email,
+                human_product=self.human_product,
             )
+            if expected_subject is not None and tokens.subject != expected_subject:
+                raise WorkspaceError("grant_unavailable")
+            previous = self.enrollment()
+            account = tokens.account
+            if incremental_drive:
+                if (
+                    previous is None
+                    or self.human_product is not None
+                    or tokens.subject != previous.subject
+                    or tokens.account.casefold() != previous.account.casefold()
+                    or tokens.scopes - {DRIVE_SCOPE} != previous.scopes - {DRIVE_SCOPE}
+                    or pending_label_id not in (None, previous.pending_label_id)
+                ):
+                    raise WorkspaceError("grant_unavailable")
+                account = previous.account
+                pending_label_id = previous.pending_label_id
+                grant_id = previous.grant_id
+            else:
+                if DRIVE_SCOPE in tokens.scopes:
+                    raise WorkspaceError("grant_unavailable")
+                grant_id = uuid4()
             if pending_label_id is not None and not ARRIVAL_SCOPES <= tokens.scopes:
                 raise WorkspaceError("scope_missing")
-            previous = self.enrollment()
             now = self._now().astimezone(UTC)
             state: dict[str, object] = {
-                "schema": GOOGLE_STATE_SCHEMA,
+                "schema": self._schema,
                 "provider": GOOGLE_STATE_PROVIDER,
                 "status": "connected",
                 "installation": installation,
                 "project_id": self._project_id,
                 "client_id": self._client_id,
-                "grant_id": str(uuid4()),
-                "account": tokens.account,
+                "grant_id": str(grant_id),
+                "account": account,
                 "subject": tokens.subject,
                 "pending_label_id": pending_label_id,
                 "granted_scopes": sorted(tokens.scopes),
@@ -371,17 +411,19 @@ class GoogleTokenManager:
                 ).isoformat(),
                 "token_obtained_at": now.isoformat(),
                 "encryption": {
-                    "aad_namespace": (
-                        f"{GOOGLE_AAD_NAMESPACE}:{self._active_key_version}"
-                    ),
+                    "aad_namespace": (f"{self._aad}:{self._active_key_version}"),
                     "algorithm": "AES-256-GCM",
                     "key_version": self._active_key_version,
                 },
             }
             enrolled = self._identity(state)
             replace_private_json(self._state_path, state)
-            if previous is not None:
+            if previous is not None and previous.grant_id != enrolled.grant_id:
                 self._forget(previous.grant_id)
+            else:
+                self._access_token = None
+                self._expires_at = None
+                self._force_refresh = False
             return enrolled
 
     async def credential(
@@ -406,6 +448,9 @@ class GoogleTokenManager:
                 raise WorkspaceError("temporary") from None
             except ConnectorFailure:
                 raise WorkspaceError("temporary") from None
+            current = self.enrollment()
+            if current is None or current.grant_id != grant_id:
+                raise WorkspaceError("grant_unavailable")
             return WorkspaceCredential(token, current.scopes, current.pending_label_id)
 
     async def _current_access_token(self, current: WorkspaceEnrollment) -> str:
@@ -521,15 +566,21 @@ class GoogleTokenManager:
                     raise
                 if subject != current.subject:
                     raise _GoogleRefreshRejected("Google OAuth subject changed")
+            refreshed_scopes = current.scopes
             returned_scope = payload.get("scope")
             if returned_scope is not None:
                 if not isinstance(returned_scope, str):
                     raise ValueError("Google OAuth scope is malformed")
                 try:
-                    refreshed_scopes = granted_scopes(returned_scope)
+                    refreshed_scopes = granted_scopes(
+                        returned_scope, human_product=self.human_product
+                    )
                 except ValueError:
                     raise _GoogleRefreshRejected("Google OAuth scope changed") from None
-                if refreshed_scopes != current.scopes:
+                if (
+                    refreshed_scopes != current.scopes
+                    and refreshed_scopes != current.scopes - {DRIVE_SCOPE}
+                ):
                     raise _GoogleRefreshRejected("Google OAuth scope changed")
         except GoogleCredentialDefect:
             raise
@@ -541,6 +592,7 @@ class GoogleTokenManager:
         updated["access_token_enc"] = self._encrypt(token, field="access_token")
         updated["access_token_expires_at"] = refreshed_expiry.isoformat()
         updated["token_obtained_at"] = refreshed_at.isoformat()
+        updated["granted_scopes"] = sorted(refreshed_scopes)
         returned_refresh = payload.get("refresh_token")
         if returned_refresh is not None:
             if not isinstance(returned_refresh, str) or not returned_refresh:
@@ -554,7 +606,7 @@ class GoogleTokenManager:
             refresh_token, field="refresh_token"
         )
         updated["encryption"] = {
-            "aad_namespace": f"{GOOGLE_AAD_NAMESPACE}:{self._active_key_version}",
+            "aad_namespace": f"{self._aad}:{self._active_key_version}",
             "algorithm": "AES-256-GCM",
             "key_version": self._active_key_version,
         }
@@ -588,13 +640,12 @@ class GoogleTokenManager:
         )
         key_version = encryption_value.get("key_version")
         if (
-            state.get("schema") != GOOGLE_STATE_SCHEMA
+            state.get("schema") != self._schema
             or state.get("provider") != GOOGLE_STATE_PROVIDER
             or state.get("status") != "connected"
             or not isinstance(key_version, str)
             or encryption_value.get("algorithm") != "AES-256-GCM"
-            or encryption_value.get("aad_namespace")
-            != f"{GOOGLE_AAD_NAMESPACE}:{key_version}"
+            or encryption_value.get("aad_namespace") != f"{self._aad}:{key_version}"
         ):
             raise GoogleCredentialDefect("Google credential state contract is invalid")
         self._identity(state)
@@ -619,7 +670,7 @@ class GoogleTokenManager:
             plaintext = AESGCM(self._handoff_key).decrypt(
                 nonce,
                 ciphertext,
-                f"{GOOGLE_AAD_NAMESPACE}:{key_version}:{field}".encode(),
+                f"{self._aad}:{key_version}:{field}".encode(),
             )
             value = plaintext.decode()
         except (InvalidTag, UnicodeDecodeError):
@@ -634,7 +685,7 @@ class GoogleTokenManager:
         ciphertext = AESGCM(self._handoff_key).encrypt(
             nonce,
             _token_bytes(value),
-            f"{GOOGLE_AAD_NAMESPACE}:{version}:{field}".encode(),
+            f"{self._aad}:{version}:{field}".encode(),
         )
         return f"{_TOKEN_ENVELOPE_PREFIX}{_b64encode(nonce + ciphertext)}"
 

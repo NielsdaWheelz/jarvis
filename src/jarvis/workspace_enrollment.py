@@ -12,7 +12,7 @@ import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import UUID
 
@@ -34,6 +34,16 @@ IDENTITY_SCOPES = frozenset(
     {"openid", "https://www.googleapis.com/auth/userinfo.email"}
 )
 ENROLLMENT_SCOPES = SCOPES | IDENTITY_SCOPES
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
+_AGENT_SCOPES = ENROLLMENT_SCOPES | {DRIVE_SCOPE}
+type HumanWorkspaceProduct = Literal["drive"]
+_OWNER_DRIVE_SCOPES = IDENTITY_SCOPES | {
+    "https://www.googleapis.com/auth/drive.readonly"
+}
+_OWNER_DRIVE_COPY = (
+    "this client can read your google drive. the files tab uses it for "
+    "browsing and preview. jarvis agent tools cannot use it."
+)
 _APPROVAL_COPY = (
     "this client must be marked for an ai-powered agent in google cloud. "
     "its permission can trash ordinary mail and change message labels. jarvis "
@@ -62,7 +72,9 @@ class VerifiedTokens:
     expires_in: int
 
 
-def granted_scopes(values: object) -> frozenset[str]:
+def granted_scopes(
+    values: object, *, human_product: HumanWorkspaceProduct | None = None
+) -> frozenset[str]:
     if not isinstance(values, str):
         raise ValueError("missing granted OAuth scope")
     scope_list = values.split()
@@ -70,9 +82,12 @@ def granted_scopes(values: object) -> frozenset[str]:
         "https://www.googleapis.com/auth/userinfo.email" if v == "email" else v
         for v in scope_list
     )
-    if not IDENTITY_SCOPES <= result <= ENROLLMENT_SCOPES or len(result) != len(
-        scope_list
-    ):
+    valid = (
+        result == _OWNER_DRIVE_SCOPES
+        if human_product is not None
+        else (IDENTITY_SCOPES <= result <= _AGENT_SCOPES)
+    )
+    if not valid or len(result) != len(scope_list):
         raise ValueError("unexpected or incomplete Google OAuth scopes")
     return result
 
@@ -210,6 +225,7 @@ async def exchange_workspace_code(
     nonce: str,
     redirect_uri: str,
     expected_email: str,
+    human_product: HumanWorkspaceProduct | None = None,
 ) -> VerifiedTokens:
     """Redeem this loopback flow's code and independently verify its identity."""
     try:
@@ -245,7 +261,7 @@ async def exchange_workspace_code(
         return VerifiedTokens(
             account,
             subject,
-            granted_scopes(token.get("scope")),
+            granted_scopes(token.get("scope"), human_product=human_product),
             access,
             _text(token, "refresh_token"),
             expires,
@@ -262,16 +278,21 @@ async def enroll_workspace(
     *,
     expected_email: str,
     pending_label_id: str | None,
+    expected_subject: str | None = None,
     confirm: Callable[[str], bool],
     show_url: Callable[[str], None],
+    drive: bool = False,
 ) -> WorkspaceEnrollment:
     """Run at the approved stopped installation on an operator-owned loopback;
     the caller displays the URL and scopes privately. Never print a returned code.
     """
     export = read_private_json(client_file)
+    product = manager.human_product
     if (
         export is None
         or set(export) != {"installed"}
+        or (product is not None) != (expected_subject is not None)
+        or (product is not None and (pending_label_id is not None or drive))
         or not valid_pending_label(pending_label_id)
         or not re.fullmatch(r"[^@\s]+@[^@\s]+", expected_email)
     ):
@@ -282,7 +303,22 @@ async def enroll_workspace(
     project = _text(client, "project_id")
     if not manager.matches_client(project, client_id, secret):
         raise WorkspaceError("grant_unavailable")
-    if not confirm(f"connect {expected_email} to {project}? {_APPROVAL_COPY}"):
+    copy = _APPROVAL_COPY if product is None else _OWNER_DRIVE_COPY
+    scopes = ENROLLMENT_SCOPES if product is None else _OWNER_DRIVE_SCOPES
+    if drive:
+        previous = manager.enrollment()
+        if (
+            previous is None
+            or previous.account.casefold() != expected_email.casefold()
+            or pending_label_id not in (None, previous.pending_label_id)
+        ):
+            raise WorkspaceError("grant_unavailable")
+        scopes = previous.scopes | {DRIVE_SCOPE}
+        copy += (
+            " google grants account-wide drive access, including docs. "
+            "jarvis uses the supported drive and docs agent operations."
+        )
+    if not confirm(f"connect {expected_email} to {project}? {copy}"):
         raise WorkspaceError("cancelled")
     state, nonce, verifier = (secrets.token_urlsafe(32) for _ in range(3))
     challenge = (
@@ -346,7 +382,7 @@ async def enroll_workspace(
                 {
                     "client_id": client_id,
                     "redirect_uri": redirect,
-                    "scope": " ".join(sorted(ENROLLMENT_SCOPES)),
+                    "scope": " ".join(sorted(scopes)),
                     "response_type": "code",
                     "access_type": "offline",
                     "prompt": "consent",
@@ -355,6 +391,7 @@ async def enroll_workspace(
                     "code_challenge": challenge,
                     "code_challenge_method": "S256",
                     "login_hint": expected_email,
+                    **({"include_granted_scopes": "true"} if drive else {}),
                 }
             )
         )
@@ -370,4 +407,6 @@ async def enroll_workspace(
         nonce=nonce,
         expected_email=expected_email,
         pending_label_id=pending_label_id,
+        incremental_drive=drive,
+        expected_subject=expected_subject,
     )

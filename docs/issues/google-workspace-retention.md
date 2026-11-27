@@ -1,5 +1,9 @@
 # can jarvis keep ordinary google history?
 
+[0127](../decisions/0127-drive-prototype-qualification.md) records the owner's
+direction to defer this review for the single-user drive prototype. the
+findings below remain open and do not gate that cut.
+
 [citation inspection 0124](../decisions/0124-citations-and-viewer-delivery.md)
 adds owner-only replay of retained observations and a bounded passage selector.
 include pages, pinned editions and reports derived from workspace reads,

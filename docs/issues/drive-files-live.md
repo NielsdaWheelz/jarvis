@@ -3,9 +3,9 @@
 open for [adr 0120](../decisions/0120-drive-files.md). the test project
 `jarvis-workspace-test-20261124` has the four drive/docs services and google
 sign-in configured. the full isolated probe has yet to reach google. it
-requires an eligible isolated account, its empty private fixture folder, two
-distinct desktop clients and both loopback consents. account for cleanup in
-that folder. [google setup](https://developers.google.com/workspace/guides/configure-mcp-servers)
+uses the owner's account under [0127](../decisions/0127-drive-prototype-qualification.md).
+it needs an empty private fixture folder, two distinct desktop clients and
+both loopback consents. account for cleanup in that folder. [google setup](https://developers.google.com/workspace/guides/configure-mcp-servers)
 
 the combined controlled rehearsal covers all eleven tools, the 100 mib boundary, two durable-ack crash windows, stopped import and restore, held or revoked authority, and the browser and android data interfaces. the source review passed with live evidence still required. the historical probe remains with its original digest. the staged driver
 under `~/.local/state/jarvis/qualification/adr0120-full-provider/` now requires

@@ -21,7 +21,7 @@ verify it again with the actual stopped snapshot. production still holds
 the separate inactive `26f9588` candidate. the installer would prune it;
 confirm its disposition when ready to stage this release.
 
-1. resolve [google data use](google-workspace-retention.md) and finish [live qualification](drive-files-live.md). keep the byte and edit gates closed until their live proofs pass.
+1. finish [live qualification](drive-files-live.md) under [0127](../decisions/0127-drive-prototype-qualification.md). keep the byte and edit gates closed until their live proofs pass.
 2. stage the matched host, web shell, signed android client, and backup reader. follow the [operator runbook](../operations.md) under named stopped custody. verify and hash the private import map before applying the migration. hold on an unexplained row or an unsettled old effect.
 3. record installed old and new links, uploads, mail staging, publisher and workspace checks, and a separate database restore. repair forward after adoption. retain the old bucket through installed verification and dispose of it only under separate authority.
 

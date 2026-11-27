@@ -9,3 +9,10 @@ record the release commit and schema, app version and signer, and exact
 message identities for the two journeys. verify the selected message,
 transcript position and draft on the phone upgrade. check the two cache
 classes through the private edge. close when these observations are recorded.
+
+
+the isolated candidate at `350ffb2` passed the service, browser and emulator
+replays. the staged apk and wheel are under
+`~/.local/state/jarvis/qualification/daybook-signed-v12-350ffb2/`. installed
+acceptance awaits the authorized cut. schema `0028` and the shared shown
+release's custody checks precede daybook activation.

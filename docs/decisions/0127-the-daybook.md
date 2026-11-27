@@ -1,6 +1,6 @@
 # adr 0127. set the conversation as a daybook
 
-**accepted design · 26 november 2026.** the conversation is
+**implemented · isolated candidate verified · installed acceptance open.** the conversation is
 the surface the owner uses most. it has no typography, no receipt for a send,
 and on android no composer beside the text it answers. web and android will
 set it as one dated page in two hands. the owner approved this design, its
@@ -440,7 +440,7 @@ parallel. the units merge when green and reviewed. assets and their consuming cs
 | --- | --- | --- |
 | d · faces | `src/jarvis/static/home/fonts/`; `android/app/src/main/res/font/literata*`; `android/app/src/main/res/raw/literata_ofl.txt` | subset upstream Literata roman and italic, both axes, to Latin, Latin-1, Latin Extended-A and general punctuation, with every layout feature kept (`pyftsubset --layout-features='*'`; the default drops small caps and figure styles). woff2 for web at 125 kB or less each, ttf for android, web names include a content hash. the licenses sit beside their faces. the cormorant files and their css references ship together. record the upstream tag, the command and each sha256 in this adr. |
 | a · receipt | `src/jarvis/home_http.py`: `put`, `submission`, the cache line in `private` | return the receipt above, read through `visible_message` after `submit` returns. serve fonts immutable. |
-| b · web | `src/jarvis/static/home/`: `index.html`, `home.css`, `home.js`; in `presence.js` only the export of its `HH:MM` formatter; in `chat-attention.js` only the previous-article lookup, the boundary's place before a head, and the sampler's pause during the advance; the composer sentence in `SPEC.md` | two passes by one owner. first the page: tokens, faces, preload, stamp, heads, apparatus, proposal, reader, 0125 marks, selected. then the foot: composer dom, states, keys, drop, abort, discard, `accepted(receipt)`, the page advance. composer code stays in `home.js`; no new script. |
+| b · web | `src/jarvis/static/home/`: `index.html`, `home.css`, `home.js`; in `presence.js` the shared clock formatter and the local receipt gate; in `chat-attention.js` only the previous-article lookup, the boundary's place before a head, and the sampler's pause during the advance; the composer sentence in `SPEC.md` | two passes by one owner. first the page: tokens, faces, preload, stamp, heads, apparatus, proposal, reader, 0125 marks, selected. then the foot: composer dom, states, keys, drop, abort, discard, `accepted(receipt)`, the page advance. composer code stays in `home.js`; no new script. |
 | c · android | `android/app/src/main/java/dev/niels/jarvis/`: `Home.kt`, `ChatShown.kt`, `ShareActivity.kt`, `Drafts.kt`, `Presence.kt`, `MessageMarkdown.kt`, `HomeApi.kt`, `MainActivity.kt`, new `Paper.kt` (scheme, faces, conversation styles) and `Composer.kt` (the dock); the manifest | everything under android above. the signed candidate is version code 12, after the shared shown cut's v11. |
 | e · documents | pointers in the amended adrs, the decisions index, the implementation plan, `docs/issues/daybook-installed.md` | written by the lead when b merges; the installed issue owns rollout and the handset. |
 
@@ -674,3 +674,54 @@ the signed v10 collision, the cache exception and file identity requirements,
 the post-commit projection boundary, and ownership of draft settlement. the
 daybook keeps its original path. the decisions index distinguishes it from the
 other 0127 by title, following its existing practice for 0078 and 0114.
+
+
+## qualification on macbook
+
+the daybook integrates the shared shown cut at `3e130ce`. its service replay
+at `96ca7d9` used schema `0028`, real http, postgres 16.12 and the runtime
+database role. all 26 checks passed. they cover authoritative rows, exact file
+bytes, post-commit projection recovery, font caching and shared shown
+receipts. the predecessor passed the shared shown cases and failed ten
+expected receipt and cache assertions.
+
+the chromium and webkit replay at `350ffb2` passed 40 checks across
+desktop and narrow screens, both schemes and both motion settings. the same
+driver passed the four existing tail cases and failed 36 daybook checks on
+`3e130ce`. the replay's underlying source and probe hashes are recorded. it records actual service sends and an
+unintercepted canonical page read. controlled responses exercise timing,
+refusals, disconnect, authority loss, replay, presentation and presence
+handoff. the merge review found that a partial read could clear an owed mark
+while its reply remained held. both browsers reproduced the defect. the same
+receipt fence now covers partial shown and owed state.
+
+the api 35 replay at `350ffb2` covers canonical crossing, both haptics,
+network loss, late acknowledgements across sign-out, process interruption,
+discard, reply and discuss, keyboard placement and restored message anchors,
+font scales 1.0, 1.3 and 2.0, accessible control names and the divider color.
+a distinct sharing app demonstrated a duplicate jarvis task on the predecessor.
+the same share reused the existing task, preserved the caption and dock focus,
+and sent the image through the actual service on the candidate. a separate
+pipe witness read the saved caption from disk before the shared original
+finished copying.
+
+the signed v12 build and service wheel are bound to `350ffb2`. the package
+check verifies the release signer, the package name and the version increase
+above v11. [installed acceptance](../issues/daybook-installed.md) records the
+separate web and handset journey.
+
+
+the local records are under `~/.local/state/jarvis/qualification/`:
+
+| check | record |
+| --- | --- |
+| service and shared shown | `daybook-receipt-20261126/shared-shown/service-interop.md` |
+| chromium and webkit | `daybook-web-release-350ffb2/receipt.json` |
+| fonts and placement | `daybook-faces.efZ34V/opus-reader-closure.md` |
+| api 35 | `daybook-android-release-211613/receipt.json` |
+| foreign-app share | `daybook-android-share-task-green-211613/probe.log` |
+| signed build and service wheel | `daybook-signed-v12-350ffb2/receipt.json` |
+| independent review and hashes | `daybook-final-evidence/` |
+
+the checks and their cleanup have separate recorded outcomes. the temporary
+probes leave no product test files behind.

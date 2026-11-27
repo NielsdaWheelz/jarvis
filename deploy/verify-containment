@@ -25,7 +25,7 @@ systemctl is-active --quiet jarvis-home-tunnel.service
 for path in /api/home /api/artifacts; do
   sudo -n -u jarvis-tunnel curl -fsS --max-time 5 --noproxy '*' \
     --unix-socket /run/jarvis-home/http.sock \
-    --header 'X-Jarvis-Viewer-Contract: cited-sources-v1' \
+    --header 'X-Jarvis-Viewer-Contract: shown-v1' \
     "http://jarvis.nielseriknandal.com$path" >/dev/null
 done
 sudo -n -u jarvis-memory test ! -w /run/jarvis-home/http.sock

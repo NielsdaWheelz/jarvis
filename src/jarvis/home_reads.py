@@ -73,6 +73,10 @@ _CHAT_TIME = """CASE WHEN m.source = 'native_control'
     THEN COALESCE(m.processed_at, m.created_at) ELSE m.created_at END"""
 _CHAT_MEMBERSHIP = """m.source_conversation_id = :scope
   AND m.role IN ('assistant','owner') AND m.source != 'initialize_state'"""
+_TRACKED = f"""{_CHAT_MEMBERSHIP}
+  AND m.role = 'assistant' AND m.source != 'native_progress'"""
+_NEW = f"""{_TRACKED}
+  AND NOT EXISTS (SELECT FROM owner_shown s WHERE s.message_id = m.id)"""
 
 # Extract only owner-facing columns. In particular, never load a native request.
 _MESSAGES = f"""
@@ -169,6 +173,66 @@ async def owed_messages(
     return tuple((row.id, row.kind) for row in rows)
 
 
+async def _new_state(
+    connection: AsyncConnection, scope: str, ids: list[UUID]
+) -> tuple[list[UUID], int]:
+    row = (
+        await connection.execute(
+            text(f"""
+                SELECT count(*) AS total, COALESCE(
+                    array_agg(m.id ORDER BY {_CHAT_TIME}, m.id)
+                        FILTER (WHERE m.id = ANY (CAST(:ids AS uuid[]))),
+                    ARRAY[]::uuid[]
+                ) AS ids
+                FROM message m WHERE {_NEW}
+            """),
+            {"scope": scope, "ids": ids},
+        )
+    ).one()
+    return row.ids, row.total
+
+
+async def shown_totals(connection: AsyncConnection, scope: str) -> dict[str, int]:
+    _, new_total = await _new_state(connection, scope, [])
+    return {
+        "new_total": new_total,
+        "owed_total": len(await owed_messages(connection, scope)),
+    }
+
+
+async def record_shown(
+    connection: AsyncConnection, scope: str, ids: list[UUID]
+) -> None:
+    await connection.execute(
+        text(f"""
+            INSERT INTO owner_shown(message_id, via)
+            SELECT m.id, 'observed' FROM message m
+            WHERE {_TRACKED} AND m.id = ANY (CAST(:ids AS uuid[]))
+            ON CONFLICT (message_id) DO NOTHING
+        """),
+        {"scope": scope, "ids": ids},
+    )
+
+
+async def clear_shown(connection: AsyncConnection, scope: str, through: UUID) -> bool:
+    valid = await connection.scalar(
+        text(f"""
+            WITH boundary AS (
+                SELECT {_CHAT_TIME} AS at, m.id FROM message m
+                WHERE {_TRACKED} AND m.id = :through
+            ), cleared AS (
+                INSERT INTO owner_shown(message_id, via)
+                SELECT m.id, 'cleared' FROM message m CROSS JOIN boundary
+                WHERE {_NEW} AND ({_CHAT_TIME}, m.id) <= (boundary.at, boundary.id)
+                ON CONFLICT (message_id) DO NOTHING
+            )
+            SELECT EXISTS (SELECT FROM boundary)
+        """),
+        {"scope": scope, "through": through},
+    )
+    return bool(valid)
+
+
 async def conversation_token(connection: AsyncConnection, scope: str) -> str:
     result = await connection.execute(
         text(
@@ -259,14 +323,18 @@ async def conversation(
     if len(rows) > 50:
         last = page[-1]
         before = f"{last['at'].isoformat()}~message~{last['id']}"
-    proposals = await _proposals(connection, scope, [item["id"] for item in page])
+    ids = [item["id"] for item in page]
+    proposals = await _proposals(connection, scope, ids)
     for item in page:
         item["sources"] = _source_metadata(item, source_grant)
         item["proposals"] = proposals[item["id"]]
     owed = [identifier for identifier, _ in await owed_messages(connection, scope)]
+    new, new_total = await _new_state(connection, scope, ids)
     return {
         "items": page[::-1],
         "next_before": before,
+        "new": new,
+        "new_total": new_total,
         "owed": owed,
         "owed_total": len(owed),
     }

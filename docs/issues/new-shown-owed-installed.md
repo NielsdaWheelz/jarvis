@@ -22,8 +22,15 @@ evidence is under
 the [drive cut](drive-files-deploy.md) verified all imported originals and
 restored the `0027` backup.
 
-land and qualify the stopped shared-receipt cut, including restore, stale
-clients and cross-device notification sweeps. the owner reviews remaining
-new messages before the cut resets those marks. owed labels survive it.
+the second cut implements the `0028` migration, the shared page state,
+the shown writes, and the exact `shown-v1` viewer contract. the migration
+gives every earlier assistant message a cutover receipt. web and android
+drop their device-local stores. a client can report a detached message it
+actually displayed, but only returned pages supply marks and authorize
+cancelling an already posted phone alert.
+
+qualify the exact installed cut, including restore, stale clients and
+cross-device notification sweeps. the owner reviews remaining new messages
+before the cut resets those marks. owed labels survive it.
 
 close after both matched cuts and their installed witnesses are recorded.

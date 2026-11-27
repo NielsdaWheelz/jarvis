@@ -565,6 +565,14 @@ installed issue records the release identities.
 - **the receipt carries the row.** about ten lines of service code and one
   read inside the PUT, for a row that appears one round trip after the press
   where it took three. the wire grows by one additive field.
+- **an unresolved send fences new chat reads.** a fresh page can already
+  contain the owner's send. its companion receipt read costs one lookup when a
+  draft is held. a failed lookup leaves the last checked page readable until
+  settlement or discard. a page taken before a crossing is read again.
+  presence keeps its tick, with the new owner tail held until the receipt.
+- **staging hashes the original once.** a large file takes its read time at
+  attachment. the send id and all original digests can then survive a reload
+  from the moment the button is pressed.
 - **fonts are the one cached response.** every other response stays
   `no-store`. a changed face takes a new content hash in its name.
 - **one draft on the phone.** an unconfirmed send blocks new writing until
@@ -580,6 +588,9 @@ installed issue records the release identities.
 - **two faces, 246,020 bytes once.** both axes are kept so small sizes and the
   dark scheme are drawn, not faked. scripts outside the subset fall back to the
   system serif. hyphenation is english only. fallback faces get no small caps.
+- **old-style figures in fixed-width cells.** the upstream face switches to
+  lining figures when tabular widths are requested. fixed cells retain the
+  old-style design and the literal clock string on both clients.
 - **chat only.** a serif rail beside a sans viewer is a visible seam. the
   android colour scheme is the exception: it is one object and is fixed whole.
 - **24-hour times in the device zone**, to match 0126's.
@@ -588,9 +599,9 @@ installed issue records the release identities.
   messages still open from alerts, the ledge and owner-reply links.
 - **merge when green.** the next install witnesses 0125, 0126 and this
   together. a regression found there needs a bisect to assign.
-- **nothing ran on a device.** font metrics and android api names come from an
-  unrun audit. unit d verifies the features before anyone builds on them; unit
-  c verifies the names against the pinned compose version.
+- **the signed candidate takes v11.** the preceding signed v10 was already
+  staged and is installed on the s22+. the controlled candidate uses the same
+  sources with the test's loopback origin.
 
 ## differences from the study
 

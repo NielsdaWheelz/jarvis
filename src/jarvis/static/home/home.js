@@ -324,8 +324,8 @@ async function restoreFiles(files, missing) {
     const candidates = missing.filter((entry) => entry.size === file.size);
     const hash = await digest(file);
     const match = candidates.find((entry) =>
-      entry.sha256 ? entry.sha256 === hash : entry.name === fileName(file)
-    );
+      entry.sha256 === hash || (!draft.uncertain && !entry.sha256 && entry.name === fileName(file)));
+
     if (!match) throw new Error(fileName(file) + " does not match a missing original file.");
     missing.splice(missing.indexOf(match), 1);
     matches.push({ entry: match, hash, file });
@@ -617,7 +617,7 @@ async function reconcile() {
   if (receipt) {
     accepted(receipt, id);
     refresh();
-  } else if (draft.id === id) {
+  } else if (draft.id === id && !receiptMissing) {
     receiptMissing = true;
     caption("no receipt yet. retry is safe: it cannot arrive twice.");
     updateComposer();
@@ -797,7 +797,7 @@ function renderMessage(m, existing) {
     if (proposal.draft_revision_id)
       details.push(["revision", "draft revision", revisionPath(m.id, proposal.draft_revision_id)]);
     if (proposal.decision)
-      details.push(["you", proposal.decision, "/m/" + proposal.owner_message_id]);
+      details.push(["you", proposal.decision === "approve" ? "approved" : "denied", "/m/" + proposal.owner_message_id]);
     if (details.length) group.append(apparatus(details));
     const reply = button("reply", () => discuss(
       { kind: "proposal", message_id: m.id, action_id: proposal.action_id }, proposal.title));

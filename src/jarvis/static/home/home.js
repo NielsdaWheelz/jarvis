@@ -35,6 +35,7 @@ function label(ref) {
 const mobile = matchMedia("(max-width:720px)");
 const presence = bindPresence({
   request,
+  receiptPending: () => Boolean(activeSend) || draft.uncertain,
   async openOwed(href, control) {
     if (href) {
       if (address(href)?.kind === "message") navigate(href);

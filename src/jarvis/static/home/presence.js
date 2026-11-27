@@ -89,7 +89,7 @@ function headerState(snapshot, you, stale, heard) {
   return ["none", "", "", ""];
 }
 
-export function bindPresence({ request, openOwed, keepBottom }) {
+export function bindPresence({ request, openOwed, keepBottom, receiptPending }) {
   const wordmark = document.querySelector(".wordmark");
   const workspace = wordmark.closest(".bar");
   const back = document.getElementById("chat-bar");
@@ -174,7 +174,8 @@ export function bindPresence({ request, openOwed, keepBottom }) {
 
   function paint(confirmed = false) {
     const data = supported ? snapshot : null;
-    const you = receipt ? { state: "queued", ahead: 0 } : data?.you;
+    const waiting = !receipt && receiptPending();
+    const you = receipt ? { state: "queued", ahead: 0 } : waiting ? null : data?.you;
     const [shape, text, title, sentence] = headerState(data, you, stale, heard);
     if (confirmed) beat = beat === "a" ? "b" : "a";
     mark.dataset.point = shape;
@@ -190,7 +191,7 @@ export function bindPresence({ request, openOwed, keepBottom }) {
       : shape === "silent" ? "· jarvis" : title ? title + " · jarvis" : "jarvis";
     if (stale) staleTail();
     else if (you) showTail(data, you, confirmed);
-    else {
+    else if (!waiting) {
       elapsedRunning = false;
       point.removeAttribute("data-beat");
     }

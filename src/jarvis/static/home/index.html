@@ -7,6 +7,8 @@
     <title>jarvis</title>
     <link rel="stylesheet" href="/static/home/home.css" />
     <link id="chat-icon" rel="icon" href="/static/home/chat-rest.svg" />
+    <link rel="preload" href="/static/home/fonts/literata-3.103-roman-1ab05c52.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/static/home/fonts/literata-3.103-italic-01e71417.woff2" as="font" type="font/woff2" crossorigin />
     <script type="module" src="/static/home/home.js"></script>
   </head>
   <body>
@@ -55,14 +57,16 @@
       <p id="message-unavailable" class="secondary" role="status" hidden>this message is no longer available.</p>
       <section id="chat" class="panel" aria-label="chat">
         <button id="older" hidden>earlier messages</button>
-        <div id="messages"></div>
-        <article id="presence-tail" hidden>
-          <div class="stamp"><strong>jarvis</strong><time></time></div>
-          <div class="presence-caption">
-            <span class="presence-point" aria-hidden="true"></span>
-            <span class="presence-words"></span>
-          </div>
-        </article>
+        <div id="chat-page">
+          <div id="messages"></div>
+          <article id="presence-tail" hidden>
+            <div class="stamp"><strong class="sr-only">jarvis</strong><time></time></div>
+            <div class="presence-caption">
+              <span class="presence-point" aria-hidden="true"></span>
+              <span class="presence-words"></span>
+            </div>
+          </article>
+        </div>
       </section>
       <div id="chat-ledge" hidden>
         <button type="button" hidden><span class="chat-lozenge" aria-hidden="true"></span><span></span></button>

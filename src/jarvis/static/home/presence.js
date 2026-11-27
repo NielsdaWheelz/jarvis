@@ -20,7 +20,7 @@ const triggers = {
 };
 const states = new Set(["idle", "queued", "working", "paused", "standby", "retrying"]);
 const interruptions = new Set(["paused", "standby", "retrying"]);
-const time = at => new Date(at).toLocaleTimeString([], {
+export const time = at => new Date(at).toLocaleTimeString([], {
   hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
 const lastHeard = at => "last heard " + (at === null ? "—" : time(at));

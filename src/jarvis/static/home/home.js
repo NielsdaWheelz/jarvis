@@ -2,12 +2,12 @@ import { bindArtifacts } from "./artifacts.js";
 import { el, button, link } from "./home-dom.js";
 import { draftPreview, openEditor } from "./mail-editor.js";
 import { bindFiles, drivePath, driveRoute, originStatus } from "./drive.js";
-import { chatAttention, instant, tracked } from "./chat-attention.js";
+import { chatAttention, instant, precedingArticle, tracked } from "./chat-attention.js";
 
 import { address } from "./home-address.js";
 import { linkedText, parseMessage, renderMarkdown, showTableControls, updateCitations } from "./chat-reader.js";
 import { bindInspection } from "./inspection.js";
-import { bindPresence } from "./presence.js";
+import { bindPresence, time as stampTime } from "./presence.js";
 
 const $ = (id) => document.getElementById(id);
 function creationPath(messageId, created) {
@@ -100,6 +100,7 @@ const chat = $("chat");
 const transcript = $("messages");
 let pinned = true, scrollTarget = null, heldPosition = null, pendingOpening = null;
 let sentPlacement = null;
+let waitingForType = true, fontOpening = null;
 let reread = true, visitOpening = true, placeVisit = true, earlierRead = null;
 let pageSequence = 0, owedSequence = 0;
 const attention = chatAttention({
@@ -109,7 +110,7 @@ const attention = chatAttention({
   sidebarOpen: $("sidebar-open"),
   icon: $("chat-icon"),
   live: $("chat-live"),
-  formatTime: time,
+  formatTime: stampTime,
   stopAttending() { placeVisit = pinned; },
   newVisit() {
     reread = visitOpening = true;
@@ -121,6 +122,7 @@ const attention = chatAttention({
     restoreChatAnchor(anchor);
   },
   place(node) {
+    fontOpening = null;
     pinned = false;
     scrollChat(insetPosition(node));
   },
@@ -625,20 +627,44 @@ $("message").onkeydown = (e) => {
   if (!e.repeat) $("send").click();
 };
 
-function draftRevisionLink(messageId, actionId) {
-  return link(
-    "open draft revision",
-    "/mail/" + messageId + "/revision/" + actionId,
-    "result draft-revision-link",
-  );
+const localDate = new Intl.DateTimeFormat("en-GB", {
+  weekday: "long", day: "numeric", month: "long", year: "numeric",
+});
+const revisionPath = (id, action) => "/mail/" + id + "/revision/" + action;
+
+function apparatus(rows) {
+  const list = el("div", undefined, "apparatus");
+  let prior;
+  for (const [kind, name, path, note] of rows) {
+    const row = el("div", undefined, "apparatus-row");
+    const heading = el("span", kind === prior ? "" : kind, "apparatus-kind");
+    if (path) heading.setAttribute("aria-hidden", "true");
+    const value = el("span");
+    const entry = path ? link(name, path, path.startsWith("/mail/") ? "draft-revision-link" : undefined) : el("span", name);
+    if (path) entry.setAttribute("aria-label", [kind, name, note].filter(Boolean).join(" · "));
+    value.append(entry);
+    if (note) value.append(el("small", " · " + note));
+    row.append(heading, value);
+    list.append(row);
+    prior = kind;
+  }
+  return list;
 }
+
 function renderMessage(m, existing) {
   const node = existing || el("article");
   node.id = "msg-" + m.id;
   if (!existing) {
+    const date = new Date(m.at);
+    const localDay = [date.getFullYear(), date.getMonth() + 1, date.getDate()]
+      .map((value, index) => String(value).padStart(index ? 2 : 4, "0")).join("-");
     const stamp = el("div", undefined, "stamp");
-    stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis"), el("time", time(m.at)));
+    const when = el("time", stampTime(m.at));
+    when.dateTime = date.toISOString();
+    when.title = localDate.format(date);
+    stamp.append(el("strong", m.role === "owner" ? "you" : "jarvis", "sr-only"), when);
     node.append(stamp);
+    Object.assign(node.dataset, { role: m.role, source: m.source, day: localDay });
   }
   if (node.messageText !== m.text) {
     node.parsed = parseMessage(m.text);
@@ -649,77 +675,62 @@ function renderMessage(m, existing) {
     node.reader = reader;
   } else updateCitations(node.reader, m);
   inspection.updateTable(m);
-  const controls = el("div");
-  for (const f of m.files || [])
-    controls.append(
-      link(
-        (f.name || "unnamed file") +
-          " · " +
-          (f.unavailable ? "file unavailable" : originStatus(f.state, f.disposition)),
-        "/f/" + f.id,
-        "file",
-      ),
-    );
-  if (m.ref) {
-    const path = objectPath(m.ref);
-    controls.append(
-      path
-        ? link("discussed · " + label(m.ref), path, "result")
-        : el("small", "discussed · " + label(m.ref)),
-    );
+  const rows = [];
+  if (m.ref) rows.push(["about", label(m.ref), objectPath(m.ref)]);
+  for (const file of m.files)
+    rows.push(["file", file.name || "unnamed file", "/f/" + file.id,
+      file.unavailable ? "file unavailable" : originStatus(file.state, file.disposition)]);
+  for (const draft of m.drafts) {
+    const subject = draft.subject || "(no subject)";
+    const editable = draft.editable === true;
+    const peers = m.drafts.filter(other => other.editable === draft.editable &&
+      (other.subject || "(no subject)") === subject);
+    const label = editable && peers.length > 1 ? subject + " · " + (peers.indexOf(draft) + 1) : subject;
+    rows.push([editable ? "draft" : "revision", label, creationPath(m.id, draft)]);
   }
-  for (const proposal of m.proposals || []) {
+  const unchecked = m.draft_revision_error === "integrity";
+  const revised = m.draft_revision_id && !m.drafts.some(draft =>
+    !draft.editable && draft.create_action_id === m.draft_revision_id);
+  if (revised || unchecked)
+    rows.push(["revision", "draft revision", revised ? revisionPath(m.id, m.draft_revision_id) : null,
+      unchecked ? "failed integrity checks" : null]);
+
+  const proposals = m.proposals.map(proposal => {
     const group = el("section", undefined, "proposal");
-    group.append(
-      el("strong", proposal.title),
-      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : linkedText(proposal.detail),
-      el("p", proposal.status_label || proposal.status.replaceAll("_", " "), "secondary"),
-    );
-    if (proposal.draft_revision_id) {
-      const revision = draftRevisionLink(m.id, proposal.draft_revision_id);
-      revision.setAttribute("aria-label", "open draft revision · " + proposal.title);
-      group.append(revision);
-    }
+    group.dataset.status = proposal.status;
+    group.append(el("div", proposal.title, "proposal-title"),
+      proposal.draft_revision_id ? el("p", proposal.detail, "prose") : linkedText(proposal.detail));
+    const details = [];
+    if (proposal.draft_revision_id)
+      details.push(["revision", "draft revision", revisionPath(m.id, proposal.draft_revision_id)]);
     if (proposal.decision)
-      group.append(
-        link("owner reply · " + proposal.decision, "/m/" + proposal.owner_message_id, "result"),
-      );
-    const reply = button("reply", () =>
-      discuss(
-        { kind: "proposal", message_id: m.id, action_id: proposal.action_id },
-        proposal.title,
-      ),
-    );
+      details.push(["you", proposal.decision, "/m/" + proposal.owner_message_id]);
+    if (details.length) group.append(apparatus(details));
+    const reply = button("reply", () => discuss(
+      { kind: "proposal", message_id: m.id, action_id: proposal.action_id }, proposal.title));
     reply.dataset.action = proposal.action_id;
-    group.append(reply);
-    controls.append(group);
+    const foot = el("div", undefined, "proposal-foot");
+    foot.append(reply, el("span", proposal.status_label || proposal.status.replaceAll("_", " ")));
+    group.append(foot);
+    return group;
+  });
+  const seen = new Set([
+    ...rows.map(([, , path]) => path),
+    ...[node.reader, ...proposals].flatMap(group => [...group.querySelectorAll("a[href]")].map(a => a.getAttribute("href"))),
+  ]);
+  const refs = m.artifact_links.slice();
+  if (m.present && !["draft", "source"].includes(m.present.ref.kind)) refs.push(m.present.ref);
+  for (const ref of refs) {
+    const path = objectPath(ref);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const file = ref.kind === "file" && m.files.find(file => file.id === ref.id);
+    const kind = ref.kind === "view" ? "artifact" : ref.kind === "todo" ? "todo" : "file";
+    rows.push([kind, file?.name || label({ ...ref, page: null }), path, ref.page ? "page " + ref.page : null]);
   }
-  if (m.draft_revision_error === "integrity")
-    controls.append(el("p", "draft revision failed integrity checks.", "draft-evidence"));
-  if (m.draft_revision_id && !m.drafts?.some(d => d.editable !== true && d.create_action_id === m.draft_revision_id)) {
-    const revision = draftRevisionLink(m.id, m.draft_revision_id);
-    revision.classList.add("draft-evidence");
-    controls.append(revision);
-  }
-  for (const [i, created] of (m.drafts || []).entries()) {
-    const subject = created.subject || "(no subject)";
-    const numbered = m.drafts.filter((other) => other.subject === created.subject).length > 1;
-    const action = created.editable === true ? "open draft" : "open draft revision";
-    const ordinal = m.drafts.slice(0, i + 1).filter(other => other.subject === created.subject).length;
-    const name = action + " · " + subject + (numbered ? " · " + ordinal : "");
-    controls.append(link(name, creationPath(m.id, created), "result draft-revision-link"));
-  }
-  const delivered = new Map((m.artifact_links || []).map(ref => [objectPath(ref), ref]));
-  if (m.present && !["draft", "source"].includes(m.present.ref.kind))
-    delivered.set(objectPath(m.present.ref), m.present.ref);
-  const alreadyLinked = new Set([...node.reader.querySelectorAll("a[href]"), ...controls.querySelectorAll("a[href]")]
-    .map(anchor => anchor.getAttribute("href")));
-  for (const [path, ref] of delivered) {
-    if (!path || alreadyLinked.has(path)) continue;
-    const filename = ref.kind === "file" && m.files?.find(file => file.id === ref.id)?.name;
-    const name = filename ? filename + (ref.page ? " · page " + ref.page : "") : label(ref);
-    controls.append(link("open " + name, path, "result"));
-  }
+  const controls = el("div");
+  if (rows.length) controls.append(apparatus(rows));
+  controls.append(...proposals);
   if (node.controls) node.controls.replaceWith(controls);
   else node.append(controls);
   node.controls = controls;
@@ -733,8 +744,7 @@ function chatOffset(node) {
   return node.getBoundingClientRect().top - chat.getBoundingClientRect().top;
 }
 function insetPosition(node) {
-  const preceding = node.previousElementSibling?.matches("article")
-    ? node.previousElementSibling : node.previousElementSibling?.previousElementSibling;
+  const preceding = precedingArticle(node);
   const line = parseFloat(getComputedStyle(preceding?.reader || node).lineHeight);
   return chat.scrollTop + chatOffset(node) - 4.5 * line;
 }
@@ -756,10 +766,11 @@ function restoreChatAnchor(anchor) {
   if (node) scrollChat(chat.scrollTop + chatOffset(node) - anchor.offset);
 }
 function applyOpening() {
-  if (!pendingOpening || !chat.clientHeight) return;
+  if (waitingForType || !pendingOpening || !chat.clientHeight) return;
   const { node, capped } = pendingOpening;
   pendingOpening = null;
   if (selectedMessage || isDetail(location.pathname) || chatReturn) return;
+  if (!$("sidebar").hasAttribute("data-literata")) fontOpening = { node, capped };
   scrollChat(capped ? 0 : node ? insetPosition(node) : chat.scrollHeight);
   return true;
 }
@@ -768,7 +779,7 @@ chat.addEventListener("scroll", () => {
   scrollTarget = null;
   if (programmatic) return;
   sentPlacement = null;
-  pendingOpening = null;
+  fontOpening = pendingOpening = null;
   pinned = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48;
 }, { capture:true, passive:true });
 
@@ -819,7 +830,28 @@ function merge(items) {
     transcript.insertBefore(node, ordered[lo] || null);
     ordered.splice(lo, 0, node);
   }
-  attention.update();
+  if (mutated) {
+    const heads = new Map([...transcript.querySelectorAll(".day-head")].map(node => [node.id, node]));
+    let day;
+    for (const node of ordered) {
+      if (node.dataset.day === day) continue;
+      day = node.dataset.day;
+      const id = "day-" + day;
+      let head = heads.get(id);
+      heads.delete(id);
+      if (!head) {
+        const parts = Object.fromEntries(localDate.formatToParts(new Date(node.dataset.at))
+          .map(({ type, value }) => [type, value]));
+        const caption = [parts.weekday, parts.day, parts.month];
+        if (Number(parts.year) !== new Date().getFullYear()) caption.push(parts.year);
+        head = el("h2", caption.join(" ").toLowerCase(), "day-head");
+        head.id = id;
+      }
+      if (head.nextElementSibling !== node) transcript.insertBefore(head, node);
+    }
+    for (const head of heads.values()) head.remove();
+    attention.update();
+  }
   restoreChatAnchor(anchor);
 }
 
@@ -1155,6 +1187,7 @@ function startRoute(previousEntry) {
   }
   inspection.close();
   routeVersion++;
+  fontOpening = null;
   failures.delete("canvas");
   failures.delete("detail");
   showConnection();
@@ -1784,6 +1817,24 @@ new ResizeObserver(() => {
   showTableControls();
   restoreChatReturn();
 }).observe($("chat"));
+const typeDeadline = setTimeout(() => {
+  waitingForType = false;
+  applyOpening();
+}, 1500);
+Promise.all([
+  document.fonts.load('400 1rem Literata'),
+  document.fonts.load('italic 400 1rem Literata'),
+]).then(() => {
+  clearTimeout(typeDeadline);
+  const anchor = chatAnchor();
+  attention.beforeLayoutChange();
+  $("sidebar").setAttribute("data-literata", "");
+  waitingForType = false;
+  pendingOpening ||= fontOpening;
+  fontOpening = null;
+  if (!applyOpening()) restoreChatAnchor(anchor);
+  attention.update();
+}).catch(() => {});
 showFiles();
 startRoute();
 window.addEventListener("pagehide", () => {

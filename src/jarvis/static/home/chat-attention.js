@@ -14,6 +14,12 @@ export function instant(at) {
   return new Date(at).toISOString().slice(0, 19) + fraction;
 }
 
+export function precedingArticle(node) {
+  let before = node.previousElementSibling;
+  while (before && !before.matches("article")) before = before.previousElementSibling;
+  return before;
+}
+
 export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, formatTime,
   stopAttending, newVisit, place, jump, earlier, failure, preservePosition }) {
   const [newButton, owedButton, undo] = ledge.querySelectorAll("button");
@@ -203,7 +209,8 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
 
     if (boundary) {
       const start = document.getElementById("msg-" + boundary.id);
-      if (start && separator.nextSibling !== start) list.insertBefore(separator, start);
+      const first = start?.previousElementSibling?.matches(".day-head") ? start.previousElementSibling : start;
+      if (first && separator.nextSibling !== first) list.insertBefore(separator, first);
       separator.classList.toggle("dry", total === 0);
       clear.setAttribute("aria-disabled", String(total === 0 || Boolean(pendingClear)));
     }
@@ -419,7 +426,7 @@ export function chatAttention({ chat, list, ledge, sidebarOpen, icon, live, form
       separator.remove();
       boundary = null;
       if (!node) return;
-      const before = node.previousElementSibling;
+      const before = precedingArticle(node);
       const text = before ? "new since " + formatTime(before.dataset.at) : "new";
       separator.dataset.order = node.dataset.order;
       boundary = { id:node.dataset.messageId };

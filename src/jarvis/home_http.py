@@ -18,6 +18,7 @@ from llm_tools import DeclaredToolFailure, canonical_json_bytes
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 
@@ -150,7 +151,11 @@ def create_home_app(
                 )
                 response = JSONResponse({"detail": "unavailable"}, status_code=503)
         cache_control = "private, no-store"
-        if request.url.path == _PHONE_ROUTE or "no-transform" in response.headers.get(
+        if response.status_code in (200, 206, 304) and re.fullmatch(
+            r"/static/home/fonts/[^/]+-[a-f0-9]{8}\.woff2", request.url.path
+        ):
+            cache_control = "private, max-age=31536000, immutable"
+        elif request.url.path == _PHONE_ROUTE or "no-transform" in response.headers.get(
             "Cache-Control", ""
         ):
             # Preserve the phone tag and the exact byte count on private streams.
@@ -160,7 +165,9 @@ def create_home_app(
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
 
-    async def put(submission_id: UUID, request: Request) -> JSONResponse:
+    async def put(
+        submission_id: UUID, request: Request, response: Response
+    ) -> dict[str, Any]:
         occurrence = None
         headers = request.headers.getlist("x-jarvis-workspace-occurrence")
         if headers:
@@ -204,11 +211,11 @@ def create_home_app(
             raise HTTPException(409, "submission id was already used") from exc
         except InvalidReference as exc:
             raise HTTPException(422, "invalid reference") from exc
-        return JSONResponse(
-            {"id": str(identifier)}, status_code=201 if created else 200
-        )
+        response.status_code = 201 if created else 200
+        async with database.connect() as conn:
+            return await receipt(conn, identifier)
 
-    async def submission(submission_id: UUID) -> dict[str, UUID]:
+    async def submission(submission_id: UUID) -> dict[str, Any]:
         async with database.connect() as conn:
             identifier = await conn.scalar(
                 select(message.c.id).where(
@@ -218,9 +225,9 @@ def create_home_app(
                     message.c.source_message_id == str(submission_id),
                 )
             )
-        if identifier is None:
-            raise HTTPException(404)
-        return {"id": identifier}
+            if identifier is None:
+                raise HTTPException(404)
+            return await receipt(conn, identifier)
 
     async def approvals() -> list[dict[str, object]]:
         return [] if workspace_approvals is None else workspace_approvals.pending()
@@ -270,15 +277,26 @@ def create_home_app(
             except ValueError as exc:
                 raise HTTPException(422, "invalid cursor") from exc
 
+    async def message_row(
+        conn: AsyncConnection, identifier: UUID
+    ) -> dict[str, Any] | None:
+        return await visible_message(
+            conn,
+            scope,
+            identifier,
+            editor_epoch=editor_epoch,
+            source_grant=await source_grant(),
+        )
+
+    async def receipt(conn: AsyncConnection, identifier: UUID) -> dict[str, Any]:
+        row = await message_row(conn, identifier)
+        if row is None:
+            raise HTTPException(503, "message unavailable")
+        return {"id": identifier, "message": row}
+
     async def one_message(identifier: UUID) -> dict[str, Any]:
         async with database.connect() as conn:
-            row = await visible_message(
-                conn,
-                scope,
-                identifier,
-                editor_epoch=editor_epoch,
-                source_grant=await source_grant(),
-            )
+            row = await message_row(conn, identifier)
         if row is None:
             raise HTTPException(404)
         return row

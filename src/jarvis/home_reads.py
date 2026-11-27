@@ -1,4 +1,4 @@
-"""Read owner-visible conversation and resolve references against that same view."""
+"""Project owner-visible conversation, references and display receipts."""
 
 from __future__ import annotations
 
@@ -162,14 +162,15 @@ FROM (
       ), '-infinity'::timestamptz)
 ) waits
 WHERE approval OR owner_input
-ORDER BY created_at DESC, id DESC
 """
 
 
 async def owed_messages(
     connection: AsyncConnection, scope: str
 ) -> tuple[tuple[UUID, Literal["approval", "owner_input"]], ...]:
-    rows = await connection.execute(text(_OWED), {"scope": scope})
+    rows = await connection.execute(
+        text(_OWED + "ORDER BY created_at DESC, id DESC"), {"scope": scope}
+    )
     return tuple((row.id, row.kind) for row in rows)
 
 
@@ -193,11 +194,16 @@ async def _new_state(
 
 
 async def shown_totals(connection: AsyncConnection, scope: str) -> dict[str, int]:
-    _, new_total = await _new_state(connection, scope, [])
-    return {
-        "new_total": new_total,
-        "owed_total": len(await owed_messages(connection, scope)),
-    }
+    row = (
+        await connection.execute(
+            text(f"""
+                SELECT (SELECT count(*) FROM message m WHERE {_NEW}) AS new_total,
+                       (SELECT count(*) FROM ({_OWED}) owed) AS owed_total
+            """),
+            {"scope": scope},
+        )
+    ).one()
+    return {"new_total": row.new_total, "owed_total": row.owed_total}
 
 
 async def record_shown(
@@ -215,6 +221,7 @@ async def record_shown(
 
 
 async def clear_shown(connection: AsyncConnection, scope: str, through: UUID) -> bool:
+    """Return whether the tracked boundary exists, including after a repeated clear."""
     valid = await connection.scalar(
         text(f"""
             WITH boundary AS (

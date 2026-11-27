@@ -4,9 +4,18 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 target=dev-server-deploy
 builder_user=niels
-if (($# > 1)) || [[ $# == 1 && ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
-  printf 'usage: deploy/install-release [FULL_GIT_COMMIT]\n' >&2
+usage() {
+  printf 'usage: deploy/install-release [FULL_GIT_COMMIT] | --repair-of HELD_UUID FULL_GIT_COMMIT\n' >&2
   exit 64
+}
+repair_of=none
+if [[ "${1:-}" == --repair-of ]]; then
+  [[ $# == 3 && "$2" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || usage
+  repair_of="$2"
+  shift 2
+fi
+if (($# > 1)) || [[ $# == 1 && ! "$1" =~ ^[0-9a-f]{40}$ ]]; then
+  usage
 fi
 
 for command_name in git scp ssh; do
@@ -57,6 +66,7 @@ tree="$2"
 lock_sha256="$3"
 builder_user="$4"
 archive="$5"
+repair_of="$6"
 release="/opt/jarvis/releases/$commit"
 
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
@@ -71,7 +81,53 @@ cleanup_archive() {
   rm -f -- "$archive"
 }
 trap cleanup_archive EXIT HUP INT TERM
-require_no_cutover_hold
+if [[ "$repair_of" == none ]]; then
+  require_no_cutover_hold
+else
+  parent_release="$(python3 - "$repair_of" "$commit" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+hold = Path("/var/lib/jarvis-cutover/held")
+install = Path("/opt/jarvis")
+parent, candidate = sys.argv[1:]
+try:
+    binding = json.loads((hold / "receipt.json").read_bytes())["binding"]
+    if binding["id"] != parent or binding["operation"] != "release":
+        raise ValueError("wrong parent")
+except (OSError, KeyError, TypeError, ValueError):
+    raise SystemExit("repair staging requires the exact active release hold") from None
+
+bound = {}
+for role in ("source", "target"):
+    expected = binding[role]
+    commit = expected["commit"]
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise SystemExit("invalid held release commit")
+    directory = install / "releases" / commit
+    actual = json.loads((directory / "RELEASE.json").read_bytes())
+    if actual != {key: expected[key] for key in ("commit", "tree", "uv_lock_sha256")}:
+        raise SystemExit("held release receipt changed")
+    bound[role] = directory
+if candidate in {directory.name for directory in bound.values()}:
+    raise SystemExit("stage a distinct repair candidate")
+if (install / "current").resolve(strict=True) not in bound.values():
+    raise SystemExit("selected release differs from the held operation")
+print(bound["target"])
+PY
+)"
+  custody="$parent_release/deploy/cutover-hold"
+  case "$("$custody" status "$repair_of")" in
+  applying|startup-failed) ;;
+  *)
+    printf 'not an applying or startup-failed release hold\n' >&2
+    exit 1
+    ;;
+  esac
+  "$custody" check "$repair_of"
+fi
 
 # Prove the builder's ordinary Git access before discarding any candidate.
 if ! sudo -n test -e "$release" && ! sudo -n -u "$builder_user" env GIT_TERMINAL_PROMPT=0 \
@@ -80,7 +136,7 @@ if ! sudo -n test -e "$release" && ! sudo -n -u "$builder_user" env GIT_TERMINAL
   printf 'private memory source is unreadable by the deployment builder\n' >&2
   exit 1
 fi
-prune_releases "$commit"
+if [[ "$repair_of" == none ]]; then prune_releases "$commit"; fi
 
 verify_release() {
   sudo -n -u jarvis "$release/.venv/bin/python" - "$release" <<'PY'
@@ -163,4 +219,4 @@ complete=1
 printf 'Installed inactive release: %s\n' "$commit"
 REMOTE
 } | ssh -T -o BatchMode=yes -o ForwardAgent=no "$target" sudo -n flock /opt/jarvis/.deploy.lock bash -s -- \
-  "$commit" "$tree" "$lock_sha256" "$builder_user" "$remote_archive"
+  "$commit" "$tree" "$lock_sha256" "$builder_user" "$remote_archive" "$repair_of"

@@ -7,17 +7,22 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 
 internal class HomeVisits : ViewModel() {
@@ -28,10 +33,11 @@ internal class HomeVisits : ViewModel() {
 }
 
 class MainActivity : ComponentActivity() {
-    private val destination = MutableStateFlow<Uri?>(null)
+    private val destination = MutableStateFlow<Intent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val initial = intent.data?.let(Routes::parse) ?: Route.Home
         val visits = ViewModelProvider(this)[HomeVisits::class.java]
         val notices = PhoneNotices.get(this)
@@ -49,8 +55,31 @@ class MainActivity : ComponentActivity() {
             val incoming by destination.collectAsState()
             val access = remember { Access.get(this@MainActivity) }
             val api = remember { HomeApi(this@MainActivity) }
+            val drafts = remember { Drafts.get(this@MainActivity) }
             val authRevision by access.revision.collectAsState()
-            val presence = rememberPresence(api, authRevision, chat, notices)
+            val presence = remember(authRevision) { Presence { drafts.locked } }
+            val haptic = LocalHapticFeedback.current
+            val accept by rememberUpdatedState<(ChatMessage) -> Unit>({ row ->
+                chat.accept(row)
+                presence.accepted()
+                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            })
+            val readPage: suspend (String?, Long?) -> ChatPage = remember(api, notices, drafts) {
+                { before, timeout ->
+                    readChatPage(api, notices, before, timeout) { drafts.checkReceipt(api) { accept(it) } }
+                }
+            }
+            ObservePresence(api, presence, chat, readPage)
+            LaunchedEffect(drafts.draft?.held, drafts.sending, authRevision) {
+                if (drafts.draft?.held == true && !drafts.sending) {
+                    try {
+                        drafts.checkReceipt(api, accept)
+                    } catch (_: IOException) {
+                        // The held draft remains actionable while the receipt is unavailable.
+                    }
+                }
+            }
+            var openDock by rememberSaveable { mutableStateOf(intent.getBooleanExtra("chat", false)) }
 
             // a repeated address is a new visit. back restores the actual origin.
             val depth = trail.lastIndex
@@ -88,8 +117,9 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(incoming) {
-                incoming?.let { uri ->
-                    Routes.parse(uri)?.let(::navigate)
+                incoming?.let { request ->
+                    request.data?.let(Routes::parse)?.let(::navigate)
+                    if (request.getBooleanExtra("chat", false)) openDock = true
                     destination.value = null
                 }
             }
@@ -102,6 +132,8 @@ class MainActivity : ComponentActivity() {
                     history = chat, notices = notices,
                     onBack = if (trail.size > 1) ::back else null,
                     api = api, authRevision = authRevision, presence = presence,
+                    drafts = drafts, readPage = { readPage(it, null) }, accept = accept,
+                    openDock = openDock, dockOpened = { openDock = false },
                 )
             }
         }
@@ -109,6 +141,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        destination.value = intent.data
+        destination.value = intent
     }
 }

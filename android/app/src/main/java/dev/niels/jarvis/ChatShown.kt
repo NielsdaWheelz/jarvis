@@ -37,6 +37,7 @@ internal class ChatMessage(val json: JSONObject) {
     val stamp = ChatStamp(json.getString("id"), Instant.parse(json.getString("at")))
     val id get() = stamp.id
     private val source = json.getString("source")
+    val owner = json.getString("role") == "owner"
     val tracked = json.getString("role") == "assistant" && source != "native_progress"
     val terminal = source == "native_final" || source == "native_failure"
 }
@@ -95,14 +96,18 @@ internal class ChatPage(page: JSONObject) {
 }
 
 internal suspend fun readChatPage(
-    api: HomeApi, notices: PhoneNotices, before: String?, timeoutMillis: Long? = null,
+    api: HomeApi, notices: PhoneNotices, before: String?, timeoutMillis: Long?,
+    confirm: suspend () -> Boolean,
 ): ChatPage {
     val active = notices.snapshot()
     val path = "/api/messages" + (before?.let { "?before=${Uri.encode(it)}" } ?: "")
     return ChatPage(api.read(path, timeoutMillis) ?: throw IOException("conversation unavailable")).also {
+        if (!confirm()) throw ChatPageDeferred()
         notices.sweep(active, it)
     }
 }
+
+internal class ChatPageDeferred : IOException()
 
 internal data class ChatRead(val finals: List<String>, val arrivals: Set<String>)
 
@@ -124,6 +129,8 @@ internal class ChatHistory(private val shown: ChatShown) {
     private var awayThrough: Instant? = null
 
     var rows by mutableStateOf(emptyList<ChatMessage>())
+        private set
+    var crossing by mutableIntStateOf(0)
         private set
     var owed by mutableStateOf(emptyList<String>())
         private set
@@ -156,6 +163,20 @@ internal class ChatHistory(private val shown: ChatShown) {
         (pendingClear?.through?.at?.let { stamp.at > it } ?: true) && shown.isNew(stamp)
 
     fun learnedAt(id: String) = learned.getOrPut(id, SystemClock::elapsedRealtime)
+
+    fun accept(row: ChatMessage) {
+        rows = mergeRows(rows, listOf(row))
+        crossing++
+    }
+
+    private fun mergeRows(older: List<ChatMessage>, newer: List<ChatMessage>) =
+        (older + newer).associateBy(ChatMessage::id).values.sortedBy(ChatMessage::stamp)
+
+    private fun insertionsSince(previous: List<ChatMessage>): List<ChatMessage> {
+        if (rows === previous) return emptyList()
+        val known = previous.mapTo(mutableSetOf(), ChatMessage::id)
+        return rows.filter { it.id !in known }
+    }
 
     fun attend(value: Boolean) {
         if (value == attending) return
@@ -218,11 +239,12 @@ internal class ChatHistory(private val shown: ChatShown) {
 
             val updated = kept.asReversed().flatMap { it.messages }
             if (initial) before = kept.last().before
-            rows = when {
+            val projected = when {
                 initial -> updated
                 reloadRetained -> updated.filter { retainedEdge == null || it.stamp >= retainedEdge }
-                else -> (previous + updated).associateBy { it.id }.values.sortedBy { it.stamp }
+                else -> mergeRows(previous, updated)
             }
+            rows = mergeRows(projected, insertionsSince(previous))
             rows.forEach { learnedAt(it.id) }
             val oldest = rows.firstOrNull()?.stamp
             if (initial || revisit) outside = oldMarks.filter { oldest != null && it < oldest }
@@ -249,7 +271,7 @@ internal class ChatHistory(private val shown: ChatShown) {
         val cursor = before ?: return@withLock
         applyRead {
             val older = page(cursor)
-            rows = older.messages + rows
+            rows = mergeRows(older.messages, rows)
             older.messages.forEach { learnedAt(it.id) }
             before = older.before
             outside = outside.filter { stamp -> stamp < (rows.firstOrNull()?.stamp ?: stamp) }

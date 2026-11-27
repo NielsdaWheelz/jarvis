@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.BufferedSink
 import org.json.JSONArray
 import org.json.JSONException
@@ -37,6 +38,7 @@ internal class HomeApi(context: Context) {
         headers: Map<String, String> = emptyMap(),
         retryAuthentication: Boolean = true,
         timeoutMillis: Long? = null,
+        bufferReceipt: Boolean = false,
     ): Response {
         require(path.startsWith("/api/"))
         val url = requireNotNull(origin.resolve(path))
@@ -55,12 +57,12 @@ internal class HomeApi(context: Context) {
         request.header("X-Jarvis-Viewer-Contract", "cited-sources-v1")
         if (method != "GET" && method != "HEAD") request.header("Origin", Routes.origin)
         var bearer = access.currentBearer() ?: throw SignInRequired()
-        var response = execute(request.header("Authorization", "Bearer $bearer").build(), timeoutMillis)
+        var response = execute(request.header("Authorization", "Bearer $bearer").build(), timeoutMillis, bufferReceipt)
         if (retryAuthentication && response.code == 401 && (method == "GET" || method == "HEAD")) {
             response.close()
             access.rejectedBearer(bearer)
             bearer = access.currentBearer() ?: throw SignInRequired()
-            response = execute(request.header("Authorization", "Bearer $bearer").build(), timeoutMillis)
+            response = execute(request.header("Authorization", "Bearer $bearer").build(), timeoutMillis, bufferReceipt)
         }
         if (response.isRedirect || response.code == 401 || response.code == 403) {
             response.close()
@@ -70,7 +72,7 @@ internal class HomeApi(context: Context) {
         return response
     }
 
-    private suspend fun execute(request: Request, timeoutMillis: Long?): Response = suspendCancellableCoroutine { continuation ->
+    private suspend fun execute(request: Request, timeoutMillis: Long?, bufferReceipt: Boolean): Response = suspendCancellableCoroutine { continuation ->
         val transport = if (request.method == "GET" || request.method == "HEAD") reads else client
         val call = transport.newCall(request)
         timeoutMillis?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
@@ -78,7 +80,17 @@ internal class HomeApi(context: Context) {
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) = continuation.resumeWithException(e)
             override fun onResponse(call: Call, response: Response) {
-                continuation.resume(response) { _, unclaimed, _ -> unclaimed.close() }
+                // Keep the call cancellable until its accepted row has been read.
+                val ready = try {
+                    if (bufferReceipt && response.code in listOf(200, 201)) response.use {
+                        val body = it.body ?: throw IOException("missing receipt")
+                        it.newBuilder().body(body.bytes().toResponseBody(body.contentType())).build()
+                    } else response
+                } catch (e: IOException) {
+                    continuation.resumeWithException(e)
+                    return
+                }
+                continuation.resume(ready) { _, unclaimed, _ -> unclaimed.close() }
             }
         })
     }
@@ -93,6 +105,14 @@ internal class HomeApi(context: Context) {
             }
         }
     }
+
+    suspend fun receipt(id: String): SubmissionReceipt? =
+        read("/api/submissions/$id", timeoutMillis = 2_500)?.let(SubmissionReceipt::decode)
+
+    suspend fun submit(id: String, body: RequestBody): Pair<Int, SubmissionReceipt?> =
+        request("/api/messages/$id", "PUT", body, bufferReceipt = true).use {
+            it.code to if (it.code == 200 || it.code == 201) SubmissionReceipt.decode(it.json()) else null
+        }
 
     suspend fun selectedHome(): DiscussionRef.Artifact? {
         val data = read("/api/home") ?: throw IOException("home unavailable")
@@ -130,6 +150,23 @@ internal class HomeApi(context: Context) {
             .build()
         // A stale pooled connection can be retried only for an idempotent read.
         val reads = client.newBuilder().retryOnConnectionFailure(true).build()
+    }
+}
+
+internal data class SubmissionReceipt(val message: ChatMessage) {
+    companion object {
+        fun decode(json: JSONObject): SubmissionReceipt = try {
+            val id = json.getString("id")
+            val row = ChatMessage(json.getJSONObject("message"))
+            if (!canonicalUuid(id) || row.id != id || row.json.getString("role") != "owner" ||
+                row.json.getString("source") != "web"
+            ) throw IOException("invalid receipt")
+            SubmissionReceipt(row)
+        } catch (e: JSONException) {
+            throw IOException("invalid receipt", e)
+        } catch (e: java.time.DateTimeException) {
+            throw IOException("invalid receipt", e)
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 package dev.niels.jarvis
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -13,9 +14,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInputModeManager
@@ -34,6 +40,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.commonmark.ext.gfm.tables.*
 import org.commonmark.node.*
 import org.commonmark.node.Text as MdText
@@ -41,7 +48,11 @@ import org.json.JSONObject
 
 private val bare = Regex("""https?://[^\s<>]+|/(?:[mft]/|mail/|files\b|artifacts\b|todos\b)[^\s<>]*|attachment:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}""", RegexOption.IGNORE_CASE)
 
-private class Reader(val message: JSONObject?, val navigate: (Route) -> Unit, val external: (Uri) -> Unit) {
+private class Reader(
+    val message: JSONObject?, val navigate: (Route) -> Unit, val chat: Boolean, val external: (Uri) -> Unit,
+) {
+    val owner = chat && message?.string("role") == "owner"
+
     fun destination(href: String): (() -> Unit)? {
         if (href.startsWith("//") || href.any { it <= ' ' || it == '\\' }) return null
         val uri = Uri.parse(href).normalizeScheme()
@@ -61,9 +72,11 @@ private class Reader(val message: JSONObject?, val navigate: (Route) -> Unit, va
 }
 
 @Composable
-private fun reader(message: JSONObject?, navigate: (Route) -> Unit, onExternal: () -> Unit = {}): Reader {
+private fun reader(
+    message: JSONObject?, navigate: (Route) -> Unit, onExternal: () -> Unit = {}, chat: Boolean = false,
+): Reader {
     val context = LocalContext.current
-    return Reader(message, navigate) { uri ->
+    return Reader(message, navigate, chat) { uri ->
         onExternal()
         try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
         catch (_: ActivityNotFoundException) { Toast.makeText(context, "browser unavailable", Toast.LENGTH_SHORT).show() }
@@ -74,8 +87,25 @@ private fun reader(message: JSONObject?, navigate: (Route) -> Unit, onExternal: 
 internal fun MessageMarkdown(message: JSONObject, navigate: (Route) -> Unit, onExternal: () -> Unit) {
     val text = message.getString("text")
     val markdown = remember(text) { MessageDocument(text) }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        MarkdownBlocks(markdown.root, markdown, reader(message, navigate, onExternal))
+    val reader = reader(message, navigate, onExternal, chat = true)
+    val clipboard = LocalClipboard.current
+    val speaker = if (reader.owner) "you" else "jarvis"
+    val attributed = remember(clipboard, speaker) {
+        object : Clipboard by clipboard {
+            override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+                val selected = clipEntry?.clipData?.getItemAt(0)?.text
+                clipboard.setClipEntry(if (selected == null) clipEntry else ClipEntry(
+                    ClipData.newPlainText(speaker, "$speaker\n$selected"),
+                ))
+            }
+        }
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CompositionLocalProvider(LocalClipboard provides attributed) {
+            ProvideTextStyle(chatBody(reader.owner, message.string("source") == "native_progress")) {
+                MarkdownBlocks(markdown.root, markdown, reader)
+            }
+        }
         val present = message.optJSONObject("present")?.optJSONObject("ref")
         if (present?.string("kind") == "source") {
             val slot = present.optInt("slot")
@@ -114,10 +144,9 @@ private fun MarkdownBlocks(parent: Node, markdown: MessageDocument, reader: Read
         when (node) {
             is org.commonmark.node.Paragraph -> Inline(node, reader)
             is Heading -> {
-                val style = when (node.level) {
-                    1 -> MaterialTheme.typography.titleLarge
-                    2 -> MaterialTheme.typography.titleMedium
-                    else -> MaterialTheme.typography.titleSmall
+                val style = LocalTextStyle.current.let {
+                    if (node.level <= 3) it.copy(fontFeatureSettings = "smcp, c2sc")
+                    else it.copy(fontWeight = FontWeight.SemiBold)
                 }
                 Inline(node, reader, Modifier.semantics { heading() }, style)
             }
@@ -125,14 +154,21 @@ private fun MarkdownBlocks(parent: Node, markdown: MessageDocument, reader: Read
                 val (number, digest) = markdown.tables.getValue(node)
                 MarkdownTable(node, reader.message?.let { Route.Table(it.getString("id"), number, digest) }, reader)
             }
-            is BlockQuote -> Column(Modifier.padding(start = 12.dp)) { MarkdownBlocks(node, markdown, reader) }
+            is BlockQuote -> {
+                val muted = MaterialTheme.colorScheme.onSurfaceVariant
+                Column(Modifier.drawBehind { drawLine(muted, Offset.Zero, Offset(0f, size.height), 1.dp.toPx()) }
+                    .padding(start = 12.dp)) {
+                    ProvideTextStyle(chatBody()) { MarkdownBlocks(node, markdown, reader) }
+                }
+            }
             is BulletList, is OrderedList -> node.children.forEachIndexed { i, item ->
                 Row {
-                    Text(if (node is OrderedList) "${(node.markerStartNumber ?: 1) + i}. " else "• ")
+                    Text(if (node is OrderedList) "${(node.markerStartNumber ?: 1) + i}. " else "• ",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Column(Modifier.weight(1f)) { MarkdownBlocks(item, markdown, reader) }
                 }
             }
-            is ThematicBreak -> HorizontalDivider()
+            is ThematicBreak -> HorizontalDivider(Modifier.width(48.dp))
             is HtmlBlock -> SelectionContainer { Text(node.literal) }
             is FencedCodeBlock -> CodeBlock(node.literal)
             is IndentedCodeBlock -> CodeBlock(node.literal)
@@ -142,7 +178,14 @@ private fun MarkdownBlocks(parent: Node, markdown: MessageDocument, reader: Read
 
 @Composable
 private fun CodeBlock(text: String) {
-    SelectionContainer { Text(text.removeSuffix("\n"), Modifier.horizontalScroll(rememberScrollState()), fontFamily = FontFamily.Monospace) }
+    Column {
+        HorizontalDivider()
+        SelectionContainer {
+            Text(text.removeSuffix("\n"), Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 6.dp),
+                style = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontStyle = FontStyle.Normal, fontSize = 15.sp))
+        }
+        HorizontalDivider()
+    }
 }
 
 @Composable
@@ -150,7 +193,7 @@ private fun MarkdownTable(table: TableBlock, expand: Route.Table?, reader: Reade
     val rows = table.children.flatMap { it.children }.map { it.children.filterIsInstance<TableCell>().toList() }.toList()
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val style = MaterialTheme.typography.bodyMedium
+    val style = if (reader.chat) ChatApparatus.copy(fontFeatureSettings = "lnum, tnum") else MaterialTheme.typography.bodyMedium
     val widths = (0 until (rows.maxOfOrNull { it.size } ?: 0)).map { col ->
         val pixels = rows.maxOf { row ->
             val cell = row.getOrNull(col)
@@ -209,7 +252,8 @@ internal fun LinkedText(text: String, navigate: (Route) -> Unit) = Inline(MdText
 
 @Composable
 private fun Inline(node: Node, reader: Reader, modifier: Modifier = Modifier, style: TextStyle = LocalTextStyle.current) {
-    val colors = TextLinkStyles(style = SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline))
+    val colors = TextLinkStyles(style = SpanStyle(color = if (reader.chat) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+        textDecoration = TextDecoration.Underline))
     val requester = remember { FocusRequester() }
     val manager = LocalFocusManager.current
     val inputMode = LocalInputModeManager.current
@@ -243,9 +287,13 @@ private fun Inline(node: Node, reader: Reader, modifier: Modifier = Modifier, st
             fun contents(scanChildren: Boolean = scan) = n.children.forEach { inline(it, scanChildren) }
             when (n) {
                 is MdText -> if (scan) literal(n.literal) else append(n.literal)
-                is Code -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(n.literal) }
-                is Emphasis -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { contents() }
-                is StrongEmphasis -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { contents() }
+                is Code -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontStyle = FontStyle.Normal)) { append(n.literal) }
+                is Emphasis -> withStyle(SpanStyle(
+                    fontStyle = if (reader.owner && style.fontStyle == FontStyle.Italic) FontStyle.Normal else FontStyle.Italic,
+                )) { contents() }
+                is StrongEmphasis -> withStyle(SpanStyle(
+                    fontWeight = if (reader.chat) FontWeight.SemiBold else FontWeight.Bold,
+                )) { contents() }
                 is HardLineBreak, is SoftLineBreak -> append("\n")
                 is HtmlInline -> append(n.literal)
                 is Image -> append(plainText(n))

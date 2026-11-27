@@ -260,6 +260,12 @@ def read_export(path: Path) -> bytes:
     return path.read_bytes()
 
 
+def replace_publication(path: Path, body: bytes) -> None:
+    # The group bits set the mask of the inherited notes ACL. Named
+    # writers need write access. The owning group and app remain readers.
+    replace_bytes(path, body, 0o660)
+
+
 @contextmanager
 def publication_lock(root: Path, operation: int = fcntl.LOCK_EX) -> Iterator[None]:
     lock = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
@@ -318,11 +324,11 @@ def _publish(
                 stamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
                 work.editions.append(extract_edition(slug, rev, body, stamp))
                 if not exists:
-                    replace_bytes(path, body, 0o640)
+                    replace_publication(path, body)
             work.current = rev
             if home:
                 catalog.home = slug
-        replace_bytes(root / "catalog.json", catalog.model_dump_json().encode(), 0o640)
+        replace_publication(root / "catalog.json", catalog.model_dump_json().encode())
     if rev is None:
         return {"slug": slug, "published": False}
     return {

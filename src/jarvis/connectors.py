@@ -51,6 +51,7 @@ from jarvis.read_tools import (
     Route,
 )
 from jarvis.workspace_enrollment import (
+    ENROLLMENT_SCOPES,
     GOOGLE_TOKEN_ENDPOINT,
     HumanWorkspaceProduct,
     WorkspaceEnrollment,
@@ -349,7 +350,10 @@ class GoogleTokenManager:
             not self._project_id
             or not installation
             or (self.human_product is not None) != (expected_subject is not None)
-            or (self.human_product is not None and pending_label_id is not None)
+            or (
+                self.human_product is not None
+                and (pending_label_id is not None or incremental_drive)
+            )
             or not valid_pending_label(pending_label_id)
         ):
             raise WorkspaceError("grant_unavailable")
@@ -366,15 +370,28 @@ class GoogleTokenManager:
                 human_product=self.human_product,
             )
             if expected_subject is not None and tokens.subject != expected_subject:
-                raise WorkspaceError("grant_unavailable")
+                raise WorkspaceError("oauth_enrollment_identity_changed")
+            if incremental_drive and DRIVE_SCOPE not in tokens.scopes:
+                raise WorkspaceError("scope_missing")
+            if (
+                not incremental_drive
+                and self.human_product is None
+                and not tokens.scopes <= ENROLLMENT_SCOPES
+            ):
+                raise WorkspaceError("oauth_token_scope_invalid")
             previous = self.enrollment()
+            account = tokens.account
             if incremental_drive and previous is not None:
-                if (
-                    tokens.subject != previous.subject
-                    or tokens.scopes - {DRIVE_SCOPE} != previous.scopes - {DRIVE_SCOPE}
-                    or pending_label_id not in (None, previous.pending_label_id)
-                ):
+                if pending_label_id not in (None, previous.pending_label_id):
                     raise WorkspaceError("grant_unavailable")
+                if (tokens.subject, tokens.account.casefold()) != (
+                    previous.subject,
+                    previous.account.casefold(),
+                ):
+                    raise WorkspaceError("oauth_enrollment_identity_changed")
+                if tokens.scopes - {DRIVE_SCOPE} != previous.scopes - {DRIVE_SCOPE}:
+                    raise WorkspaceError("oauth_enrollment_scopes_changed")
+                account = previous.account
                 pending_label_id = previous.pending_label_id
                 grant_id = previous.grant_id
             else:
@@ -390,7 +407,7 @@ class GoogleTokenManager:
                 "project_id": self._project_id,
                 "client_id": self._client_id,
                 "grant_id": str(grant_id),
-                "account": tokens.account,
+                "account": account,
                 "subject": tokens.subject,
                 "pending_label_id": pending_label_id,
                 "granted_scopes": sorted(tokens.scopes),

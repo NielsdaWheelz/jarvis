@@ -11,9 +11,11 @@ import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okio.BufferedSink
 import org.json.JSONArray
@@ -28,6 +30,7 @@ internal class ViewerUpdateRequired : IOException(UpdateViewerMessage)
 internal class SignInRequired : IOException("sign in to continue")
 
 internal class HomeApi(context: Context) {
+    private val application = context.applicationContext
     private val access = Access.get(context)
 
     suspend fun request(
@@ -52,11 +55,15 @@ internal class HomeApi(context: Context) {
         val request = Request.Builder().url(url).method(method, payload)
         for ((name, value) in headers) request.header(name, value)
         request.header("Cache-Control", "no-store")
-        request.header("X-Jarvis-Viewer-Contract", "cited-sources-v1")
+        request.header("X-Jarvis-Viewer-Contract", "shown-v1")
         if (method != "GET" && method != "HEAD") request.header("Origin", Routes.origin)
+        if (method == "PUT" && url.pathSegments.size == 3 && url.pathSegments[1] == "messages") {
+            ShownReports.get(application).flush()
+        }
         var bearer = access.currentBearer() ?: throw SignInRequired()
         var response = execute(request.header("Authorization", "Bearer $bearer").build(), timeoutMillis)
-        if (retryAuthentication && response.code == 401 && (method == "GET" || method == "HEAD")) {
+        val report = method == "POST" && path in setOf("/api/shown", "/api/shown/clear")
+        if (retryAuthentication && response.code == 401 && (method == "GET" || method == "HEAD" || report)) {
             response.close()
             access.rejectedBearer(bearer)
             bearer = access.currentBearer() ?: throw SignInRequired()
@@ -92,6 +99,17 @@ internal class HomeApi(context: Context) {
                 else -> throw IOException("could not load this item")
             }
         }
+    }
+
+    suspend fun writeShown(path: String, data: JSONObject) {
+        request(path, "POST", data.toString().toRequestBody("application/json".toMediaType()), timeoutMillis = 3_000)
+            .use { response ->
+                when (response.code) {
+                    204 -> Unit
+                    426 -> throw ViewerUpdateRequired()
+                    else -> throw IOException("could not save shown messages")
+                }
+            }
     }
 
     suspend fun selectedHome(): DiscussionRef.Artifact? {

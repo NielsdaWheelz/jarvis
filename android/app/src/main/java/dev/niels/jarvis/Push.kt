@@ -38,7 +38,6 @@ import com.google.firebase.messaging.RemoteMessage
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.security.MessageDigest
-import java.time.Instant
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -135,7 +134,7 @@ class NoticeDismissed : BroadcastReceiver() {
 }
 
 internal class PhoneNotices private constructor(private val context: Context) {
-    val shown = ChatShown(context)
+    init { context.deleteSharedPreferences("chat-shown") }
     private val manager = context.getSystemService(NotificationManager::class.java)
     private val held = context.getSharedPreferences("held-chat-notices", Context.MODE_PRIVATE)
     private var foreground: Boolean? = null
@@ -148,23 +147,32 @@ internal class PhoneNotices private constructor(private val context: Context) {
     internal data class BeforeRead(val active: List<StatusBarNotification>, val revision: Long)
 
     @Synchronized
-    fun foreground(visible: Boolean) {
-        if (foreground == visible) return
+    fun foreground(visible: Boolean, drain: Boolean = true) {
         foreground = visible
-        if (visible) return
+        if (!visible && drain) releaseHeld()
+    }
 
-        for ((id, stored) in held.all) {
-            val receipt = stored as String
-            val kind = receipt.substringBefore(' ')
-            val stamp = receipt.substringAfter(' ', "").takeIf(String::isNotEmpty)?.let {
-                ChatStamp(id, Instant.parse(it))
-            }
-            if (!shown.recorded(id) && (stamp == null || !shown.recorded(stamp))) {
-                post(id, kind)
-            }
+    @Synchronized
+    fun releaseHeld() {
+        if (foreground == true) return
+        val waiting = held.all
+        for ((id, stored) in waiting) {
+            post(id, (stored as String).substringBefore(' '))
             held.edit().remove(id).apply()
         }
-        updateGroup(replyTags().size)
+        if (waiting.isNotEmpty()) updateGroup(replyTags().size)
+    }
+
+    @Synchronized
+    fun revisionBeforeWrite() = revision
+
+    @Synchronized
+    fun confirmHeld(before: Long, ids: Collection<String>) {
+        val matched = ids.filter { held.contains(it) && (issued[messageNoticeTag(it)] ?: 0L) <= before }
+        if (matched.isEmpty()) return
+        val edited = held.edit()
+        matched.forEach(edited::remove)
+        edited.commit()
     }
 
     @Synchronized
@@ -173,9 +181,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
         val tag = messageNoticeTag(id)
         issued[tag] = ++revision
         if (foreground == true) {
-            val previous = held.getString(id, null)
-            val stamp = previous?.substringAfter(' ', "").orEmpty()
-            if (held.edit().putString(id, if (stamp.isEmpty()) kind else "$kind $stamp").commit()) return
+            if (held.edit().putString(id, kind).commit()) return
         }
         post(id, kind)
         if (kind == REPLY) updateGroup(replyTags().size)
@@ -184,7 +190,7 @@ internal class PhoneNotices private constructor(private val context: Context) {
     @Synchronized
     fun snapshot(): BeforeRead {
         val active = manager.activeNotifications.toList()
-        issued.keys.retainAll(active.mapTo(mutableSetOf()) { it.tag } + held.all.keys.map(::messageNoticeTag))
+        issued.keys.retainAll(active.mapTo(mutableSetOf()) { it.tag } + held.all.keys.map(::messageNoticeTag) + postingReplies)
         return BeforeRead(active, revision)
     }
 
@@ -193,13 +199,9 @@ internal class PhoneNotices private constructor(private val context: Context) {
         val previous = snapshot.active.associateBy { it.tag }
         val active = manager.activeNotifications.associateBy { it.tag }
         val replies = replyTags()
-        for (message in page.messages) {
-            if (!message.tracked) continue
-            val stored = held.getString(message.id, null)
-            if (stored != null && ' ' !in stored) {
-                held.edit().putString(message.id, "$stored ${message.stamp.at}").commit()
-            }
-            if (!shown.recorded(message.stamp)) continue
+        val shown = page.messages.filter { it.tracked && it.id !in page.new }
+        confirmHeld(snapshot.revision, shown.map { it.id })
+        for (message in shown) {
             val tag = messageNoticeTag(message.id)
             val notice = active[tag] ?: continue
             if (previous[tag]?.postTime != notice.postTime || (issued[tag] ?: 0) > snapshot.revision) continue

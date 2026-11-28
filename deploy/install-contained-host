@@ -359,8 +359,9 @@ for unit in "$stock_paid_unit" "$AGY_HOST_UNIT"; do
 done
 sudo -n install -m 0644 -o root -g root "$remote/codex-neon-requirements.toml" \
   /etc/jarvis/codex-neon-requirements.toml
-sudo -n install -m 0644 -o root -g root "$remote/antigravity-gitconfig" \
-  /etc/jarvis/antigravity-gitconfig
+agy_gitconfig=/etc/jarvis-antigravity-gitconfig
+sudo -n install -m 0640 -o root -g jarvis-agy-control "$remote/antigravity-gitconfig" \
+  "$agy_gitconfig"
 sudo -n install -m 0644 -o root -g root "$remote/jarvis-antigravity-localharness" \
   /etc/apparmor.d/jarvis-antigravity-localharness
 sudo -n chgrp jarvis-agy-exec "${layout[8]}"
@@ -369,14 +370,14 @@ sudo -n apparmor_parser -r /etc/apparmor.d/jarvis-antigravity-localharness
 for profile in jarvis-antigravity-localharness jarvis-antigravity-tool; do
   sudo -n grep -qFx "$profile (enforce)" /sys/kernel/security/apparmor/profiles
 done
-sudo -n -u "$agy_user" -g codex-clients env GIT_CONFIG_GLOBAL=/etc/jarvis/antigravity-gitconfig \
+sudo -n -u "$agy_user" -g codex-clients env GIT_CONFIG_GLOBAL="$agy_gitconfig" \
   git -C "$notes" rev-parse --show-toplevel >/dev/null
 sudo -n mv -fT -- "$candidate" /etc/jarvis/codex-host.json
 for unit in "${NATIVE_HOST_UNITS[@]}"; do
   case "${optional_states[$unit]:-}" in masked|masked-runtime) continue ;; esac
   sudo -n install -m 0644 -o root -g root "$remote/$unit" "/etc/systemd/system/$unit"
 done
-sync -f /etc/jarvis /etc/systemd/system /etc/apparmor.d
+sync -f /etc/jarvis /etc/systemd/system /etc/apparmor.d "$agy_gitconfig"
 sudo -n systemctl daemon-reload
 sudo -n systemctl enable "${CODEX_HOST_UNITS[0]}"
 if [[ "$change" != bootstrap ]]; then

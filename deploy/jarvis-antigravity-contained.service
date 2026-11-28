@@ -18,7 +18,7 @@ StandardError=null
 Environment=HOME=@HOME@
 Environment=OTEL_SDK_DISABLED=true
 Environment=PYTHONUNBUFFERED=1
-Environment=GIT_CONFIG_GLOBAL=/etc/jarvis/antigravity-gitconfig
+Environment=GIT_CONFIG_GLOBAL=/etc/jarvis-antigravity-gitconfig
 RuntimeDirectory=jarvis-agy-host
 RuntimeDirectoryMode=0710
 RuntimeDirectoryPreserve=no

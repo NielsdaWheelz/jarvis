@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import cast
+from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
@@ -21,7 +22,7 @@ from jarvis.gmail_arrivals import (
     observation,
     pending_label,
 )
-from jarvis.workspace_mcp import WorkspaceError
+from jarvis.workspace_mcp import WorkspaceError, WorkspaceRequest, workspace_target_key
 
 _UNREADABLE_ITEM = {
     "partial",
@@ -56,6 +57,8 @@ class EventPoller:
         self._now = now
         self._changed = asyncio.Event()
         self._stop: asyncio.Event | None = None
+        self._episode: UUID | None = None
+        self._partial: list[WorkspaceError] = []
 
     def notify_changed(self) -> None:
         self._changed.set()
@@ -95,14 +98,37 @@ class EventPoller:
             raise _NotAdmitted
 
     async def _call(
-        self, cursor: Cursor, tool: str, args: dict[str, object]
+        self,
+        cursor: Cursor,
+        tool: str,
+        args: dict[str, object],
+        *,
+        before_send: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, object]:
-        assert self._source is not None
+        assert self._source is not None and self._episode is not None
         await self._admit(cursor)
-        result = await self._source.call(
-            tool, args, before_send=lambda: self._admit(cursor)
-        )
-        await self._admit(cursor)
+        key = workspace_target_key(self._source.grant_id, args)
+        attended = await self._store.attended(cursor, self._episode, tool, key)
+        try:
+            result = await self._source.call(
+                tool,
+                args,
+                before_send=before_send or (lambda: self._admit(cursor)),
+                episode=self._episode,
+                attended=attended,
+            )
+        except WorkspaceError as error:
+            if (
+                error.kind == "consent_required"
+                and tool in {"get_thread", "get_message"}
+                and await self._store.previously_denied(self._episode, tool, key)
+            ):
+                denied = WorkspaceError("denied", known_no_effect=True)
+                denied.request = error.request
+                raise denied from None
+            raise
+        if before_send is None:
+            await self._admit(cursor)
         return result
 
     async def _commit(
@@ -116,7 +142,13 @@ class EventPoller:
     ) -> Cursor:
         await self._admit(cursor)
         if not await self._store.commit_progress(
-            cursor, progress, observations, complete=complete, failure=failure
+            cursor,
+            progress,
+            observations,
+            complete=complete,
+            failure=failure,
+            partial=self._partial,
+            episode=self._episode,
         ):
             raise _NotAdmitted
         return replace(cursor, progress=progress)
@@ -127,6 +159,22 @@ class EventPoller:
         assert self._source is not None
         pending = cast(dict[str, object], cursor.progress["ack"])
         message_id = identity(pending, "message_id")
+        args: dict[str, object] = {"messageId": message_id, "labelIds": [label]}
+
+        def unknown_ack(*, label_present: bool = False) -> Failure:
+            assert self._source is not None
+            issue = WorkspaceError(
+                "label_still_present" if label_present else "uncertain"
+            )
+            issue.request = WorkspaceRequest(
+                "gmail",
+                "unlabel_message",
+                self._source.grant_id,
+                workspace_target_key(self._source.grant_id, args),
+                self._episode,
+            )
+            return Failure("AckUncertain", blocked=True, issue=issue)
+
         if recovering:
             try:
                 fresh = await self._call(
@@ -139,10 +187,11 @@ class EventPoller:
                 )
             except WorkspaceError as exc:
                 if pending["phase"] == "entered" and exc.kind in _UNREADABLE_ITEM:
+                    self._partial.append(exc)
                     await self._commit(
                         cursor,
                         cursor.progress,
-                        failure=Failure("AckUncertain", blocked=True),
+                        failure=unknown_ack(),
                     )
                     return None
                 if pending["phase"] == "ready" and exc.kind in _UNREADABLE_ITEM:
@@ -161,7 +210,9 @@ class EventPoller:
                 await self._commit(
                     cursor,
                     cursor.progress,
-                    failure=Failure("AckUncertain", blocked=True),
+                    failure=unknown_ack(
+                        label_present=labels is not None and label in labels
+                    ),
                 )
                 return None
             if labels is None or not eligible_labels(labels):
@@ -178,9 +229,10 @@ class EventPoller:
             )
 
         try:
-            reply = await self._source.call(
+            reply = await self._call(
+                cursor,
                 "unlabel_message",
-                {"messageId": message_id, "labelIds": [label]},
+                args,
                 before_send=enter,
             )
         except _NotAdmitted:
@@ -189,12 +241,17 @@ class EventPoller:
             # A quota refusal before transmission leaves the ready marker.
             # After entry, even an ambiguous reply never dispatches again.
             progress = cursor.progress
-            if exc.kind == "consent_required":
+            if exc.known_no_effect:
                 progress = {
                     **progress,
                     "ack": {"message_id": message_id, "phase": "ready"},
                 }
-            await self._commit(cursor, progress, failure=_failure(exc))
+            failure = (
+                unknown_ack()
+                if exc.kind == "uncertain" and not exc.known_no_effect
+                else _failure(exc)
+            )
+            await self._commit(cursor, progress, failure=failure)
             return None
         if reply != {}:
             await self._commit(
@@ -233,6 +290,7 @@ class EventPoller:
                     )
                 except WorkspaceError as exc:
                     if exc.kind in _UNREADABLE_ITEM:
+                        self._partial.append(exc)
                         continue
                     raise
                 if identity(details) != thread:
@@ -257,6 +315,7 @@ class EventPoller:
                         )
                     except WorkspaceError as exc:
                         if exc.kind in _UNREADABLE_ITEM:
+                            self._partial.append(exc)
                             continue
                         raise
                     if identity(fresh) != message_id:
@@ -312,6 +371,8 @@ class EventPoller:
 
     async def poll(self, cursor: Cursor) -> None:
         """Drain the first processable page, then re-read the remaining membership."""
+        self._episode = cursor.error.episode_id if cursor.error is not None else uuid4()
+        self._partial.clear()
         try:
             source = self._source
             if (
@@ -357,7 +418,14 @@ class EventPoller:
             residual = cast(dict[str, object] | None, cursor.progress.get("residual"))
             if residual and residual["total"] == count:
                 if self._now() < datetime.fromisoformat(str(residual["recheck_at"])):
-                    await self._commit(cursor, cursor.progress, complete=True)
+                    if cursor.error is not None and cursor.error.code == "Partial":
+                        await self._commit(
+                            cursor,
+                            cursor.progress,
+                            failure=Failure("Partial", poll_again=True),
+                        )
+                    else:
+                        await self._commit(cursor, cursor.progress, complete=True)
                     return
             if residual:
                 cursor = await self._commit(
@@ -368,7 +436,7 @@ class EventPoller:
             return
         except WorkspaceError as exc:
             await self._store.commit_progress(
-                cursor, cursor.progress, failure=_failure(exc)
+                cursor, cursor.progress, failure=_failure(exc), episode=self._episode
             )
         except (ValueError, OverflowError, ValidationError):
             await self._store.commit_progress(
@@ -380,13 +448,15 @@ class EventPoller:
 
 def _failure(error: WorkspaceError) -> Failure:
     if error.kind == "rate_limited":
-        return Failure("RateLimited", retry_at=error.retry_at)
+        return Failure("RateLimited", retry_at=error.retry_at, issue=error)
     if error.kind in {"grant_unavailable", "scope_missing"}:
-        return Failure("AuthUnavailable", blocked=True)
+        return Failure("AuthUnavailable", blocked=True, issue=error)
     if error.kind in {"consent_required", "consent_expired"}:
-        return Failure("ConsentRequired", blocked=True)
+        return Failure("ConsentRequired", blocked=True, issue=error)
+    if error.kind == "approval_busy":
+        return Failure("ConsentRequired", retry_at=error.retry_at, issue=error)
     if error.kind in {"denied", "policy_block", "withheld", "screened"}:
-        return Failure("Forbidden", blocked=True)
+        return Failure("Forbidden", blocked=True, issue=error)
     if error.kind in {"invalid_response", "unsupported"}:
-        return Failure("InvalidResponse", blocked=True)
-    return Failure("TransportUnavailable")
+        return Failure("InvalidResponse", blocked=True, issue=error)
+    return Failure("TransportUnavailable", issue=error)

@@ -1,10 +1,9 @@
 # live qualification for the citation viewer
 
 [adr 0124](../decisions/0124-citations-and-viewer-delivery.md) requires a
-separately approved journey on the owner's account. settle the existing
-[data-use question](google-workspace-retention.md) for this use first. get
-approval for the named synthetic mail, calendar occurrence, change and
-cleanup, plus the signed phone candidate and its target. verify in that
+separately approved journey on the owner's account. get approval for the
+named synthetic mail, calendar occurrence, change and cleanup, plus the
+signed phone candidate and its target. verify in that
 account through the real subscribed main and both clients. open the exact
 passage and occurrence, update the event and reopen its earlier observation,
 test loss of access and retry, and recover the linked report evidence.

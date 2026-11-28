@@ -48,6 +48,7 @@ type FailureCode = Literal[
     "AckUncertain",
     "ConsentRequired",
     "LabelUnavailable",
+    "Partial",
 ]
 
 

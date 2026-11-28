@@ -30,7 +30,6 @@ from jarvis.actions import ActionStore
 from jarvis.admission import JarvisOwner
 from jarvis.agent_control import AgentController
 from jarvis.agent_tools import agent_family
-from jarvis.approval_tools import approval_family
 from jarvis.attachment_sources import AttachmentSources
 from jarvis.attachment_tools import submission_family
 from jarvis.attachments import AttachmentStore
@@ -47,6 +46,7 @@ from jarvis.receipt_tools import receipt_family
 from jarvis.settings import Settings
 from jarvis.work import WorkStore
 from jarvis.work_tools import work_family
+from jarvis.workspace_blocks import WorkspaceBlocks
 from jarvis.workspace_consent import record_workspace_consent
 from jarvis.workspace_mcp import WorkspaceApprovals, WorkspaceError, WorkspaceMcpClient
 from jarvis.workspace_quota import GmailQuota
@@ -92,23 +92,33 @@ def build_tool_composition(
     work: WorkStore,
     events: EventStore,
     event_admitted: Callable[[], Awaitable[bool]],
+    workspace_blocks: WorkspaceBlocks,
     editor_stamp: DraftEditorStamp | None = None,
 ) -> ToolComposition:
     enrollment = tokens.enrollment()
     approvals = WorkspaceApprovals(
-        audit=partial(record_workspace_consent, owner.database, owner.scope_id)
+        audit=partial(
+            record_workspace_consent,
+            owner.database,
+            owner.scope_id,
+            blocks=workspace_blocks,
+        )
     )
+    approvals.provider_success = workspace_blocks.provider_success
+    approvals.notify_released = workspace_blocks.wake_released
+    workspace_blocks.approval_busy = approvals.busy
+    workspace_blocks.is_live_round = approvals.owns
     quota = (
         GmailQuota(owner.database, enrollment.project_id)
         if enrollment is not None
         else None
     )
 
-    async def debit(grant_id: UUID, tool: str, background: bool) -> None:
+    async def debit(grant_id: UUID, tool: str) -> None:
         current = tokens.enrollment()
         if quota is None or current is None or current.grant_id != grant_id:
             raise WorkspaceError("grant_unavailable")
-        await quota.debit(tool, background=background)
+        await quota.debit(tool)
 
     attachments = AttachmentStore(
         owner.database,
@@ -132,6 +142,7 @@ def build_tool_composition(
         access=workspace_access,
         subject=None if enrollment is None else enrollment.subject,
         drive_materialize=attachments.materialize,
+        workspace_blocks=workspace_blocks,
     )
     mail_files = MailFiles(
         google_read,
@@ -201,7 +212,6 @@ def build_tool_composition(
                 read=bind_web_read(SafeWebReader()),
             ),
             memory_family(memory),
-            approval_family(),
             receipt_family(owner),
             _bind_write_policy(work_family(work)),
             _bind_write_policy(events_family(events)),

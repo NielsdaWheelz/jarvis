@@ -1,4 +1,5 @@
 import { button, el, link } from "./home-dom.js";
+import { approvalForm } from "./approval-form.js";
 
 const addressFields = ["to", "cc", "bcc"];
 const byteSize = (value) => new TextEncoder().encode(value).length;
@@ -53,7 +54,13 @@ function quoting(text) {
   details.append(el("summary", "quoted text"), el("div", text, "mail-text"));
   return details;
 }
-function review(value, historical = false) {
+function attachmentLink(label, source) {
+  const file = link(label, source);
+  file.target = "_blank";
+  file.rel = "noopener";
+  return file;
+}
+function review(value, historical = false, attachmentPath = null) {
   const box = el("div", undefined, "mail-review");
   box.append(
     el("h2", value.subject == null ? "(subject unavailable)" : value.subject || "(no subject)"),
@@ -79,7 +86,9 @@ function review(value, historical = false) {
   if (value.files?.length) {
     const files = el("ol");
     for (const file of value.files) {
-      const item = el("li", nameFile(file, value.files));
+      const label = nameFile(file, value.files);
+      const item = el("li");
+      item.append(attachmentPath ? attachmentLink(label, attachmentPath(file)) : label);
       if (historical) item.append(" · historical file bytes unavailable");
       files.append(item);
     }
@@ -118,6 +127,8 @@ const reasons = {
   quota_exceeded: "gmail’s quota was reached. try again later.",
   denied: "gmail denied this request.",
   missing_draft: "this draft is no longer available in gmail.",
+  approval_expired: "this approval expired. review the email again.",
+  send_review_unavailable: "the exact email could not be loaded for review.",
 };
 function explanation(data) {
   return (
@@ -127,23 +138,28 @@ function explanation(data) {
     "could not complete the request."
   );
 }
-async function mailRequest(url, options) {
-  const response = await fetch(url, { cache: "no-store", redirect: "manual", ...options });
-  if (response.type === "opaqueredirect") throw new Error("sign in to continue.");
-  const payload = await response.json().catch(() => ({}));
-  const data = typeof payload.detail === "object" ? payload.detail : payload;
-  if (!response.ok && !data.state) {
-    let reason = data.reason || (typeof data.detail === "string" ? data.detail : null);
-    if (response.status === 410) reason = "missing_draft";
-    if (response.status === 413) reason = "attachment size limit exceeded";
-    if (!reason && [401, 403].includes(response.status)) reason = "sign in to continue.";
-    return { state: "failed", reason: reason || "request failed (" + response.status + ")" };
+export function openEditor(panel, path, original, digest, request) {
+  async function mailRequest(url, options) {
+    const response = await request(url, { allowServerError: true, ...options });
+    const payload = await response.json().catch(() => ({}));
+    const data = typeof payload.detail === "object" ? payload.detail : payload;
+    if (!response.ok && !data.state) {
+      let reason = data.reason || (typeof data.detail === "string" ? data.detail : null);
+      if (response.status === 410) reason = "missing_draft";
+      if (response.status === 413) reason = "attachment size limit exceeded";
+      return { state: "failed", reason: reason || "request failed (" + response.status + ")" };
+    }
+    return data;
   }
-  return data;
-}
-
-export function openEditor(panel, path, original, digest) {
   const api = "/api" + path;
+  const sendApproval = api + "/send-approval";
+  const filePath = (file, version) =>
+    api + "/files/" + file.slot + "?version=" + encodeURIComponent(version);
+  const post = (body) => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   const form = el("fieldset", undefined, "mail-fields"),
     actions = el("div", undefined, "mail-actions");
   const status = el("p", "", "mail-status"),
@@ -161,6 +177,8 @@ export function openEditor(panel, path, original, digest) {
     saveDue = 0;
   let inFlight = null,
     sending = false,
+    reviewing = false,
+    approval = null,
     blocked = false,
     reading = false,
     picking = false,
@@ -172,17 +190,17 @@ export function openEditor(panel, path, original, digest) {
   function stopTimer() {
     clearTimeout(timeout);
   }
-  function valid(kind) {
+  function validSend() {
     try {
-      command(kind);
-      return !picking;
+      const desired = command();
+      return !picking && addressFields.some((key) => desired[key].length);
     } catch {
       return false;
     }
   }
-  function command(kind) {
+  function command() {
     const result = {
-      kind,
+      kind: "save",
       base: live.version,
       subject: cells.subject.value,
       body: cells.body.value,
@@ -198,8 +216,6 @@ export function openEditor(panel, path, original, digest) {
         throw new Error("finish the " + field + " addresses.");
       }
     }
-    if (kind === "send" && !addressFields.some((key) => result[key].length))
-      throw new Error("add a recipient to send.");
     let uploads = 0;
     result.files = files.map((f) =>
       f.local ? { upload: uploads++ } : { keep: f.slot, sha256: f.sha256 },
@@ -207,19 +223,23 @@ export function openEditor(panel, path, original, digest) {
     return result;
   }
   function controls() {
-    form.disabled = sending || blocked;
-    send.disabled = sending || reading || blocked || (live && !valid("send"));
-    edit.disabled = reading || sending || blocked;
+    const frozen = sending || reviewing || Boolean(approval);
+    form.hidden = !live || Boolean(approval);
+    form.disabled = frozen || blocked;
+    actions.hidden = Boolean(approval);
+    send.disabled = frozen || reading || blocked || (live && !validSend());
+    edit.disabled = reading || frozen || blocked;
   }
   function schedule() {
     stopTimer();
-    if (!live || !dirty() || closed || blocked || sending || inFlight || picking) return;
+    if (!live || !dirty() || closed || blocked || sending || inFlight || picking || reviewing || approval)
+      return;
     if (!navigator.onLine) {
       notice("changes only on this device");
       return;
     }
     try {
-      command("save");
+      command();
     } catch (e) {
       notice(e.message);
       return;
@@ -239,11 +259,9 @@ export function openEditor(panel, path, original, digest) {
       const row = el("li");
       const source = file.local
         ? URL.createObjectURL(file.local)
-        : api + "/files/" + file.slot + "?version=" + encodeURIComponent(live.version);
+        : filePath(file, live.version);
       if (file.local) objectUrls.push(source);
-      const a = link(nameFile(file, files), source);
-      a.target = "_blank";
-      a.rel = "noopener";
+      const a = attachmentLink(nameFile(file, files), source);
       if (file.local) a.download = file.name;
       // A GET is opened by the owner. Do not prefetch provider data while rendering rows.
       const remove = button("remove", () => {
@@ -348,14 +366,13 @@ export function openEditor(panel, path, original, digest) {
     const attach = el("label", "attach files");
     attach.append(picker);
     form.append(list, attach);
-    form.hidden = false;
     redrawFiles();
     edit.hidden = true;
     send.hidden = false;
     controls();
   }
   const edit = button("edit", () => activate("edit"));
-  const send = button("send", () => (live ? start("send") : activate("send")));
+  const send = button("review send", () => (live ? reviewSend() : activate("send")));
   actions.append(edit, send);
   async function activate(kind) {
     if (closed || reading || blocked || sending) return;
@@ -378,13 +395,77 @@ export function openEditor(panel, path, original, digest) {
       notice("");
       if (kind === "send" && !document.hidden) {
         reading = false;
-        await start("send");
+        await reviewSend();
       }
     } catch (e) {
       if (!closed) notice(e.message);
     } finally {
       reading = false;
       controls();
+    }
+  }
+  async function reviewSend() {
+    if (closed || blocked || reading || sending || picking || reviewing || approval || document.hidden)
+      return;
+    if (!navigator.onLine) {
+      notice("connect to review the gmail draft.");
+      return;
+    }
+    stopTimer();
+    reviewing = true;
+    controls();
+    try {
+      if (inFlight && !(await inFlight)) return;
+      if (generation !== confirmed && !(await start("save"))) return;
+      if (closed || blocked || document.hidden) return;
+      if (!validSend()) {
+        notice("add a recipient to send.");
+        return;
+      }
+      notice("loading the exact email for review…");
+      const result = await mailRequest(sendApproval, post({ version: live.version }));
+      if (closed) return;
+      if (document.hidden) {
+        notice("review the email again before sending.");
+        return;
+      }
+      if (result.state) {
+        await held(result);
+        return;
+      }
+      const { draft, approval: decision } = result;
+      if (draft?.state !== "ready" || draft.version !== live.version || !decision?.operation_id) {
+        notice(explanation({ reason: "send_review_unavailable" }));
+        return;
+      }
+      approval = decision;
+      const card = approvalForm({
+        label: "send approval",
+        prompt: decision.prompt,
+        note: "jarvis · expires " + new Date(decision.expires_at).toLocaleTimeString(),
+        details: review(draft, false, (file) => filePath(file, draft.version)),
+        choices: decision.choices,
+        async answer(choice) {
+          if (closed || approval !== decision) return true;
+          approval = null;
+          choices.replaceChildren();
+          controls();
+          if (choice === "approve") await start("send", decision);
+          else send.focus();
+          return true;
+        },
+      });
+      choices.replaceChildren(card);
+      notice("");
+      card.focus();
+    } catch (e) {
+      if (!closed) notice(e.message);
+    } finally {
+      reviewing = false;
+      if (!closed) {
+        controls();
+        schedule();
+      }
     }
   }
   function openComparison(remote, first, heldId = null) {
@@ -614,17 +695,24 @@ export function openEditor(panel, path, original, digest) {
     blocked = false;
     controls();
     // A definite rejection leaves edits intact. Explicit retry also covers going offline.
-    if (live && dirty()) checkAgain("save changes", () => start("save"));
+    if (live && generation !== confirmed) checkAgain("save changes", () => start("save"));
   }
-  async function perform(kind) {
-    const desired = command(kind);
+  async function perform(kind, decision) {
     const prior = [...files],
       writing = generation,
-      id = crypto.randomUUID();
-    const formData = new FormData();
-    formData.append("command", JSON.stringify(desired));
-    for (const entry of prior) if (entry.local) formData.append("file", entry.local, entry.name);
+      id = decision?.operation_id ?? crypto.randomUUID();
     const op = api + "/operations/" + id;
+    let endpoint, options;
+    if (decision) {
+      endpoint = sendApproval + "/" + encodeURIComponent(decision.id);
+      options = post({ choice: "approve" });
+    } else {
+      const formData = new FormData();
+      formData.append("command", JSON.stringify(command()));
+      for (const entry of prior) if (entry.local) formData.append("file", entry.local, entry.name);
+      endpoint = op;
+      options = { method: "PUT", body: formData };
+    }
     async function settle(data) {
       while (!closed && data.state === "entered" && data.operation_id === id) {
         await new Promise((resolve) => setTimeout(resolve, 650));
@@ -699,7 +787,7 @@ export function openEditor(panel, path, original, digest) {
       }
     }
     try {
-      const result = await mailRequest(op, { method: "PUT", body: formData });
+      const result = await mailRequest(endpoint, options);
       if (result.state === "failed" && /^request failed \(5/.test(result.reason || ""))
         return await recover();
       return await settle(result);
@@ -707,20 +795,21 @@ export function openEditor(panel, path, original, digest) {
       return await recover();
     }
   }
-  async function start(kind) {
+  async function start(kind, decision = null) {
     if (closed || blocked || reading || sending || picking || (kind === "save" && inFlight)) return;
     stopTimer();
     if (!navigator.onLine) {
-      notice("changes only on this device");
+      notice(kind === "send" ? "connect, then review the email again." : "changes only on this device");
       return;
     }
     try {
-      command(kind);
+      if (decision === null) command();
     } catch (e) {
       notice(e.message);
       return;
     }
     if (kind === "send") {
+      if (!decision) return;
       sending = true;
       controls();
     }
@@ -730,15 +819,16 @@ export function openEditor(panel, path, original, digest) {
       if (inFlight && !(await inFlight)) return;
       if (closed || blocked || !navigator.onLine) return;
       if (kind === "send" && document.hidden) {
-        notice("review the draft and press send.");
+        notice("review and approve the email again.");
         return;
       }
       notice(kind === "send" ? "sending…" : "saving…");
-      const work = perform(kind);
+      const work = perform(kind, decision);
       inFlight = work;
       const saved = await work;
       if (inFlight === work) inFlight = null;
       if (saved && generation !== confirmed && !sending) schedule();
+      return saved;
     } catch (e) {
       if (!closed) notice(e.message);
     } finally {

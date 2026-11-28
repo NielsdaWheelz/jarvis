@@ -18,6 +18,7 @@ from typing import Annotated, cast
 from uuid import UUID
 
 from llm_tools import canonical_json_bytes
+from llm_tools.content import html_visible_text
 from pydantic import Field
 
 from jarvis.actions import (
@@ -44,6 +45,13 @@ from jarvis.write_tools import (
 
 _RFC_ID = re.compile(r"<[^<>\s\x00-\x1f\x7f]+>")
 _REPLY_PREFIX = re.compile(r"^(?:re:[ \t]*)+", re.IGNORECASE)
+_PLAIN_ALTERNATIVE_MARKUP = re.compile(
+    r"(?i)(?:[ \t\r\n]*<!doctype[ \t]+html[ \t]*>)?"
+    r"(?:[^<>]++|</(?:html|body|div|span|p)[ \t\r\n]*>"
+    r"|<(?:html|body|div|span|p)"
+    r"""(?:[ \t\r\n]+dir=(?:"(?:ltr|rtl|auto)"|'(?:ltr|rtl|auto)'|ltr|rtl|auto))?"""
+    r"[ \t\r\n]*>|<br[ \t\r\n]*/?>)*"
+)
 _ROUTING_HEADERS = {
     "reply-to",
     "x-envelope-from",
@@ -330,33 +338,44 @@ def _envelope_snapshot(
     return GmailSnapshot.model_validate(fields)
 
 
+def _draft_container(message: MIMEPart) -> None:
+    for name in ("MIME-Version", "Content-Type"):
+        _header(message, name)
+    if (
+        message.defects
+        or any(
+            name in message
+            for name in (
+                "Content-Disposition",
+                "Content-Transfer-Encoding",
+                "Content-ID",
+                "Content-Location",
+            )
+        )
+        or (message.preamble or "").strip()
+        or (message.epilogue or "").strip()
+    ):
+        raise ValueError("unsupported Gmail MIME container")
+
+
 def _plain_parts(
     message: MIMEPart,
 ) -> tuple[str, tuple[MailFile, ...], tuple[bytes, ...]]:
-    leaves = tuple(message.iter_parts())
-    if leaves:
-        for name in (
-            "MIME-Version",
-            "Content-Type",
-            "Content-Disposition",
-            "Content-Transfer-Encoding",
-            "Content-ID",
-            "Content-Location",
-        ):
-            value = _header(message, name)
-            if name not in {"MIME-Version", "Content-Type"} and value is not None:
-                raise ValueError("unsupported Gmail MIME container")
-        if (
-            message.get_content_type() != "multipart/mixed"
-            or len(leaves) < 2
-            or len(leaves) - 1 > MAIL_MAX_FILES
-            or (message.preamble or "").strip()
-            or (message.epilogue or "").strip()
-        ):
+    body = message
+    attachments: list[MIMEPart] = []
+    if message.get_content_type() == "multipart/mixed":
+        _draft_container(message)
+        leaves = list(message.iter_parts())
+        if not 2 <= len(leaves) <= MAIL_MAX_FILES + 1:
             raise ValueError("unsupported Gmail MIME shape")
         body, *attachments = leaves
-    else:
-        body, attachments = message, []
+    html = None
+    if body.get_content_type() == "multipart/alternative":
+        _draft_container(body)
+        choices = tuple(body.iter_parts())
+        if len(choices) != 2 or choices[1].get_content_type() != "text/html":
+            raise ValueError("unsupported Gmail body alternative")
+        body, html = choices
     if body.get_content_type() != "text/plain" or body.get_filename() is not None:
         raise ValueError("unsupported Gmail body")
     body_data = _leaf_payload(body, attachment=False)
@@ -364,6 +383,25 @@ def _plain_parts(
     if charset not in {"utf-8", "utf8", "us-ascii", "ascii"}:
         raise ValueError("unsupported Gmail body charset")
     body_text = _body(body_data.decode(charset))
+    if body.get_param("format") == "flowed" and any(
+        line.startswith(" ") or (line.endswith(" ") and line != "-- ")
+        for line in body_text.splitlines()
+    ):
+        raise ValueError("unsupported flowed Gmail draft body")
+    if html is not None:
+        data = _leaf_payload(html, attachment=False)
+        charset = html.get_content_charset() or "ascii"
+        if (
+            html.get_filename() is not None
+            or charset not in {"utf-8", "utf8", "us-ascii", "ascii"}
+            or len(data) > 1024 * 1024
+        ):
+            raise ValueError("unsupported Gmail body alternative")
+        markup = data.decode(charset)
+        if _PLAIN_ALTERNATIVE_MARKUP.fullmatch(markup) is None or html_visible_text(
+            markup
+        )[0] != " ".join(body_text.split()):
+            raise ValueError("Gmail HTML alternative changes the draft")
     files: list[MailFile] = []
     parts: list[bytes] = []
     total = 0
@@ -419,7 +457,6 @@ def workspace_draft_content(
     message: MIMEPart,
     account: str,
     *,
-    replacing: bool = False,
     editor: bool = False,
 ) -> tuple[GmailSnapshot, tuple[bytes, ...]]:
     """Return only a plain envelope that the public create_draft can reproduce."""
@@ -433,14 +470,13 @@ def workspace_draft_content(
         "references",
         "message-id",
         "date",
+        "received",
         "mime-version",
         "content-type",
         "content-transfer-encoding",
     }
     if any(name.lower() not in normal_headers for name in message):
         raise ValueError("draft has headers outside the composition schema")
-    if replacing and any(mailbox.name for mailbox in _mailboxes(message, "From")):
-        raise ValueError("the public create tool cannot select a sender display name")
     for part in message.walk():
         if part is not message and any(
             name.lower()
@@ -462,8 +498,14 @@ def workspace_draft_content(
                 part
             ):
                 raise ValueError("attachment filenames conflict")
+        content_params = {"name"} if attachment else {"charset", "boundary"}
+        if part.get_content_type() == "text/plain" and part.get_param("format") in {
+            "fixed",
+            "flowed",
+        }:
+            content_params.add("format")
         for name, allowed in (
-            ("content-type", {"name"} if attachment else {"charset", "boundary"}),
+            ("content-type", content_params),
             ("content-disposition", {"filename"}),
         ):
             parameters = part.get_params(header=name) or []

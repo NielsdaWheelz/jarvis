@@ -26,7 +26,7 @@ from jarvis.db import (
 )
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT
-from jarvis.home_refs import HOME_REF_ADAPTER, TodoRef
+from jarvis.home_refs import HOME_REF_ADAPTER
 from jarvis.ownership import Database, lock_conversation, memory_is_admitted
 
 if TYPE_CHECKING:
@@ -35,19 +35,9 @@ if TYPE_CHECKING:
 
 MessageRole = Literal["owner", "assistant", "host"]
 
-CATCHUP_SOURCE = "recovery_catchup"
-_recovery_kind = message.c.trace["native_retry"]["kind"].as_string()
-native_recovery_input = (
-    (message.c.role == "host") & (message.c.source == CATCHUP_SOURCE)
-) | func.coalesce(_recovery_kind == "read_only", False)
-
 pending_input_order = (
     case((message.c.request_state == "pending", 0), else_=1),
-    case(
-        ((message.c.role == "owner") & ~native_recovery_input, 0),
-        (message.c.role == "owner", 1),
-        else_=2,
-    ),
+    case((message.c.role == "owner", 0), else_=1),
     message.c.created_at,
     message.c.id,
 )
@@ -67,28 +57,9 @@ def current_native_retry() -> ColumnElement[bool]:
     from jarvis.native_protocol import NATIVE_REQUEST_SCHEMA
 
     retry = message.c.trace["native_retry"]
-    origin = native_attempt.alias("recovery_origin")
-    original_delivery = native_input_delivery.alias("recovery_origin_delivery")
     return (
         retry["selection"].as_string().in_(("fresh", "pinned"))
-        & (_recovery_kind.is_(None) | (_recovery_kind == "read_only"))
         & retry["route"].as_string().in_(NATIVE_ROUTES)
-        & (
-            _recovery_kind.is_(None)
-            | select(origin.c.id)
-            .join(original_delivery, original_delivery.c.attempt_id == origin.c.id)
-            .where(
-                sql_cast(origin.c.id, Text) == retry["origin_attempt_id"].as_string(),
-                origin.c.conversation_id == message.c.source_conversation_id,
-                origin.c.fenced_at.is_not(None),
-                origin.c.request["schema_version"].as_string() == NATIVE_REQUEST_SCHEMA,
-                original_delivery.c.message_id == message.c.id,
-                original_delivery.c.was_waking,
-                original_delivery.c.state != "rejected",
-            )
-            .correlate(message)
-            .exists()
-        )
         & select(native_attempt.c.id)
         .where(
             sql_cast(native_attempt.c.id, Text) == retry["attempt_id"].as_string(),
@@ -131,10 +102,6 @@ class InvalidReference(ValueError):
     """The submitted reference is unavailable in this owner conversation."""
 
 
-class StaleWorkspaceOccurrence(ValueError):
-    """The notification no longer identifies an authorized matching check."""
-
-
 @dataclass(frozen=True, slots=True)
 class StoredMessage:
     id: UUID
@@ -162,12 +129,6 @@ def native_retry_evidence(trace: dict[str, object]) -> dict[str, object]:
     return cast(dict[str, object], retry) if isinstance(retry, dict) else {}
 
 
-def is_recovery_input(value: StoredMessage) -> bool:
-    return (
-        value.role == "host" and value.source == CATCHUP_SOURCE
-    ) or native_retry_evidence(value.trace).get("kind") == "read_only"
-
-
 @dataclass(frozen=True, slots=True)
 class InboundInsert:
     message: StoredMessage
@@ -189,15 +150,11 @@ class ParkedInput:
 _parked_input = message.c.role.in_(("owner", "host")) & (
     message.c.processing_parked_at.is_not(None)
 )
-_releasable_parked_input = (
-    _parked_input
-    & ~native_recovery_input
-    & (
-        (message.c.request_state == "pending")
-        | (
-            (message.c.request_state == "waiting")
-            & (message.c.wait_reason == "configuration")
-        )
+_releasable_parked_input = _parked_input & (
+    (message.c.request_state == "pending")
+    | (
+        (message.c.request_state == "waiting")
+        & (message.c.wait_reason == "configuration")
     )
 )
 
@@ -216,7 +173,6 @@ async def queue_native_retry(
     route: str,
     selection: Literal["fresh", "pinned"],
     reason: str,
-    read_only: bool,
     fault_retry_used: bool,
     retry_at: datetime,
 ) -> None:
@@ -227,11 +183,6 @@ async def queue_native_retry(
         "reason": reason,
         "fault_retry_used": fault_retry_used,
     }
-    if read_only:
-        retry["kind"] = "read_only"
-        retry["origin_attempt_id"] = (
-            native_retry_evidence(row["trace"]).get("origin_attempt_id") or attempt_id
-        )
     trace = {**row["trace"], "native_retry": retry}
     if reason == "context_window_exceeded":
         trace["native_context_retry"] = True
@@ -417,7 +368,7 @@ async def cancel_unentered_actions(
                 .where(
                     action.c.origin_message_id.in_(request_ids),
                     action.c.attempts == 0,
-                    action.c.status.in_(("queued", "awaiting_approval", "executing")),
+                    action.c.status.in_(("queued", "executing")),
                 )
                 .order_by(action.c.id)
                 .with_for_update()
@@ -442,7 +393,7 @@ async def rearm_action_waiters(connection: AsyncConnection, action_id: UUID) -> 
         update(message)
         .where(
             message.c.request_state == "waiting",
-            message.c.wait_reason.in_(("approval", "external_reconciliation")),
+            message.c.wait_reason == "external_reconciliation",
             message.c.processing_parked_at.is_(None),
             message.c.trace["waiting_action_ids"].contains([str(action_id)]),
         )
@@ -498,26 +449,9 @@ class MessageStore:
         scope: str,
         spool: Path,
         pages: Path = DEFAULT_EXPORT,
-        workspace_occurrence: UUID | None = None,
     ) -> InboundInsert:
         from jarvis.attachments import ingress_manifest, register_ingress
 
-        refresh: dict[str, str] | None = None
-        if workspace_occurrence is not None:
-            if (
-                submission_id != uuid5(workspace_occurrence, "refresh")
-                or uploads
-                or text != "check this workspace condition again."
-            ):
-                raise InvalidReference("invalid workspace refresh")
-            try:
-                todo = TodoRef.model_validate(ref)
-            except ValueError as exc:
-                raise InvalidReference("invalid workspace todo") from exc
-            refresh = {
-                "occurrence_id": str(workspace_occurrence),
-                "todo_id": str(todo.id),
-            }
         try:
             digest = hashlib.sha256(
                 canonical_json_bytes(
@@ -547,28 +481,18 @@ class MessageStore:
                 .one_or_none()
             )
             if existing is not None:
+                original_home: dict[str, object] = existing["home"] or {}
                 if (
                     existing["source_conversation_id"] != scope
-                    or existing["home"]["request_sha256"] != digest
-                    or existing["home"].get("workspace_refresh") != refresh
+                    or existing["role"] != "owner"
+                    or original_home.get("request_sha256") != digest
                 ):
                     raise SubmissionConflict("submission id is already committed")
                 return InboundInsert(_stored_message(existing), False)
             if digest is None:
                 raise InvalidReference("invalid reference")
             home: dict[str, object] = {"request_sha256": digest, "ref": None}
-            if refresh is not None and workspace_occurrence is not None:
-                if (
-                    self._workspace is None
-                    or self._workspace.owner.scope_id != scope
-                    or await self._workspace.committed_match(
-                        connection, workspace_occurrence, UUID(refresh["todo_id"])
-                    )
-                    is None
-                ):
-                    raise StaleWorkspaceOccurrence()
-                home.update(ref=ref, workspace_refresh=refresh)
-            elif ref is not None:
+            if ref is not None:
                 from jarvis.home_reads import reference_context
 
                 try:
@@ -710,10 +634,7 @@ class MessageStore:
                         trace=message.c.trace.op("-")("waiting_action_ids"),
                     )
                 )
-            text = (
-                "resumed. stopped approvals need fresh approval; "
-                "entered actions retain their recorded outcome."
-            )
+            text = "resumed. entered actions retain their recorded outcome."
         else:
             if targets:
                 await connection.execute(
@@ -721,20 +642,12 @@ class MessageStore:
                     .where(message.c.id.in_(targets))
                     .values(
                         request_state="stopped",
-                        native_retry_after=case(
-                            (native_recovery_input, message.c.native_retry_after)
-                        ),
+                        native_retry_after=None,
                         wait_reason=None,
                         processed_at=timestamp,
-                        trace=case(
-                            (
-                                native_recovery_input,
-                                message.c.trace.op("-")("waiting_action_ids"),
-                            ),
-                            else_=message.c.trace.op("-")("waiting_action_ids")
-                            .op("-")("native_context_retry")
-                            .op("-")("native_retry"),
-                        ),
+                        trace=message.c.trace.op("-")("waiting_action_ids")
+                        .op("-")("native_context_retry")
+                        .op("-")("native_retry"),
                     )
                 )
                 await cancel_unentered_actions(connection, targets, timestamp)
@@ -793,9 +706,7 @@ class MessageStore:
                 message.c.native_retry_after.is_(None)
                 | (message.c.native_retry_after <= func.now())
             ),
-            ~native_recovery_input
-            if steer
-            else message.c.native_retry_after.is_(None) | current_native_retry(),
+            message.c.native_retry_after.is_(None) | current_native_retry(),
             message.c.processing_parked_at.is_(None),
             message.c.id.not_in(exclude_ids),
             *(

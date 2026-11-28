@@ -22,7 +22,5 @@ in `final-simple`, `final-jarvis` and their checksum record.
 qualify the reserved automatic-compaction threshold near the maximum request
 envelope, and verify credential isolation in the installed native x86
 environment. prepaid depletion recovery uses synthetic refusal evidence.
-the real-data boundary remains the
-[workspace permission determination](google-workspace-retention.md). activation
-and the original held summary need their named stopped custody.
+activation and the original held summary need their named stopped custody.
 [design and acceptance](../decisions/0110-neon-quota-recovery.md)

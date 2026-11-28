@@ -4,8 +4,7 @@ status **open**. [github issue #127](https://github.com/NielsdaWheelz/jarvis/iss
 [adr 0119](../decisions/0119-owner-gmail-draft-editor.md)
 passed opus review and browser, android emulator, postgres and controlled
 gmail checks. the owner chose one production enrollment and an initial
-synthetic send to self using that grant. resolve the existing
-[google data-use decision](google-workspace-retention.md) before real use.
+synthetic send to self using that grant.
 
 ## before the switch
 

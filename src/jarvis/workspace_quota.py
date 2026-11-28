@@ -12,7 +12,7 @@ from jarvis.workspace_mcp import GMAIL_TOOL_WEIGHTS, WorkspaceError
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 STANDARD_DAILY_UNITS = 5_000
-BACKGROUND_DAILY_UNITS = STANDARD_DAILY_UNITS - 1_000
+UNKNOWN_PRIOR_USAGE = 4_000
 
 
 class GmailQuota:
@@ -20,9 +20,8 @@ class GmailQuota:
         self._database = database
         self._project_id = project_id
 
-    async def debit(self, tool: str, *, background: bool) -> None:
+    async def debit(self, tool: str) -> None:
         weight = GMAIL_TOOL_WEIGHTS[tool]
-        limit = BACKGROUND_DAILY_UNITS if background else STANDARD_DAILY_UNITS
         async with self._database.begin() as conn:
             await conn.execute(
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:project, 0))"),
@@ -49,11 +48,11 @@ class GmailQuota:
                 day = row.pacific_day
             if row is None:
                 # Fresh and restored databases do not know today's prior usage.
-                used = BACKGROUND_DAILY_UNITS
+                used = UNKNOWN_PRIOR_USAGE
             else:
                 used = row.units if row.pacific_day == day else 0
             total = used + weight
-            allowed = total <= limit
+            allowed = total <= STANDARD_DAILY_UNITS
             if allowed or row is None:
                 units = total if allowed else used
                 await conn.execute(

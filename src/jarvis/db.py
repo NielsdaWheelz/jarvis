@@ -44,7 +44,7 @@ NAMING_CONVENTION = {
     "uq": "uq_%(table_name)s_%(column_0_name)s",
 }
 
-APPLICATION_SCHEMA_REVISION = "0028"
+APPLICATION_SCHEMA_REVISION = "0029"
 
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 vector_1536 = cast(TypeEngine[object], VECTOR(EMBEDDING_DIMENSIONS))
@@ -356,6 +356,73 @@ Index(
 Index("ix_action_status_execute_after", action.c.status, action.c.execute_after)
 
 
+workspace_block = Table(
+    "workspace_block",
+    metadata,
+    Column("id", UUID(as_uuid=True), ForeignKey("message.id"), primary_key=True),
+    Column("origin_kind", Text, nullable=False),
+    Column("origin_id", UUID(as_uuid=True), nullable=False),
+    Column("product", Text, nullable=False),
+    Column("operation", Text, nullable=False),
+    Column("target_key", Text, nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("remedy", Text, nullable=False),
+    Column("state", Text, nullable=False),
+    Column("grant_id", UUID(as_uuid=True)),
+    Column("operation_ref", JSONB(none_as_null=True), nullable=False),
+    Column("verified_receipt", JSONB(none_as_null=True)),
+    Column("revision", BigInteger, nullable=False, server_default=text("1")),
+    Column("retry_at", DateTime(timezone=True)),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("notice_anchor", UUID(as_uuid=True), ForeignKey("message.id")),
+    CheckConstraint(
+        "origin_kind IN ('read','write','verification','source')", name="origin_kind"
+    ),
+    CheckConstraint("product IN ('gmail','calendar','drive','docs')", name="product"),
+    CheckConstraint("length(operation) > 0 AND length(target_key) > 0", name="target"),
+    CheckConstraint(
+        "reason IN ('consent_required','consent_expired','approval_busy','denied',"
+        "'rate_limited','temporary','grant_unavailable','scope_missing','policy_block',"
+        "'withheld','partial','screened','not_found','invalid_response','unsupported',"
+        "'uncertain','precondition_failed','source_changed','exhausted',"
+        "'target_observed','target_differs','label_still_present')",
+        name="reason",
+    ),
+    CheckConstraint(
+        "remedy IN ('wait','answer_google','reconnect','verify','none')", name="remedy"
+    ),
+    CheckConstraint(
+        "state IN ('waiting','needs_owner','checking','resolved',"
+        "'denied','superseded')",
+        name="state",
+    ),
+    CheckConstraint("jsonb_typeof(operation_ref) = 'object'", name="ref"),
+    CheckConstraint(
+        "verified_receipt IS NULL OR ((origin_kind = 'verification' "
+        "AND state = 'resolved' AND reason = 'target_observed' "
+        "AND jsonb_typeof(verified_receipt) = 'object' "
+        "AND verified_receipt->>'verification' = 'verified' "
+        "AND verified_receipt->>'action_id' = origin_id::text "
+        "AND (grant_id IS NULL OR verified_receipt->>'grant_id' = grant_id::text)) "
+        "IS TRUE)",
+        name="verified_receipt",
+    ),
+    CheckConstraint("revision > 0", name="revision"),
+)
+Index(
+    "uq_workspace_block_open_origin",
+    workspace_block.c.origin_kind,
+    workspace_block.c.origin_id,
+    workspace_block.c.product,
+    workspace_block.c.operation,
+    workspace_block.c.target_key,
+    unique=True,
+    postgresql_where=workspace_block.c.state.in_(
+        ("waiting", "needs_owner", "checking")
+    ),
+)
+
+
 model_decision = Table(
     "model_decision",
     metadata,
@@ -637,7 +704,7 @@ work = Table(
     Column("wake_id", UUID(as_uuid=True), ForeignKey("action.id", ondelete="RESTRICT")),
     Column("wake_at", DateTime(timezone=True)),
     Column("repeat", JSONB(none_as_null=True)),
-    Column("workspace_check", JSONB(none_as_null=True)),
+    Column("wake_until", Date),
     Column("wake_local_date", Date),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
@@ -650,10 +717,8 @@ work = Table(
     ),
     CheckConstraint("octet_length(content) <= 8192", name="content"),
     CheckConstraint(
-        "workspace_check IS NULL OR (wake_id IS NOT NULL AND wake_at IS NOT NULL "
-        "AND repeat IS NOT NULL AND content ~ '[^[:space:]]' "
-        "AND jarvis_workspace_check_valid(workspace_check)) IS TRUE",
-        name="workspace_check",
+        "wake_until IS NULL OR (wake_at IS NOT NULL AND repeat IS NOT NULL)",
+        name="wake_until",
     ),
     CheckConstraint(
         "((wake_id IS NULL AND wake_at IS NULL AND repeat IS NULL "
@@ -790,7 +855,7 @@ event_cursor = Table(
         "AND error->>'code' IN "
         "('TransportUnavailable','RateLimited','AuthUnavailable','Forbidden',"
         "'InvalidResponse','ResponseTooLarge','CursorExpired','AckUncertain',"
-        "'ConsentRequired','LabelUnavailable') "
+        "'ConsentRequired','LabelUnavailable','Partial') "
         "AND jsonb_typeof(error->'retry_count')='number' AND "
         "(error->>'retry_count')::numeric BETWEEN 1 AND 5 AND "
         "(error->>'retry_count')::numeric = "

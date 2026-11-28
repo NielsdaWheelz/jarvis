@@ -64,7 +64,6 @@ _GMAIL = {
     "create_draft": "gmail.drafts.create",
     "list_drafts": "gmail.drafts.readonly",
     "get_draft": "gmail.drafts.readonly",
-    "trash_message": "gmail.messages.delete",
     "list_labels": "gmail.labels.readonly",
     "unlabel_message": "gmail.messages.modify",
 }
@@ -108,7 +107,6 @@ GMAIL_TOOL_WEIGHTS = {
 }
 _WRITES = frozenset(
     {
-        "trash_message",
         "unlabel_message",
         "create_draft",
         "create_event",
@@ -144,7 +142,6 @@ _SCHEMA_PINS = {
     "list_events": "AZBu7A2TSHMtP4rQxRKkjUymTZCvGzK2rjN6wcSXMsY=",
     "list_labels": "bJ4hYifIl2LTcGqy2g8q4ELjOZQJujwaN4Zf1tRur2o=",
     "search_threads": "t6TBynZXZ+XurmG66FYJKkRidu/MivFpEzYilcyIct4=",
-    "trash_message": "uXR40vFo5a8EHRcXDFqIaxkyZGgxZV+RGRL0siPPGDI=",
     "unlabel_message": "Xv/XkaDptumHcsBY5R9TzvAfcv/79h2YgpsxWrNuecg=",
     "update_event": "zZWd9BmIzEbngYpa9JgIIcXd+mpaVKfgIULX0to5P5I=",
 }
@@ -170,6 +167,27 @@ _DRIVE_REVISION_FIELDS = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class WorkspaceRequest:
+    product: Product
+    operation: str
+    grant_id: UUID
+    target_key: str
+    arrival_episode: UUID | None
+
+
+def workspace_target_key(grant_id: UUID, arguments: Mapping[str, object]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            (str(grant_id), dict(arguments)),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+
+
 class WorkspaceError(Exception):
     """A classified observation with no provider prose, credentials or body."""
 
@@ -184,6 +202,7 @@ class WorkspaceError(Exception):
         self.kind = kind
         self.retry_at = retry_at
         self.known_no_effect = known_no_effect
+        self.request: WorkspaceRequest | None = None
 
 
 @dataclass(slots=True)
@@ -443,6 +462,7 @@ class _Round:
     expires_at: datetime
     deadline: float
     answer: asyncio.Future[str | None]
+    request: WorkspaceRequest | None
     visible: bool = False
     claimed: bool = False
     invalid: bool = False
@@ -471,6 +491,10 @@ class _Round:
             "operation": self.tool,
             "approval_id": str(self.id),
             "observed_at": datetime.now(UTC).isoformat(),
+            "target_key": None if self.request is None else self.request.target_key,
+            "arrival_episode": None
+            if self.request is None or self.request.arrival_episode is None
+            else str(self.request.arrival_episode),
         }
 
 
@@ -482,6 +506,16 @@ class WorkspaceApprovals:
         self._round: _Round | None = None
         self._expired: UUID | None = None
         self._closed = False
+        self.notify_released: Callable[[], None] = lambda: None
+        self.provider_success: (
+            Callable[[WorkspaceRequest, str], Awaitable[None]] | None
+        ) = None
+
+    def busy(self) -> bool:
+        return self._round is not None
+
+    def owns(self, round_id: str) -> bool:
+        return self._round is not None and str(self._round.id) == round_id
 
     def pending(self) -> list[Obj]:
         current = self._round
@@ -537,10 +571,13 @@ class WorkspaceApprovals:
             if not current.answer.done():
                 current.answer.cancel()
 
-    async def close(self) -> None:
-        self._closed = True
+    def interrupt(self) -> None:
         if self._round is not None:
             self.invalidate(self._round.grant_id)
+
+    async def close(self) -> None:
+        self._closed = True
+        self.interrupt()
 
     async def ask(
         self,
@@ -549,11 +586,12 @@ class WorkspaceApprovals:
         tool: str,
         grant_id: UUID,
         invocation: str,
+        request: WorkspaceRequest | None = None,
     ) -> str | None:
         if self._closed:
             raise WorkspaceError("cancelled")
         if self._round is not None:
-            raise WorkspaceError("temporary")
+            raise WorkspaceError("approval_busy")
         limits = _attempt_limits.get()
         number = 1 + max(m.consent_rounds for m in limits)
         remaining = HUMAN_WAIT_SECONDS - max(m.human_elapsed for m in limits)
@@ -574,6 +612,7 @@ class WorkspaceApprovals:
             datetime.now(UTC) + timedelta(seconds=remaining),
             started + remaining,
             loop.create_future(),
+            request,
         )
         self._round = current
         try:
@@ -599,6 +638,7 @@ class WorkspaceApprovals:
                     HUMAN_WAIT_SECONDS, meter.human_elapsed + elapsed
                 )
             self._round = None
+            self.notify_released()
 
 
 def _decode(data: bytes | bytearray | str) -> Obj:
@@ -997,7 +1037,9 @@ def _provider_error(
         return WorkspaceError("denied", known_no_effect=True)
     if error.get("code") in (-32601, -32602, -32020, -32021, -32022):
         return WorkspaceError("unsupported", known_no_effect=True)
-    return WorkspaceError("uncertain" if write else "temporary")
+    if error.get("status") in {"UNAVAILABLE", "INTERNAL", "DEADLINE_EXCEEDED"}:
+        return WorkspaceError("uncertain" if write else "temporary", retry_at=retry)
+    return WorkspaceError("uncertain" if write else "invalid_response")
 
 
 class WorkspaceMcpClient:
@@ -1008,7 +1050,7 @@ class WorkspaceMcpClient:
         http: httpx.AsyncClient,
         *,
         credential: Callable[[UUID, str | None], Awaitable[WorkspaceCredential]],
-        debit: Callable[[UUID, str, bool], Awaitable[None]],
+        debit: Callable[[UUID, str], Awaitable[None]],
         approvals: WorkspaceApprovals,
         transfer_scratch: DriveScratch | None = None,
     ):
@@ -1659,17 +1701,62 @@ class WorkspaceMcpClient:
         *,
         grant_id: UUID,
         invocation_id: str,
-        background: bool,
+        arrival_episode: UUID | None = None,
+        consent_allowed: bool = True,
         before_send: Fence | None = None,
         max_response_bytes: int = _METADATA_BYTES,
         upload: tuple[Path, int] | None = None,
         download: tuple[BinaryIO, int] | None = None,
     ) -> Obj:
+        request = WorkspaceRequest(
+            product,
+            tool,
+            grant_id,
+            workspace_target_key(grant_id, arguments),
+            arrival_episode,
+        )
+        try:
+            result = await self._call(
+                request,
+                arguments,
+                invocation_id=invocation_id,
+                consent_allowed=consent_allowed,
+                before_send=before_send,
+                max_response_bytes=max_response_bytes,
+                upload=upload,
+                download=download,
+            )
+            if (
+                tool not in _WRITES
+                and request.arrival_episode is None
+                and self.approvals.provider_success is not None
+            ):
+                await self.approvals.provider_success(request, invocation_id)
+            return result
+        except WorkspaceError as error:
+            if error.request is None:
+                error.request = request
+            raise
+
+    async def _call(
+        self,
+        request: WorkspaceRequest,
+        arguments: Mapping[str, object],
+        *,
+        invocation_id: str,
+        consent_allowed: bool,
+        before_send: Fence | None,
+        max_response_bytes: int,
+        upload: tuple[Path, int] | None,
+        download: tuple[BinaryIO, int] | None,
+    ) -> Obj:
+        product, tool, grant_id = request.product, request.operation, request.grant_id
+        is_arrival = request.arrival_episode is not None
         scopes = _TOOL_SCOPES.get(product, {})
         if tool not in scopes or not invocation_id:
             raise WorkspaceError("unsupported")
         if tool == "unlabel_message" and (
-            not background
+            not is_arrival
             or before_send is None
             or not isinstance(arguments.get("labelIds"), list)
             or len(_items(arguments["labelIds"])) != 1
@@ -1686,7 +1773,7 @@ class WorkspaceMcpClient:
             and tool == "download_file_content"
             and "exportMimeType" not in arguments
         )
-        if background and write and tool != "unlabel_message":
+        if is_arrival and (product != "gmail" or (write and tool != "unlabel_message")):
             raise WorkspaceError("denied")
         generation = self._generation(grant_id, product)
         if generation is not None:
@@ -1812,7 +1899,7 @@ class WorkspaceMcpClient:
 
                 async def enter() -> None:
                     if product == "gmail":
-                        await self._debit(grant_id, tool, background)
+                        await self._debit(grant_id, tool)
                     self._check(grant_id, generation)
                     if before_send is not None:
                         await before_send()
@@ -1881,23 +1968,24 @@ class WorkspaceMcpClient:
                     form = _Form.parse(result, credential.access_token)
                 except (ValueError, KeyError):
                     raise WorkspaceError("unsupported", known_no_effect=True) from None
-                if background:
-                    raise WorkspaceError("consent_required")
+                if not consent_allowed:
+                    raise WorkspaceError("consent_required", known_no_effect=True)
                 # input_required proves the earlier submission has had no effect.
                 try:
                     self._check(grant_id, generation)
                     with _before_submission():
                         choice = await self.approvals.ask(
-                            form, product, tool, grant_id, invocation_id
+                            form, product, tool, grant_id, invocation_id, request
                         )
                 except WorkspaceError as e:
                     e.known_no_effect = True
                     raise
-                answer: Obj = (
-                    {"action": "cancel"}
-                    if choice is None
-                    else {"action": "accept", "content": {"approval_choice": choice}}
-                )
+                if choice is None or choice == "DENY_ONCE":
+                    raise WorkspaceError("denied", known_no_effect=True)
+                answer: Obj = {
+                    "action": "accept",
+                    "content": {"approval_choice": choice},
+                }
                 after_form = True
                 params["requestState"] = form.state
                 params["inputResponses"] = {"approval_choice": answer}

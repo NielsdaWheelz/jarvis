@@ -472,7 +472,7 @@ if [[ "$source_schema" != "$target_schema" ]]; then
       refuse "held $change already binds another drive-cut.json"
   fi
   if [[ "$phase" == held ]]; then
-    migration snapshot
+    migration snapshot --codex-host-config-sha256 "$mapping_digest"
     if [[ "$rehearsal" != none ]]; then
       if [[ -f "$qualification" ]]; then
         cmp -s "$rehearsal" "$qualification" ||
@@ -598,7 +598,9 @@ fi
 [[ "$(check_release_schema "$release")" == "$target_schema" ]] ||
   refuse "held $change. target database schema changed"
 check_maintenance "$release" "$scratch/authority.json" "$scratch/target-check.json"
-if [[ "$source_schema" != "$target_schema" ]]; then migration verify-target "$qualification"; fi
+if [[ "$source_schema" != "$target_schema" ]]; then
+  migration verify-target "$qualification" --codex-host-config-sha256 "$mapping_digest"
+fi
 if [[ "$reader" != none ]]; then
   "$release/.venv/bin/python" "$release/deploy/qualified-reader" publish "$release" "$stored_reader" "$backup_facts" >/dev/null
 else

@@ -15,11 +15,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequen
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal, Protocol, Self, cast
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 import httpx
 import uvicorn
@@ -77,7 +75,6 @@ from jarvis.gmail_cut import (
     verified_cut_ids,
 )
 from jarvis.home_http import create_home_app
-from jarvis.home_notices import deliver_workspace_match
 from jarvis.home_pages import DEFAULT_EXPORT, NOTES_ROOT
 from jarvis.kernel import (
     RouteSelector,
@@ -134,11 +131,6 @@ from jarvis.proactivity import WorkWakeTimer
 from jarvis.process_security import deny_same_identity_process_inspection
 from jarvis.read_dispatch import ReadToolDispatcher
 from jarvis.read_positions import PostgresReadRecorder
-from jarvis.recovery_catchup import (
-    CatchupInventory,
-    queue_catchup,
-    resume_catchup_quota,
-)
 from jarvis.service import JarvisService
 from jarvis.settings import (
     CutoverSettings,
@@ -160,6 +152,7 @@ from jarvis.tool_composition import (
 )
 from jarvis.tool_results import memory_result_size, memory_view_size
 from jarvis.work import WorkStore
+from jarvis.workspace_blocks import WorkspaceBlocks
 from jarvis.workspace_enrollment import enroll_workspace
 from jarvis.workspace_host import WorkspaceHost, current_workspace_read
 from jarvis.workspace_mcp import WorkspaceError
@@ -470,6 +463,7 @@ async def _compose_main(
     work: WorkStore,
     events: EventStore,
     event_admitted: Callable[[], Awaitable[bool]],
+    workspace_blocks: WorkspaceBlocks,
     memory: MemoryService,
     tokens: GoogleTokenManager,
     google_api_http: httpx.AsyncClient,
@@ -505,6 +499,7 @@ async def _compose_main(
         work=work,
         events=events,
         event_admitted=event_admitted,
+        workspace_blocks=workspace_blocks,
         editor_stamp=editor_stamp,
     )
     definitions = build_definitions(
@@ -605,11 +600,7 @@ async def _serve(
                         google_oauth_http,
                         google_api_http,
                     )
-                    workspace = WorkspaceHost(
-                        owner,
-                        owner_zone=ZoneInfo(settings.owner_timezone),
-                        enrollment=tokens.enrollment,
-                    )
+                    workspace = WorkspaceHost(owner, enrollment=tokens.enrollment)
                     await recover_native_products(
                         owner, workspace=workspace, settle_losses=False
                     )
@@ -618,14 +609,19 @@ async def _serve(
                         database,
                         settings.owner_scope,
                         owner_timezone=settings.owner_timezone,
-                        workspace_grant_id=lambda: (
-                            enrollment.grant_id
-                            if (enrollment := tokens.enrollment())
-                            else None
-                        ),
                     )
                     await work.recompute_calendar_wakes()
-                    events = EventStore(database, settings.owner_scope)
+                    workspace_blocks = WorkspaceBlocks(database, settings.owner_scope)
+                    workspace_blocks.current_grant = lambda: (
+                        enrollment.grant_id
+                        if (enrollment := tokens.enrollment()) is not None
+                        else None
+                    )
+                    events = EventStore(
+                        database,
+                        settings.owner_scope,
+                        workspace_blocks=workspace_blocks,
+                    )
 
                     async def event_admitted() -> bool:
                         return await service.events_admitted()
@@ -645,6 +641,7 @@ async def _serve(
                         work=work,
                         events=events,
                         event_admitted=event_admitted,
+                        workspace_blocks=workspace_blocks,
                         memory=memory,
                         tokens=tokens,
                         google_api_http=google_api_http,
@@ -713,7 +710,15 @@ async def _serve(
                         plan=definitions.plans["main"],
                         source_conversation_id=settings.owner_scope,
                         delegation_changed=agents.delegations.notify_changed,
+                        workspace_blocks=workspace_blocks,
                         presence=presence,
+                    )
+
+                    workspace_blocks.verify_action = (
+                        lambda identifier,
+                        attended: action_recovery.verify_workspace_action(
+                            identifier, consent_allowed=attended
+                        )
                     )
 
                     async def recover_original(
@@ -737,16 +742,15 @@ async def _serve(
                         definitions=definitions,
                         actions=actions,
                         presence=presence,
-                        dispatcher_factory=lambda checkpoint, journal: (
+                        dispatcher_factory=lambda checkpoint, _journal: (
                             WriteToolDispatcher(
                                 checkpoint=checkpoint,
+                                owner_token=owner.token,
                                 dispatch_lane=dispatch_lane,
-                                journal=journal,
                                 actions=actions,
                                 workspace_writes=composition.workspace_writes,
                                 workspace_grant=tokens.enrollment,
-                                work=work,
-                                events=events,
+                                workspace_blocks=workspace_blocks,
                                 attachments=composition.attachments,
                                 mail_files=composition.mail_files,
                                 agents=agents,
@@ -762,6 +766,7 @@ async def _serve(
                                     memory=memory,
                                     cutoff=checkpoint.memory_cutoff,
                                     workspace=workspace,
+                                    workspace_blocks=workspace_blocks,
                                 ),
                                 source_conversation_id=settings.owner_scope,
                                 host_secrets=settings.host_secrets,
@@ -769,9 +774,6 @@ async def _serve(
                         ),
                         memory=memory,
                         workspace=workspace,
-                        notify_workspace_match=partial(
-                            deliver_workspace_match, delivery, phone
-                        ),
                     )
                     work_timer = WorkWakeTimer(
                         work=work, paused=paused, on_event=lambda: runner.notify_work()
@@ -780,6 +782,8 @@ async def _serve(
                     service = JarvisService(
                         settings=settings,
                         database=database,
+                        workspace_blocks=workspace_blocks,
+                        workspace_approvals=composition.workspace_approvals,
                         workspace=workspace,
                         paused=paused,
                         delivery=delivery,
@@ -826,6 +830,7 @@ async def _serve(
                         phone=phone,
                         presence=service.presence,
                         workspace_approvals=composition.workspace_approvals,
+                        workspace_blocks=workspace_blocks,
                         source_enrollment=tokens.enrollment,
                         mail_editor=editor,
                         drive_reader=drive_reader,
@@ -912,16 +917,6 @@ async def workspace_operator(settings: Settings, arguments: argparse.Namespace) 
             enrollment = tokens.enrollment()
             if enrollment is None:
                 raise WorkspaceError("grant_unavailable")
-            if arguments.command == "resume-recovery-quota-wait":
-                inventory = CatchupInventory.model_validate_json(
-                    arguments.inventory.read_bytes()
-                )
-                print(
-                    await resume_catchup_quota(
-                        database, settings.owner_scope, inventory, enrollment
-                    )
-                )
-                return
             if arguments.command == "workspace-disconnect":
                 await tokens.disconnect(enrollment.grant_id)
                 print("workspace access disabled. revoke this app in google too.")
@@ -1029,16 +1024,6 @@ async def release_parked(
             await MessageStore(database).clear_parked(
                 source_conversation_id=settings.owner_scope, message_ids=message_ids
             )
-    finally:
-        await engine.dispose()
-
-
-async def queue_recovery_catchup(settings: PausedSettings, path: Path) -> UUID:
-    inventory = CatchupInventory.model_validate_json(path.read_bytes())
-    engine = create_engine(settings.database_url.get_secret_value())
-    try:
-        async with deployment_ownership(engine) as database:
-            return await queue_catchup(database, settings.owner_scope, inventory)
     finally:
         await engine.dispose()
 
@@ -1210,6 +1195,7 @@ async def check_activation(
                         work=WorkStore(database, scope),
                         events=EventStore(database, scope),
                         event_admitted=event_admitted,
+                        workspace_blocks=WorkspaceBlocks(database, scope),
                         memory=memory,
                         tokens=google_tokens(settings, http),
                         google_api_http=http,
@@ -1900,16 +1886,6 @@ def _parser() -> argparse.ArgumentParser:
         help="release explicitly named parked input after operator correction",
     )
     release.add_argument("message_ids", metavar="MESSAGE_ID", type=UUID, nargs="+")
-    catchup = commands.add_parser(
-        "queue-recovery-catchup",
-        help="queue a reviewed read-only parked mail inventory",
-    )
-    catchup.add_argument("inventory", metavar="INVENTORY", type=Path)
-    quota_wait = commands.add_parser(
-        "resume-recovery-quota-wait",
-        help="resume a reviewed held mail catch-up at its recorded quota deadline",
-    )
-    quota_wait.add_argument("inventory", metavar="INVENTORY", type=Path)
     return parser
 
 
@@ -1946,12 +1922,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if arguments.command == "list-parked":
             print(asyncio.run(list_parked(PausedSettings.from_env())))
-            return 0
-        if arguments.command == "queue-recovery-catchup":
-            identifier = asyncio.run(
-                queue_recovery_catchup(PausedSettings.from_env(), arguments.inventory)
-            )
-            print(identifier)
             return 0
         if arguments.command == "release-parked":
             message_ids = tuple(arguments.message_ids)
@@ -2014,7 +1984,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             "owner-drive-enroll",
             "owner-drive-disconnect",
             "owner-gmail-invalidate-restore",
-            "resume-recovery-quota-wait",
             "workspace-enroll",
             "workspace-disconnect",
             "workspace-restore-gap",

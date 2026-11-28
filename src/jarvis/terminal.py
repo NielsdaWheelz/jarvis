@@ -85,6 +85,7 @@ class Answered(_Visible[Literal["answered"]]):
 
     text: Annotated[str, Field(min_length=1)]
     todo_result: TodoResult | None
+    send_request: CanonicalUuid | None
 
     _valid_text = field_validator("text")(_terminal_text)
 
@@ -96,6 +97,7 @@ class Partial(_Visible[Literal["partial"]]):
     limitation: Annotated[str, Field(min_length=1)]
     question: Annotated[str, Field(min_length=1)] | None
     todo_result: TodoResult | None
+    send_request: CanonicalUuid | None
 
     _valid_text = field_validator("text")(_terminal_text)
     _valid_limitation = field_validator("limitation")(_terminal_text)
@@ -158,8 +160,7 @@ class InputOutcome(_StrictModel):
     input_id: CanonicalUuid
     disposition: Literal["complete", "continue", "waiting", "stop"]
     wait_reason: (
-        Literal["approval", "external_reconciliation", "owner_input", "configuration"]
-        | None
+        Literal["external_reconciliation", "owner_input", "configuration"] | None
     )
     action_refs: list[CanonicalUuid]
 
@@ -180,9 +181,7 @@ class InputOutcome(_StrictModel):
                 "jarvis_waiting_missing_blocker",
                 "waiting disposition requires a blocker",
             )
-        elif bool(self.action_refs) != (
-            self.wait_reason in {"approval", "external_reconciliation"}
-        ):
+        elif bool(self.action_refs) != (self.wait_reason == "external_reconciliation"):
             raise PydanticCustomError(
                 "jarvis_blocker_action_refs_mismatch",
                 "action references disagree with the blocker",

@@ -3,6 +3,13 @@
 Accepted ADRs are permanent records of why Jarvis is shaped this way. They are
 not implementation suggestions.
 
+[adr 0133](0133-viewer-approved-send.md) adopts one viewer approval for each
+exact email send and records the remaining autonomous draft-delete proof.
+
+[adr 0132](0132-one-main.md) specifies the successor to wake-specific plans
+and jarvis approval gates. it owns the two agent connector prohibitions,
+workspace recovery, and the matched source/client/installation cut.
+
 [adr 0046](0046-reset-testing.md) supersedes earlier test-retention and
 verification-execution requirements during the owner-approved reset. runtime
 contracts remain binding; dated evidence remains historical. adr 0065 separately
@@ -157,6 +164,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0115](0115-web-home-address.md) | web home address | accepted. ordinary navigation stays at the bare domain and exact objects keep their links. |
 | [0116](0116-chat-composer-attachments.md) | attach files to the open chat draft | implemented. isolated web, service and handset acceptance passed. installation pending. |
 | [0117](0117-inline-todo-viewer.md) | inline todo viewer | source and isolated candidate qualified for web and android. every active title opens in place. |
+| [0118](0118-chat-reading-and-approvals.md) | reading and deciding in chat | 0124 delivered reading. [0132](0132-one-main.md) owns remaining decision and permission presentation. |
 | [0119](0119-owner-gmail-draft-editor.md) | owner gmail draft editor | one human-operated editor for verified jarvis drafts. installation and live qualification separate. |
 | [0120](0120-drive-files.md) | drive files and documents | implemented; live qualification and the stopped cut remain open. |
 | [0121](0121-exact-chat-draft-revisions.md) | exact draft revisions from chat | immutable revision reader and matched client cut. installed qualification pending. |
@@ -165,7 +173,7 @@ the current slice; nexus/native-profile adoption and installation remain separat
 | [0124](0124-citations-and-viewer-delivery.md) | citations and work in the viewer | retained mail/calendar evidence, expanded chat tables and portable reports. |
 | [0125](0125-new-shown-and-owed.md) | new, shown and owed in chat | accepted. device-local rehearsal precedes shared receipts. |
 | [0126](0126-presence.md) | show when jarvis is working | implemented. additive presence read, web and android mark. installed acceptance open. |
-| [0127](0127-drive-prototype-qualification.md) | qualify drive on the owner's account | accepted. keep changes in a fresh synthetic fixture and defer the data-use review. |
+| [0127](0127-drive-prototype-qualification.md) | qualify drive on the owner's account | accepted. keep changes in a fresh synthetic fixture. |
 | [0127](0127-the-daybook.md) | the conversation as a daybook | installed. web and android share the reading design and authoritative receipt. |
 | [0128](0128-docs-rest.md) | use the standard docs api | accepted. direct owner-account proof covers revisions, edits and suggestions. |
 | [0129](0129-drive-blob-rest.md) | transfer drive blobs through the standard drive api | direct owner-account proof passed at 100 mib. matched runtime qualification remains open. |

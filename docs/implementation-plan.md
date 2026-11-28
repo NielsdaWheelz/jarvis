@@ -10,6 +10,29 @@ worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
 runtime change, release, deployment or resumption.
 
+[one main and workspace recovery](decisions/0132-one-main.md) has a source
+candidate. units a–c own cognition, connector effects and workspace blockers.
+unit d composes them, migrates the predecessor and qualifies the matched
+clients. the november 27 controlled rehearsals covered one-main admission,
+blocked work and intake recovery, the `0029` migration, a readable encrypted
+backup and the signed android upgrade in an emulator. the owner waived
+physical handset checks. production still runs `0028`. the selected-release journeys
+for native routes and gmail intake remain pending. implementation evidence
+and cleanup receipts are under
+`~/.local/state/jarvis/qualification/adr0132-one-main-implementation/` on macbook.
+
+[adr 0133](decisions/0133-viewer-approved-send.md) adds owner approval for each
+exact send in the existing viewer. the owner deferred [agent draft deletion
+and replacement](issues/gmail-agent-draft-discard.md) to a future pr. the cut
+ships with the existing agent grant and removes both deferred operations from
+the live tool catalog and execution path.
+
+on november 27 independent opus 5.5 passed all four design units on spec blob
+`fb65225d0fa4021550896d361dca62d621dc6062` after closing nine initial findings,
+the 0118 presentation conflict and the batched-read resume ambiguity. the
+reopened review rounds, final spec and sha256 manifest are on macbook under
+`~/.local/state/jarvis/qualification/adr0132-one-main-design/fb65225/`.
+
 [the daybook](decisions/0127-the-daybook.md) owns the web and android chat
 typography, inline phone draft and message-bearing send receipts.
 [installed acceptance](decisions/0127-the-daybook.md#installed-acceptance) records the web and android
@@ -178,7 +201,7 @@ passed the final candidate. the stopped restore procedure and immutable
 historical routes passed separately. the [live issue](issues/owner-gmail-editor-live.md)
 tracks real gmail, the physical phone and installed acceptance.
 
-[workspace connector design](decisions/0107-google-workspace.md) splits the february 2027 google cut into a synthetic-data connector pr and a following [history-permission decision](issues/google-workspace-retention.md). keep ordinary history, fresh mail search/read, draft management, incoming mail and event creation, reading, editing and deletion. qualify [five-minute pending-label reception](issues/gmail-mcp-arrivals.md), the 1,000-unit foreground reserve and draft safety before full cutover. real-account rollout also waits for the history decision.
+[workspace connector design](decisions/0107-google-workspace.md) covers the february 2027 google connector cut and synthetic proof. keep ordinary history, fresh mail search/read, draft management, incoming mail and event creation, reading, editing and deletion. qualify [five-minute pending-label reception](issues/gmail-mcp-arrivals.md), the 1,000-unit foreground reserve and draft safety before full cutover.
 
 independent claude opus 5.5 passed the original design, its calendar and draft amendments, and the five-minute reception and quota amendment at sha256 `aa3862bc78b5b7174a309d8392f8430c1a8d3a110761a52522134c24e81d23f6`. the scoped reviews and verified rechecks are in `~/.local/state/jarvis/qualification/workspace-mcp-design/`. for temporary proof, cancel the consent round on native interruption or timeout, serialize workspace calls, and check that a match tap never acknowledges a nonexistent outbox row. measure raw attachment access and draft byte limits on the qualified server. prove the visible generic alert in actual android doze and an ordinary overnight sample. notification settings may suppress it, and repeated invisible high-priority pushes may affect delivery. accept best-effort delivery without adding a handset status service. inconclusive checks appear on the todo. the subscribed-model run is mandatory. missing google-hosted evidence holds installed acceptance.
 
@@ -430,6 +453,22 @@ revision and client contract. a reused name with different bytes holds the
 cut. use one matched viewer contract for chat, evidence, file submission and
 the artifact library. the v4/v7 or v30 identities from independent candidates
 cannot name the combined release.
+
+[chat reading and approvals](decisions/0118-chat-reading-and-approvals.md)
+delivered its reading slice through 0124 and the daybook. [0132 unit c](decisions/0132-one-main.md#c-workspace-blockers-and-attended-recovery)
+owns the remaining decision-card and google-permission surfaces in the one
+matched viewer cut. old proposal cards follow their historical receipts.
+include an uncertain action followed by a late verified acknowledgement.
+noncanonical internal links, including uppercase ids, display as text.
+the [draft revision reader](decisions/0121-exact-chat-draft-revisions.md) is
+source-qualified. the [matched installation](issues/chat-draft-revision-inspection.md)
+remains pending.
+
+on november 26, independent claude opus 5.5 at high effort passed the revised
+design at sha256 `d1eb74b7341d43d21cb6bc496bf92f0bd09a7f6ebcb2b67547aa2c5b7eb9cf22`.
+the first review held six points covering mail handoff and proof, html and
+link parity, receipt labels and android dismissal. the final review closed
+all six. both reviews are under `~/.local/state/jarvis/qualification/adr0118-chat-design/`.
 
 [adr 0091](decisions/0091-source-backed-reports.md#implementation-evidence)
 records the qualified source and isolated stock candidate. it removes the old

@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID, uuid4, uuid5
-from zoneinfo import ZoneInfo
 
 from llm_agent_kernel import (
     Checkpoint,
@@ -71,25 +70,17 @@ from provider_runtime.agent_runtime import (
 )
 from provider_runtime.agent_runtime.neon_control import NeonControlError
 from pydantic import ValidationError
-from sqlalchemy import ColumnElement, RowMapping, case, func, or_, select, true, update
+from sqlalchemy import ColumnElement, RowMapping, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy.sql.selectable import CTE
 
 from jarvis.actions import (
     ActionPersistenceDefect,
-    current_workspace_owner_delivery,
     recorded_action_result,
-    require_locked_action,
-    standing_workspace_input,
 )
 from jarvis.admission import JarvisOwner
 from jarvis.agent_tools import AGENT_DELEGATE_ID
-from jarvis.approval_tools import (
-    APPROVAL_RESPOND_SPEC,
-    ApprovalRespondInput,
-    ApprovalRespondResult,
-)
 from jarvis.citation_sources import bind_sources
 from jarvis.codex_config import NATIVE_ROUTES, PAID_ROUTES
 from jarvis.db import (
@@ -105,26 +96,23 @@ from jarvis.db import (
 )
 from jarvis.home_notices import enqueue_notice
 from jarvis.home_pages import DEFAULT_EXPORT, HomePages
-from jarvis.home_reads import draft_for_request, proposal_presented, reference_context
+from jarvis.home_reads import draft_for_request, reference_context
 from jarvis.home_refs import DraftPresentationRef, SourceRef, ViewRef
 from jarvis.mail_revisions import VerifiedWorkspaceDraft
 from jarvis.memory_service import MemoryService
 from jarvis.messages import (
-    CATCHUP_SOURCE,
     MAX_TRACE_BYTES,
     cancel_unentered_actions,
     causal_component_ids,
     current_native_retry,
     latest_control,
     native_fault_retry_used,
-    native_recovery_input,
     native_retry_evidence,
     native_retry_pin,
     queue_native_retry,
 )
 from jarvis.native_failure_notice import record_parking_notice
 from jarvis.native_protocol import (
-    FOREGROUND_RECOVERY_PROFILE,
     NATIVE_OUTPUT_NAME,
     NATIVE_REQUEST_SCHEMA,
     JarvisNativeMessage,
@@ -144,11 +132,9 @@ from jarvis.terminal import (
     RenderedTerminal,
     Silent,
 )
-from jarvis.tool_results import completed_tool_result, host_rejected
 from jarvis.work_tools import WORK_CREATE_SPEC
-from jarvis.workspace_checks import WorkspaceOccurrence, WorkspaceResult
 from jarvis.workspace_enrollment import WorkspaceEnrollment
-from jarvis.workspace_host import WorkspaceHost, check_observations, is_workspace_wake
+from jarvis.workspace_host import WorkspaceHost
 from jarvis.write_tools import WORKSPACE_MAIL_IMPLEMENTATION, WRITE_TOOL_IDS
 
 if TYPE_CHECKING:
@@ -258,7 +244,6 @@ class ProductSettlement:
     status: Literal["committed", "failed", "stale"] | None = None
     completed: tuple[UUID, ...] = ()
     eligibility_changed: bool = False
-    workspace_match: WorkspaceOccurrence | None = None
 
 
 class NeonOpeningUnavailable(NativeDefect):
@@ -271,10 +256,6 @@ class NativeContentDefect(NativeDefect):
 
 class StaleNativeProduct(NativeDefect):
     """The original delivery no longer has product settlement authority."""
-
-
-class StaleCatchupInventory(StaleNativeProduct):
-    """The exact authorized historical inventory no longer matches."""
 
 
 async def recover_sealed_turn(
@@ -349,12 +330,6 @@ def _turn_binding(turn: AgentTurnRef) -> dict[str, object]:
     }
 
 
-def _recovery_grant(grant: WorkspaceEnrollment | None) -> dict[str, str] | None:
-    return (
-        {"account": grant.account, "grant_id": str(grant.grant_id)} if grant else None
-    )
-
-
 def _provider_binding(definition: NativeDefinition) -> dict[str, str]:
     provider = definition.provider
     return {
@@ -392,7 +367,7 @@ class PostgresNativeJournal:
         memory: MemoryService,
         neon_control: NeonControl | None = None,
         antigravity: AntigravityLease | None = None,
-        workspace_grant: WorkspaceEnrollment | None = None,
+        workspace_grant: Callable[[], WorkspaceEnrollment | None] | None = None,
         on_armed: Callable[[UUID], None] | None = None,
     ) -> None:
         self.database = database
@@ -489,7 +464,6 @@ class PostgresNativeJournal:
         route = self.definition.provider.auth.profile_key
         if route not in NATIVE_ROUTES:
             raise NativeDefect("native request has an unknown route")
-        restricted = request.plan.profile.id == FOREGROUND_RECOVERY_PROFILE
         document: dict[str, Any] = {
             "schema_version": NATIVE_REQUEST_SCHEMA,
             "route": route,
@@ -580,7 +554,7 @@ class PostgresNativeJournal:
                 raise NativeDefect("native opening lost active owner control")
             admitted = (
                 await connection.execute(
-                    select(message.c.id, message.c.source, message.c.trace)
+                    select(message.c.id)
                     .where(
                         message.c.id.in_(tuple(map(UUID, request.input_ids))),
                         message.c.source_conversation_id == request.permit.scope_id,
@@ -588,8 +562,6 @@ class PostgresNativeJournal:
                         message.c.control_kind.is_(None),
                         message.c.request_state.in_(("pending", "waiting")),
                         message.c.processing_parked_at.is_(None),
-                        native_recovery_input == restricted,
-                        message.c.request_state == "pending" if restricted else true(),
                         message.c.native_retry_after.is_(None)
                         | (message.c.native_retry_after <= func.now()),
                         message.c.native_retry_after.is_(None)
@@ -630,42 +602,6 @@ class PostgresNativeJournal:
                 )
                 or 0
             )
-            if restricted:
-                catchup = [row.id for row in admitted if row.source == CATCHUP_SOURCE]
-                if catchup:
-                    if len(admitted) != 1:
-                        raise NativeDefect("mail catch-up must open alone")
-                    from jarvis.recovery_catchup import CatchupStale, validate_catchup
-
-                    try:
-                        await validate_catchup(
-                            connection,
-                            request.permit.scope_id,
-                            catchup[0],
-                            document["control_sequence"],
-                        )
-                    except CatchupStale as error:
-                        raise StaleCatchupInventory(
-                            "mail catch-up lost its source"
-                        ) from error
-                document["recovery_origins"] = {
-                    str(row.id): native_retry_evidence(row.trace).get(
-                        "origin_attempt_id"
-                    )
-                    for row in admitted
-                }
-                document["recovery_retries"] = {
-                    str(row.id): native_retry_evidence(row.trace).get("attempt_id")
-                    for row in admitted
-                }
-                document["recovery_grant"] = _recovery_grant(self.workspace_grant)
-                if any(
-                    origin is None and UUID(identifier) not in catchup
-                    for identifier, origin in document["recovery_origins"].items()
-                ):
-                    raise NativeDefect(
-                        "restricted opening lacks original retry evidence"
-                    )
             await connection.execute(
                 insert(native_attempt).values(
                     id=UUID(request.attempt_id),
@@ -841,7 +777,7 @@ class PostgresNativeJournal:
             UUID(cast(dict[str, Any], arguments)["request_ref"])
             if accepted
             and binding.spec.effect is ToolEffect.Write
-            and str(binding.spec.id) not in {"memory.save_note", "approval.respond"}
+            and str(binding.spec.id) != "memory.save_note"
             else None
         )
         document = {
@@ -1175,272 +1111,6 @@ class PostgresNativeJournal:
 
         await self.memory.publish()
 
-    async def respond_approval(
-        self,
-        invocation_id: str,
-        arguments: ApprovalRespondInput,
-        *,
-        workspace_grant: Callable[[], WorkspaceEnrollment | None] | None = None,
-    ) -> DispatchCompleted:
-        """The decision and its original reply have one commit boundary."""
-        await self.owner.require_current(
-            self.owner.permit(
-                "jarvis-approval:" + invocation_id,
-                invocation_id,
-            )
-        )
-        binding = self.plan.catalog_view.binding(APPROVAL_RESPOND_SPEC.id)
-        self.plan.grant(binding.spec.id)
-        if binding.spec != APPROVAL_RESPOND_SPEC:
-            raise NativeDefect(
-                "approval binding differs from its declared local contract"
-            )
-        identifier = UUID(invocation_id)
-        target_id = UUID(arguments.action_id)
-        async with self.database.begin() as connection:
-            await lock_conversation(connection, self.owner.scope_id)
-            invocation = (
-                (
-                    await connection.execute(
-                        select(native_invocation).where(
-                            native_invocation.c.id == identifier
-                        )
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            if (
-                invocation["frozen_contract"]
-                != {
-                    "plan_revision": self.plan.plan_revision,
-                    "tool_contract_revision": binding.spec.tool_contract_revision,
-                    "implementation_revision": binding.implementation_revision,
-                    "policy_revision": binding.policy_revision,
-                    "effect": ToolEffect.Write.value,
-                }
-                or invocation["tool_id"] != "approval.respond"
-                or invocation["validation"] != "accepted"
-                or invocation["proposal"]["arguments"]
-                != arguments.model_dump(mode="json")
-            ):
-                raise NativeDefect(
-                    "local decision differs from its admitted invocation"
-                )
-            input_ids = tuple(map(UUID, invocation["proposal"]["input_ids"]))
-            if invocation["reply_receipt"] is None:
-                live = await connection.scalar(
-                    select(message.c.id)
-                    .join(
-                        native_input_delivery,
-                        native_input_delivery.c.message_id == message.c.id,
-                    )
-                    .where(
-                        native_input_delivery.c.attempt_id == invocation["attempt_id"],
-                        proven_native_delivery,
-                        message.c.id.in_(input_ids),
-                        message.c.source_conversation_id == self.owner.scope_id,
-                        message.c.role.in_(("owner", "host")),
-                        message.c.control_kind.is_(None),
-                        message.c.request_state.in_(("pending", "waiting")),
-                        message.c.processing_parked_at.is_(None),
-                    )
-                    .limit(1)
-                )
-                if live is None:
-                    return host_rejected("approval_owner_required")
-            target = (
-                (
-                    await connection.execute(
-                        select(action).where(action.c.id == target_id)
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            request_ids = set(input_ids) | {UUID(arguments.owner_message_id)}
-            if target is not None:
-                request_ids.add(target["origin_message_id"])
-            inputs = (
-                (
-                    await connection.execute(
-                        select(message)
-                        .where(message.c.id.in_(request_ids))
-                        .order_by(message.c.id)
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            await _locked_attempt(connection, self.owner, str(invocation["attempt_id"]))
-            invocation = (
-                (
-                    await connection.execute(
-                        select(native_invocation)
-                        .where(native_invocation.c.id == identifier)
-                        .with_for_update()
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            if invocation["reply_receipt"] is not None:
-                reply = await self._reply(connection, invocation)
-                if reply is None or not isinstance(reply.result, DispatchCompleted):
-                    raise NativeDefect("local decision has an invalid original receipt")
-                return reply.result
-            owner_message = next(
-                (
-                    item
-                    for item in inputs
-                    if item["id"] == UUID(arguments.owner_message_id)
-                ),
-                None,
-            )
-            if (
-                owner_message is None
-                or owner_message["role"] != "owner"
-                or owner_message["source"] == "initialize_state"
-                or owner_message["source_conversation_id"] != self.owner.scope_id
-            ):
-                return host_rejected("approval_owner_required")
-            if target is None:
-                return host_rejected("approval_target_missing")
-            if (
-                any(
-                    item["id"] in input_ids and standing_workspace_input(item)
-                    for item in inputs
-                )
-                or target["tool_name"] in WRITE_TOOL_IDS
-            ):
-                if (
-                    not await current_workspace_owner_delivery(
-                        connection,
-                        invocation["attempt_id"],
-                        input_ids,
-                        owner_message["id"],
-                    )
-                    or owner_message["control_kind"] is not None
-                    or standing_workspace_input(owner_message)
-                    or owner_message["request_state"] not in {"pending", "waiting"}
-                    or owner_message["processing_parked_at"] is not None
-                ):
-                    return host_rejected("approval_owner_required")
-            if target["tool_name"] in WRITE_TOOL_IDS:
-                from jarvis.write_dispatch import require_current_action_binding
-
-                stored = await require_locked_action(connection, target_id)
-                try:
-                    require_current_action_binding(stored, self.plan)
-                except RuntimeError:
-                    return host_rejected("approval_ineligible")
-                frozen = stored.current_execution_contract.workspace
-                if arguments.decision == "approve":
-                    current = workspace_grant() if workspace_grant is not None else None
-                    if (
-                        current is None
-                        or frozen is None
-                        or (current.grant_id, current.account)
-                        != (frozen.grant_id, frozen.account)
-                    ):
-                        return host_rejected("workspace_grant_unavailable")
-            elif target["tool_name"] in {"gmail.send_draft", "gmail.update_draft"}:
-                return host_rejected("approval_ineligible")
-            origin = next(
-                (item for item in inputs if item["id"] == target["origin_message_id"]),
-                None,
-            )
-            if (
-                origin is None
-                or origin["source_conversation_id"] != self.owner.scope_id
-            ):
-                return host_rejected("approval_target_foreign")
-            target = (
-                (
-                    await connection.execute(
-                        select(action).where(action.c.id == target_id).with_for_update()
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            previous = (
-                await connection.execute(
-                    select(native_invocation.c.reply_receipt)
-                    .where(
-                        native_invocation.c.action_id == target_id,
-                        native_invocation.c.tool_id == "approval.respond",
-                        native_invocation.c.reply_receipt["type"].as_string()
-                        == "local_result",
-                        native_invocation.c.reply_receipt["success"]
-                        .as_boolean()
-                        .is_(True),
-                    )
-                    .order_by(
-                        native_invocation.c.reply_recorded_at, native_invocation.c.id
-                    )
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            receipt: dict[str, Any]
-            if previous is not None:
-                if previous["result"]["value"]["decision"] != arguments.decision:
-                    return host_rejected("approval_conflict")
-                receipt = previous
-            else:
-                if (
-                    origin["request_state"] not in {"pending", "waiting"}
-                    or origin["processing_parked_at"] is not None
-                    or target["status"] != "awaiting_approval"
-                ):
-                    return host_rejected("approval_ineligible")
-                timestamp = datetime.now(UTC)
-                changes: dict[str, object] = {
-                    "status": "queued",
-                    "decided_at": timestamp,
-                }
-                if arguments.decision == "deny":
-                    changes.update(
-                        status="cancelled",
-                        completed_at=timestamp,
-                        result={
-                            "type": "approval_denied_v1",
-                            "reason_code": "owner_denied",
-                        },
-                    )
-                await connection.execute(
-                    update(action).where(action.c.id == target_id).values(**changes)
-                )
-                result: ToolResult = {
-                    "type": "Success",
-                    "value": ApprovalRespondResult(
-                        **arguments.model_dump(), decided_at=timestamp
-                    ).model_dump(mode="json"),
-                }
-                completed = completed_tool_result(result)
-                if (
-                    len(completed.model_text.encode())
-                    > APPROVAL_RESPOND_SPEC.limits.max_output_bytes
-                ):
-                    raise NativeDefect("approval result exceeds its declared bound")
-                receipt = {
-                    "type": "local_result",
-                    "wire_text": completed.model_text,
-                    "success": True,
-                    "result": result,
-                }
-            await connection.execute(
-                update(native_invocation)
-                .where(native_invocation.c.id == identifier)
-                .values(
-                    action_id=target_id,
-                    reply_receipt=receipt,
-                    reply_recorded_at=datetime.now(UTC),
-                )
-            )
-            return DispatchCompleted(receipt["result"], receipt["wire_text"], None)
-
     async def record_delivery(self, delivery: NativeDelivery) -> None:
         evidence = None if delivery.evidence is None else _evidence(delivery.evidence)
         if (delivery.state == "prepared") != (evidence is None):
@@ -1452,11 +1122,8 @@ class PostgresNativeJournal:
                 delivery.attempt_id,
                 native_attempt.c.native_binding,
                 native_attempt.c.request["provider_attempt"].label("provider_attempt"),
-                native_attempt.c.request["recovery_origins"].label("recovery_origins"),
                 live=delivery.state == "prepared",
             )
-            if delivery.mode == "steer" and row["recovery_origins"] is not None:
-                raise NativeDefect("restricted opening cannot accept new inputs")
             if evidence is not None and (
                 evidence.get("turn") not in (None, row["native_binding"])
                 or (
@@ -1500,10 +1167,7 @@ class PostgresNativeJournal:
                             message.c.role.in_(("owner", "host")),
                             message.c.control_kind.is_(None),
                             message.c.processing_parked_at.is_(None),
-                            (
-                                message.c.native_retry_after.is_(None)
-                                & ~native_recovery_input
-                            )
+                            message.c.native_retry_after.is_(None)
                             if delivery.mode == "steer"
                             else (
                                 message.c.native_retry_after.is_(None)
@@ -1803,17 +1467,14 @@ class PostgresNativeJournal:
                 .one_or_none()
             )
             if existing is None:
+                grant = self.workspace_grant() if self.workspace_grant else None
                 home = await _delivery_home(
                     connection,
                     self.owner.scope_id,
                     row["id"],
                     value.response.present,
                     value.response.artifact_links,
-                    drive_subject=(
-                        None
-                        if self.workspace_grant is None
-                        else self.workspace_grant.subject
-                    ),
+                    drive_subject=grant.subject if grant else None,
                 )
                 await connection.execute(insert(message).values(**values, home=home))
             elif (
@@ -1916,7 +1577,6 @@ async def _delivery_home(
     *,
     drive_subject: str | None = None,
     source_bound: bool = False,
-    auto_present: bool = True,
 ) -> dict[str, object]:
     refs = artifact_links
     if present is not None and isinstance(present.ref, ViewRef):
@@ -1938,7 +1598,7 @@ async def _delivery_home(
     home: dict[str, object] = {
         "artifact_links": [ref.model_dump(mode="json") for ref in admitted]
     }
-    if present is None or not auto_present:
+    if present is None:
         return home
     ancestors = _request_ancestors(scope, attempt_id, stopping)
     request = await connection.scalar(
@@ -2078,6 +1738,8 @@ async def _draft_result_home(
     named: tuple[UUID, ...],
     stopping: tuple[UUID, ...],
     explicit: Presentation | None,
+    *,
+    send_request: str | None,
 ) -> dict[str, object] | None:
     if not named:
         return None
@@ -2112,6 +1774,7 @@ async def _draft_result_home(
         )
     ).all()
     drafts: list[dict[str, str]] = []
+    review_action = None
     web_request = False
     seen: set[UUID] = set()
     for row in rows:
@@ -2127,6 +1790,8 @@ async def _draft_result_home(
             continue
         if not isinstance(evidence, VerifiedWorkspaceDraft):
             continue
+        if send_request == str(row.id) and evidence.compose.editor is not None:
+            review_action = send_request
         drafts.append(
             {
                 "request_id": str(row.request_message_id),
@@ -2142,7 +1807,9 @@ async def _draft_result_home(
     if not drafts:
         return None
     result: dict[str, object] = {"drafts": drafts}
-    if explicit is None and len(drafts) == 1 and web_request:
+    if review_action is not None:
+        result["send_request"] = review_action
+    elif send_request is None and explicit is None and len(drafts) == 1 and web_request:
         draft = drafts[0]
         ref = DraftPresentationRef(
             request_id=draft["request_id"], create_action_id=draft["create_action_id"]
@@ -2152,119 +1819,6 @@ async def _draft_result_home(
             "ref": ref.model_dump(mode="json"),
         }
     return result
-
-
-async def yield_workspace_input(
-    owner: JarvisOwner, request: NativeRequest, owner_input: UUID
-) -> bool:
-    """Close the scoped input and leave the owner's new request pending."""
-    if len(request.input_ids) != 1:
-        raise NativeDefect("a scoped native session requires a single opening input")
-    origin_id = UUID(request.input_ids[0])
-    async with owner.database.begin() as connection:
-        attempt = await _locked_attempt(
-            connection, owner, request.attempt_id, live=False
-        )
-        if (
-            attempt["fenced_at"]
-            or attempt["settled"]
-            or attempt["terminal_at"]
-            or attempt["owner_epoch"] != str(owner.token)
-        ):
-            return False
-        pending = await connection.scalar(
-            select(message.c.id).where(
-                message.c.id == owner_input,
-                message.c.source_conversation_id == owner.scope_id,
-                message.c.role == "owner",
-                message.c.control_kind.is_(None),
-                message.c.request_state == "pending",
-                message.c.processing_parked_at.is_(None),
-            )
-        )
-        origin = (
-            (
-                await connection.execute(
-                    select(message)
-                    .where(
-                        message.c.id == origin_id,
-                        message.c.source_conversation_id == owner.scope_id,
-                        message.c.request_state.in_(("pending", "waiting")),
-                        message.c.processing_parked_at.is_(None),
-                    )
-                    .with_for_update()
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-        if pending is None or origin is None or owner_input == origin_id:
-            return False
-        home = cast(dict[str, Any], origin["home"] or {})
-        refresh = home.get("workspace_refresh")
-        if refresh is not None:
-            todo = refresh["todo_id"]
-        elif is_workspace_wake(origin["source"], origin["text"]):
-            todo = json.loads(origin["text"])["record"]["id"]
-        else:
-            raise NativeDefect("only a workspace input can yield its scoped session")
-        timestamp = datetime.now(UTC)
-        identifier = uuid5(UUID(request.attempt_id), "product-conclusion")
-        content = "check inconclusive. a new owner request interrupted the check."
-        link: dict[str, object] = {
-            "todo_result": {
-                "todo_id": todo,
-                "request_id": str(origin_id),
-                "label": content,
-                "draft_ref": None,
-            }
-        }
-        if refresh is None:
-            link["workspace_result"] = {
-                "occurrence_id": str(origin_id),
-                "outcome": "inconclusive",
-                "evidence": [],
-            }
-        await connection.execute(
-            insert(message).values(
-                id=identifier,
-                role="assistant",
-                source="native_final",
-                text=content,
-                home=link,
-                source_conversation_id=owner.scope_id,
-                memory_admitted=memory_is_admitted(connection),
-                processed_at=timestamp,
-                trace={
-                    "native_attempt_id": request.attempt_id,
-                    "workspace_interrupted_by": str(owner_input),
-                },
-            )
-        )
-        await connection.execute(
-            update(message)
-            .where(message.c.id == origin_id)
-            .values(
-                request_state="completed",
-                processed_at=timestamp,
-                wait_reason=None,
-                native_retry_after=None,
-                trace={
-                    **origin["trace"],
-                    "native_attempt_id": request.attempt_id,
-                    "settlement": {
-                        "run_id": request.attempt_id,
-                        "through_checkpoint": str(origin_id),
-                        "conclusion_message_id": str(identifier),
-                        "conclusion_kind": "conversation",
-                        "outcome": "partial",
-                    },
-                },
-            )
-        )
-        if refresh is not None:
-            await enqueue_notice(connection, identifier)
-    return True
 
 
 async def commit_product(
@@ -2309,140 +1863,7 @@ async def commit_product(
             raise NativeContentDefect(
                 "final dispositions name input without live delivered authority"
             )
-        recovery_origins = attempt["recovery_origins"]
-        restricted = recovery_origins is not None
-        grant = workspace.enrollment() if workspace is not None else None
-        catchup_result = None
         timestamp = datetime.now(UTC)
-        if restricted:
-            if (
-                recovery_origins
-                != {
-                    str(identifier): native_retry_evidence(row["trace"]).get(
-                        "origin_attempt_id"
-                    )
-                    for identifier, row in inputs.items()
-                }
-                or attempt["recovery_retries"]
-                != {
-                    str(identifier): native_retry_evidence(row["trace"]).get(
-                        "attempt_id"
-                    )
-                    for identifier, row in inputs.items()
-                }
-                or await connection.scalar(latest_control(owner.scope_id)) == "pause"
-            ):
-                raise StaleNativeProduct(
-                    "restricted result lost its original authority"
-                )
-            if attempt["recovery_grant"] != _recovery_grant(grant):
-                return await _hold_restricted_result(
-                    connection,
-                    owner,
-                    attempt,
-                    inputs,
-                    timestamp,
-                    "workspace_recovery_grant_changed",
-                )
-            if (
-                set(statuses) != set(inputs)
-                or final.workspace_result is not None
-                or any(status.disposition == "stop" for status in statuses.values())
-                or (
-                    rendered.content is None
-                    and any(row["role"] == "owner" for row in inputs.values())
-                )
-            ):
-                raise NativeContentDefect(
-                    "restricted result requires dispositions without stop authority"
-                )
-            if rendered.outcome == "answered" and any(
-                status.disposition != "complete" for status in statuses.values()
-            ):
-                rendered = replace(rendered, outcome="partial")
-            if len(inputs) == 1:
-                identifier, origin = next(iter(inputs.items()))
-                if origin["role"] == "host" and origin["source"] == CATCHUP_SOURCE:
-                    if (
-                        grant is None
-                        or statuses[identifier].disposition
-                        not in {"continue", "complete"}
-                        or not isinstance(final.response, Answered | Partial)
-                    ):
-                        raise NativeContentDefect(
-                            "mail catch-up requires a visible report and live grant"
-                        )
-                    from jarvis.recovery_catchup import CatchupStale, settle_catchup
-
-                    try:
-                        coverage = await settle_catchup(
-                            connection,
-                            owner.scope_id,
-                            identifier,
-                            attempt["id"],
-                            attempt["control_sequence"],
-                            account=grant.account,
-                            grant_id=grant.grant_id,
-                            conclusion_id=conclusion_id,
-                            timestamp=timestamp,
-                            allow_retry=not native_fault_retry_used(origin),
-                        )
-                    except CatchupStale:
-                        return await _hold_restricted_result(
-                            connection,
-                            owner,
-                            attempt,
-                            inputs,
-                            timestamp,
-                            "mail_catchup_inventory_changed",
-                        )
-                    if (
-                        statuses[identifier].disposition != "complete"
-                        and not coverage.quota_wait
-                    ):
-                        raise NativeContentDefect(
-                            "an unfinished mail catch-up requires a proven quota wait"
-                        )
-                    if coverage.retry_after is not None:
-                        await queue_native_retry(
-                            connection,
-                            origin,
-                            attempt_id=turn.attempt_id,
-                            route=attempt["route"],
-                            selection="pinned",
-                            reason="mail_catchup_retry",
-                            read_only=True,
-                            fault_retry_used=native_fault_retry_used(origin)
-                            or not coverage.quota_wait,
-                            retry_at=coverage.retry_after,
-                        )
-                        await connection.execute(
-                            update(native_attempt)
-                            .where(native_attempt.c.id == attempt["id"])
-                            .values(
-                                recovery_pending=False,
-                                fenced_at=attempt["fenced_at"] or timestamp,
-                                product_outcome={
-                                    "status": "committed",
-                                    "response_id": None,
-                                    "input_outcomes": [],
-                                },
-                            )
-                        )
-                        return ProductSettlement("committed")
-                    catchup_result = {
-                        "observed": coverage.observed,
-                        "unavailable": coverage.unavailable,
-                        "pending": coverage.pending,
-                    }
-                    rendered = RenderedTerminal(
-                        "partial" if coverage.pending else rendered.outcome,
-                        "conversation",
-                        f"mail catch-up covered {coverage.observed} messages. "
-                        f"{coverage.unavailable} unavailable, "
-                        f"{coverage.pending} outstanding."
-                        f"\n\n{rendered.content}",
-                    )
         stopping = tuple(
             key for key, item in statuses.items() if item.disposition == "stop"
         )
@@ -2477,87 +1898,9 @@ async def commit_product(
                 stopping,
                 drive_subject=drive_subject,
                 source_bound=source_bound,
-                auto_present=not restricted,
             )
             home["sources_v1"] = sources
-        if catchup_result is not None:
-            home["recovery_catchup"] = catchup_result
-        occurrence = None
-        if len(inputs) == 1:
-            origin = next(iter(inputs.values()))
-            if origin["role"] == "host" and origin["source"] == "work_wake":
-                occurrence = WorkspaceOccurrence.from_wake(
-                    origin["id"],
-                    origin["wake_text"],
-                    workspace.owner_zone if workspace else ZoneInfo("UTC"),
-                    attempt["armed_at"],
-                )
-        workspace_match = None
-        checked = None
-        if occurrence is not None:
-            current = workspace is not None and await workspace.occurrence_current(
-                connection, occurrence, attempt["control_sequence"]
-            )
-            reads = (
-                await check_observations(connection, attempt["id"], occurrence)
-                if current
-                else []
-            )
-            proposed = final.workspace_result
-            disposition = statuses.get(occurrence.occurrence_id)
-            outcome = occurrence.settle(proposed, reads)
-            if (
-                not current
-                or disposition is None
-                or disposition.disposition != "complete"
-                or rendered.outcome not in {"answered", "partial"}
-            ):
-                outcome = "inconclusive"
-            accepted = {str(read.invocation_id) for read in reads}
-            checked = WorkspaceResult(
-                occurrence_id=str(occurrence.occurrence_id),
-                outcome=outcome,
-                evidence=[ref for ref in proposed.evidence if ref in accepted]
-                if proposed
-                else [],
-            ).model_dump(mode="json")
-            if (
-                not current
-                or proposed is None
-                or proposed.outcome != outcome
-                or rendered.content is None
-                or proposed.occurrence_id != str(occurrence.occurrence_id)
-            ):
-                if occurrence.check.expired(timestamp, occurrence.owner_zone):
-                    reason = "the standing check expired."
-                elif not current:
-                    reason = "the original check is no longer authorized."
-                else:
-                    reason = (
-                        "the recorded reads did not establish the result. "
-                        "open this todo in chat to check again."
-                    )
-                local_time = timestamp.astimezone(occurrence.owner_zone)
-                rendered = RenderedTerminal(
-                    "partial",
-                    "conversation",
-                    f"check inconclusive at {local_time:%Y-%m-%d %H:%M %Z}. {reason}",
-                )
-            if not recovering and outcome == "match":
-                workspace_match = occurrence
-            home = {
-                **home,
-                "workspace_result": checked,
-                "todo_result": {
-                    "todo_id": str(occurrence.work_id),
-                    "request_id": str(occurrence.occurrence_id),
-                    "label": (rendered.content or "check inconclusive").splitlines()[0][
-                        :120
-                    ],
-                    "draft_ref": None,
-                },
-            }
-        elif isinstance(final.response, Answered | Partial):
+        if isinstance(final.response, Answered | Partial):
             link = await _todo_result_home(
                 connection,
                 owner.scope_id,
@@ -2569,7 +1912,12 @@ async def commit_product(
             )
             if link is not None:
                 home["todo_result"] = link
-        if rendered.content is not None and not restricted:
+        if rendered.content is not None:
+            send_request = (
+                final.response.send_request
+                if isinstance(final.response, Answered | Partial)
+                else None
+            )
             drafts = await _draft_result_home(
                 connection,
                 owner.scope_id,
@@ -2577,13 +1925,20 @@ async def commit_product(
                 tuple(statuses),
                 stopping,
                 None if isinstance(final.response, Silent) else final.response.present,
+                send_request=send_request,
             )
+            if send_request is not None and (
+                drafts is None or "send_request" not in drafts
+            ):
+                LOGGER.warning(
+                    "native send review omitted: attempt=%s action=%s",
+                    attempt["id"],
+                    send_request,
+                )
             if drafts is not None:
                 home.update(drafts)
         if stopping:
             await cancel_unentered_actions(connection, stopping, timestamp)
-        owned: set[UUID] = set()
-        approval_refs: set[UUID] = set()
         settled_outcomes: list[dict[str, object]] = []
         for identifier, disposition in statuses.items():
             target = inputs[identifier]
@@ -2604,8 +1959,7 @@ async def commit_product(
                 item
                 for item in actions
                 if item["origin_message_id"] == identifier
-                and item["status"]
-                in {"queued", "awaiting_approval", "executing", "uncertain"}
+                and item["status"] in {"queued", "executing", "uncertain"}
                 and not (
                     item["tool_name"] == "agent.delegate"
                     and item["status"] == "queued"
@@ -2613,11 +1967,6 @@ async def commit_product(
                     and "registration_receipt" in item["result"]
                 )
             ]
-            owned.update(
-                item["id"]
-                for item in own_blockers
-                if item["status"] == "awaiting_approval"
-            )
             if disposition.disposition == "complete" and own_blockers:
                 raise NativeContentDefect(
                     "request completion would hide unresolved actions"
@@ -2630,20 +1979,13 @@ async def commit_product(
             }[disposition.disposition]
             refs: set[UUID] = set(map(UUID, disposition.action_refs))
             wait_reason = disposition.wait_reason
-            if restricted and state == "pending":
-                state = "waiting"
-                wait_reason = "configuration"
-            if wait_reason in {"approval", "external_reconciliation"}:
+            if wait_reason == "external_reconciliation":
                 by_id = {item["id"]: item for item in actions}
                 if not refs or not refs.issubset(by_id):
                     raise NativeContentDefect(
                         "waiting disposition named a foreign action"
                     )
-                expected = (
-                    {"awaiting_approval"}
-                    if disposition.wait_reason == "approval"
-                    else {"queued", "executing", "uncertain"}
-                )
+                expected = {"queued", "executing", "uncertain"}
                 for ref in refs:
                     blocker = by_id[ref]
                     if blocker["status"] == "uncertain":
@@ -2661,31 +2003,21 @@ async def commit_product(
                                 ),
                             )
                         )
-                        if unresolved_notice is not None and not restricted:
+                        if unresolved_notice is not None:
                             state = "pending"
                     if blocker["status"] not in expected:
                         if blocker["status"] not in {
                             "succeeded",
                             "failed",
                             "cancelled",
-                        } and not (
-                            disposition.wait_reason == "approval"
-                            and blocker["decided_at"] is not None
-                        ):
+                        }:
                             raise NativeContentDefect(
                                 "waiting disposition fabricated its action blocker"
                             )
-                        state = "waiting" if restricted else "pending"
-                        if restricted:
-                            wait_reason = "configuration"
-                            refs = set()
-                            break
-            if state == "waiting" and wait_reason == "approval":
-                approval_refs.update(refs)
+                        state = "pending"
             trace = {**target["trace"], "native_attempt_id": turn.attempt_id}
-            if not restricted or state == "completed":
-                trace.pop("native_context_retry", None)
-                trace.pop("native_retry", None)
+            trace.pop("native_context_retry", None)
+            trace.pop("native_retry", None)
             trace.pop("waiting_action_ids", None)
             if state == "waiting" and refs:
                 trace["waiting_action_ids"] = sorted(map(str, refs))
@@ -2706,11 +2038,7 @@ async def commit_product(
                 .where(message.c.id == identifier)
                 .values(
                     request_state=state,
-                    native_retry_after=(
-                        target["native_retry_after"]
-                        if restricted and state == "waiting"
-                        else None
-                    ),
+                    native_retry_after=None,
                     wait_reason=wait_reason if state == "waiting" else None,
                     processed_at=timestamp
                     if state in {"completed", "stopped"}
@@ -2732,37 +2060,7 @@ async def commit_product(
                     "wait_reason": wait_reason if state == "waiting" else None,
                     "action_refs": sorted(map(str, refs)) if state == "waiting" else [],
                 }
-                if restricted
-                else disposition.model_dump(mode="json")
             )
-        # A write can commit before its callback reply, or before its origin
-        # receives any disposition. The original invocation still owns its action.
-        created = select(native_invocation.c.action_id).where(
-            native_invocation.c.attempt_id == attempt["id"],
-            native_invocation.c.request_message_id.is_not(None),
-            native_invocation.c.proposal["arguments"]["existing_action_ref"]
-            .as_string()
-            .is_(None),
-        )
-        unseen = tuple(
-            await connection.scalars(
-                select(action.c.id)
-                .where(
-                    action.c.status == "awaiting_approval",
-                    or_(
-                        action.c.id.in_(created), action.c.id.in_(owned | approval_refs)
-                    ),
-                    ~proposal_presented(owner.scope_id),
-                )
-                .order_by(action.c.created_at, action.c.id)
-            )
-        )
-        if unseen:
-            if not final.has_question or not approval_refs.issuperset(unseen):
-                raise NativeContentDefect(
-                    "unseen proposals require an approval wait and question"
-                )
-            home["proposal_ids"] = list(map(str, unseen))
         if rendered.content is not None:
             await connection.execute(
                 insert(message).values(
@@ -2777,15 +2075,15 @@ async def commit_product(
                     trace={"native_attempt_id": turn.attempt_id},
                 )
             )
-            if occurrence is None:
-                await enqueue_notice(
-                    connection,
-                    conclusion_id,
-                    kind="question"
-                    if rendered.outcome == "needs_input"
-                    or (final.has_question and (final.waits_for_owner or approval_refs))
-                    else "reply",
-                )
+            await enqueue_notice(
+                connection,
+                conclusion_id,
+                kind="question"
+                if rendered.outcome == "needs_input"
+                or (final.has_question and final.waits_for_owner)
+                or "send_request" in home
+                else "reply",
+            )
         await connection.execute(
             update(native_attempt)
             .where(native_attempt.c.id == attempt["id"])
@@ -2793,7 +2091,6 @@ async def commit_product(
                 recovery_pending=False,
                 product_outcome={
                     "status": "committed",
-                    **({"workspace_result": checked} if checked is not None else {}),
                     "response_id": str(conclusion_id)
                     if rendered.content is not None
                     else None,
@@ -2801,9 +2098,7 @@ async def commit_product(
                 },
             )
         )
-    return ProductSettlement(
-        "committed", tuple(completed), workspace_match=workspace_match
-    )
+    return ProductSettlement("committed", tuple(completed))
 
 
 async def _product_inputs(
@@ -2833,10 +2128,6 @@ async def _product_inputs(
                     message.c.source_conversation_id,
                     message.c.role,
                     message.c.source,
-                    message.c.home,
-                    case((message.c.source == "work_wake", message.c.text)).label(
-                        "wake_text"
-                    ),
                     message.c.request_state,
                     message.c.processing_parked_at,
                     message.c.native_retry_after,
@@ -2866,13 +2157,6 @@ async def _product_inputs(
                     native_attempt.c.owner_epoch,
                     native_attempt.c.product_outcome.is_not(None).label("settled"),
                     _ACTIVE_ROUTE.label("route"),
-                    native_attempt.c.request["recovery_origins"].label(
-                        "recovery_origins"
-                    ),
-                    native_attempt.c.request["recovery_retries"].label(
-                        "recovery_retries"
-                    ),
-                    native_attempt.c.request["recovery_grant"].label("recovery_grant"),
                     native_attempt.c.request["control_sequence"]
                     .as_integer()
                     .label("control_sequence"),
@@ -2960,7 +2244,7 @@ async def _fail_inputs(
     *,
     attempt_id: str | None,
     route: str | None = None,
-    continuation: Literal["capacity", "full", "read_only"] | None = None,
+    continuation: Literal["capacity", "full"] | None = None,
 ) -> None:
     """Reserve one new execution, or wait for capacity without taking it."""
     parked: dict[UUID, RowMapping] = {}
@@ -2979,37 +2263,16 @@ async def _fail_inputs(
             or route not in NATIVE_ROUTES
             or retry_at is None
             or (continuation != "capacity" and fault_used)
-            or (
-                continuation == "read_only"
-                and row["source"] not in {"email_event", CATCHUP_SOURCE}
-                and (
-                    row["role"] != "owner"
-                    or (
-                        row["home"] is not None
-                        and row["home"].get("workspace_refresh") is not None
-                    )
-                )
-            )
         ):
             parked[identifier] = row
             continue
-        read_only = (
-            continuation == "read_only"
-            or previous.get("kind") == "read_only"
-            or row["source"] == CATCHUP_SOURCE
-        )
         await queue_native_retry(
             connection,
             row,
             attempt_id=attempt_id,
             route=route,
-            selection=(
-                "pinned"
-                if continuation == "read_only" or previous.get("selection") == "pinned"
-                else "fresh"
-            ),
+            selection=("pinned" if previous.get("selection") == "pinned" else "fresh"),
             reason=reason,
-            read_only=read_only,
             fault_retry_used=fault_used or continuation != "capacity",
             retry_at=retry_at,
         )
@@ -3124,27 +2387,6 @@ async def settle_undispatched_antigravity(
         return True
 
 
-async def _hold_restricted_result(
-    connection: AsyncConnection,
-    owner: JarvisOwner,
-    attempt: RowMapping,
-    inputs: dict[UUID, RowMapping],
-    timestamp: datetime,
-    reason: str,
-) -> ProductSettlement:
-    await _fail_inputs(connection, owner, inputs, reason, attempt_id=str(attempt["id"]))
-    await connection.execute(
-        update(native_attempt)
-        .where(native_attempt.c.id == attempt["id"])
-        .values(
-            recovery_pending=False,
-            fenced_at=attempt["fenced_at"] or timestamp,
-            product_outcome={"status": "stale", "reason": reason},
-        )
-    )
-    return ProductSettlement("stale", eligibility_changed=True)
-
-
 async def defer_first_sample_refusal(
     owner: JarvisOwner, attempt_id: str, refusal: NeonFirstSampleRefusal
 ) -> ProductSettlement | None:
@@ -3220,10 +2462,6 @@ async def defer_first_sample_refusal(
                 if previous.get("selection") == "pinned"
                 else "fresh",
                 reason=reason,
-                read_only=(
-                    previous.get("kind") == "read_only"
-                    or item["source"] == CATCHUP_SOURCE
-                ),
                 fault_retry_used=native_fault_retry_used(item),
                 retry_at=observed,
             )
@@ -3373,13 +2611,11 @@ async def consume_fenced_losses(
                 )
                 affected = bool(inputs)
                 evidence: dict[str, object] = pending["submission_evidence"] or {}
-                continuation: Literal["capacity", "full", "read_only"] | None = None
+                continuation: Literal["capacity", "full"] | None = None
                 if pending["fence_reason"] == "NativeSubmissionConflict":
                     reason = "the model protocol needs repair"
                 elif pending["fence_reason"] == "native_protocol_fault":
                     reason = "the model protocol needs repair"
-                    if pending["route"] != "agy_neon":
-                        continuation = "read_only"
                 elif evidence.get("type") == "AgentSubmissionRejected":
                     submitted = (
                         await connection.execute(
@@ -3417,9 +2653,9 @@ async def consume_fenced_losses(
                         reason = "the model request was not submitted"
                         continuation = "full"
                 else:
+                    # Host receipts reconcile registered writes. They cannot prove
+                    # non-entry for the turn's unjournaled native effects.
                     reason = "native_effects_uncertain"
-                    if pending["route"] != "agy_neon":
-                        continuation = "read_only"
                 await _fail_inputs(
                     connection,
                     owner,
@@ -3491,7 +2727,6 @@ async def fail_native_product(
             attempt is None or attempt["terminal_at"] is None
         ):
             raise NativeDefect("provider failure settlement requires its original seal")
-        route = None if attempt is None else attempt["route"]
         already_charged = attempt is not None and not attempt["recovery_pending"]
         if not already_charged:
             await _fail_inputs(
@@ -3500,8 +2735,6 @@ async def fail_native_product(
                 inputs,
                 reason,
                 attempt_id=attempt_id,
-                route=route,
-                continuation="read_only" if attempt is not None else None,
             )
         status: Literal["failed", "stale"] | None = None
         if attempt is not None:

@@ -102,7 +102,7 @@ the retained provider suite passed 1,016 checks and skipped one. two failures re
 
 the hardened noble unit passed restricted and full turns, read-only attachment access, ordinary git status/add/commit on a checkout owned by another uid, and crash cleanup followed by a fresh callback. the shell’s namespace and git configuration protections held. the sdk and stock units stopped independently, and the shared gateway stopped when unused. the installer checks the host’s required apparmor settings. the guest enabled the unconfined-transition restriction explicitly and the installed host still needs its own preflight. both detached checkouts were removed after proof.
 
-the owner chose synthetic verification for now. the paired paid trial still needs authorized same-project credential custody in an isolated candidate. verify optional developer request logging separately from data sharing. google defaults the logs on for recently created projects, and paid abuse monitoring has its own retention. synthetic tasks qualify observed harness behavior. real workspace-derived context still needs a permission determination. [developer request logs](https://aistudio.google.com/docs/logs-policy) · [paid terms](https://aistudio.google.com/docs/terms#data-use-paid) · [workspace permission](google-workspace-retention.md)
+the owner chose synthetic verification for now. the paired paid trial still needs authorized same-project credential custody in an isolated candidate. verify optional developer request logging separately from data sharing. synthetic tasks qualify observed harness behavior. [developer request logs](https://aistudio.google.com/docs/logs-policy) · [paid terms](https://aistudio.google.com/docs/terms#data-use-paid)
 
 ## current release line
 
@@ -113,7 +113,7 @@ on november 26, 2026 utc, synthetic checks on jarvis `aab04a3`, provider `05b952
 | `jarvis-merge-0025-FgJc5D6o/result.txt` | `cf9f3228b4c52929802c9b0001590c34d8f2dcc86bb02d5797251ecec371f7a1` |
 | `release-frozen-aab04a3/qualification.txt` | `177b2faddac860b1451ca149bc4210488756ad5ccb1e6c1d33b4b918c37aea0a` |
 
-read-only production preflight found `kernel.apparmor_restrict_unprivileged_userns=1` and `kernel.apparmor_restrict_unprivileged_unconfined=0`. the installer requires both to be `1`. close this blocker with a passing installed containment check on the target host. the paid trial and permission for real workspace-derived data remain open.
+read-only production preflight found `kernel.apparmor_restrict_unprivileged_userns=1` and `kernel.apparmor_restrict_unprivileged_unconfined=0`. the installer requires both to be `1`. close this blocker with a passing installed containment check on the target host. the paid trial remains open.
 
 opus found that both the predecessor and first integrated candidate used request v5, which skipped the stopped inventory. request v6 restores the cut. the deployed v5 to candidate v6 comparison selected the stopped inventory path in rehearsal. the database check rejected executable v5 attempts and due retries while preserving their evidence. at schema `0025` all 19 synthetic cases and the retained capture/retry check passed again. opus also found that the host policy check ran after custody. `verify-agy` now checks apparmor before custody and names the failed setting. the positive fixture still reaches custody. the final frozen build passed, and its detached checkout and the fixture resources were removed.
 

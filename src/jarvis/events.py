@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID, uuid4
 
 from llm_agent_kernel import input_batch
@@ -51,6 +51,8 @@ from jarvis.event_tools import (
 from jarvis.input_framing import host_input
 from jarvis.messages import append_waking_input
 from jarvis.ownership import Database, lock_conversation
+from jarvis.workspace_blocks import WorkspaceBlocks
+from jarvis.workspace_mcp import WorkspaceError
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +79,7 @@ class Failure:
     retry_at: datetime | None = None
     blocked: bool = False
     poll_again: bool = False
+    issue: WorkspaceError | None = None
 
 
 def source_identity(identity: tuple[object, ...]) -> str:
@@ -107,9 +110,16 @@ def _ack_repair(
 
 
 class EventStore:
-    def __init__(self, database: Database, conversation_id: str) -> None:
+    def __init__(
+        self,
+        database: Database,
+        conversation_id: str,
+        *,
+        workspace_blocks: WorkspaceBlocks | None = None,
+    ) -> None:
         self._database = database
         self._conversation_id = conversation_id
+        self._blocks = workspace_blocks
         self.account: str | None = None
         self.notify_changed: Callable[[], None] = lambda: None
         self.notify_input: Callable[[], None] = lambda: None
@@ -226,7 +236,23 @@ class EventStore:
             if await self._paused(connection):
                 return None
             cursor = await self._load_cursor(connection)
-            return cursor if cursor is not None and cursor.enabled else None
+            if cursor is None or not cursor.enabled:
+                return None
+            if (
+                self._blocks is not None
+                and cursor.error is not None
+                and cursor.next_poll_at is not None
+                and await self._blocks.source_unblocked(
+                    connection, cursor.error.episode_id
+                )
+            ):
+                return replace(
+                    cursor,
+                    next_poll_at=None
+                    if self._blocks.approval_busy()
+                    else datetime.now(UTC),
+                )
+            return cursor
 
     async def admission(self, cursor: Cursor) -> bool:
         if not self.publication_allowed() or cursor.account_id != self.account:
@@ -444,6 +470,26 @@ class EventStore:
             now,
         )
 
+    async def attended(
+        self, cursor: Cursor, episode: UUID, tool: str, key: str
+    ) -> bool:
+        if (
+            self._blocks is None
+            or cursor.error is None
+            or cursor.error.episode_id != episode
+        ):
+            return False
+        async with self._database.connect() as conn:
+            return await self._blocks.source_attended(
+                conn, episode, tool, key, cursor.account_id, cursor.progress
+            )
+
+    async def previously_denied(self, episode: UUID, tool: str, key: str) -> bool:
+        if self._blocks is None:
+            return False
+        async with self._database.connect() as conn:
+            return await self._blocks.source_denied(conn, episode, tool, key)
+
     async def commit_progress(
         self,
         cursor: Cursor,
@@ -452,6 +498,8 @@ class EventStore:
         *,
         complete: bool = False,
         failure: Failure | None = None,
+        partial: Sequence[WorkspaceError] = (),
+        episode: UUID | None = None,
     ) -> bool:
         progress = _progress(progress)
         published = False
@@ -483,7 +531,7 @@ class EventStore:
                 if complete
                 else now,
             }
-            if complete:
+            if complete and not partial:
                 values["last_success_at"] = now
                 values["error"] = None
                 if current.error is not None:
@@ -498,11 +546,19 @@ class EventStore:
                         )
                         or published
                     )
+            if partial and failure is None:
+                failure = Failure("Partial", poll_again=True)
             if failure is not None:
                 previous = current.error
-                count = 1 if previous is None else min(5, previous.retry_count + 1)
+                count = (
+                    1
+                    if previous is None or previous.code != failure.code
+                    else min(5, previous.retry_count + 1)
+                )
                 error = SourceError(
-                    episode_id=uuid4() if previous is None else previous.episode_id,
+                    episode_id=(episode or uuid4())
+                    if previous is None
+                    else previous.episode_id,
                     code=failure.code,
                     since=now if previous is None else previous.since,
                     retry_count=count,
@@ -511,6 +567,11 @@ class EventStore:
                 values["next_poll_at"] = (
                     None
                     if failure.blocked
+                    or (
+                        count >= 5
+                        and failure.issue is not None
+                        and failure.issue.kind == "temporary"
+                    )
                     else now + timedelta(seconds=POLL_SECONDS)
                     if failure.poll_again
                     else max(
@@ -530,6 +591,43 @@ class EventStore:
                         )
                         or published
                     )
+            if self._blocks is not None:
+                active_episode = (
+                    current.error.episode_id if current.error is not None else episode
+                )
+                completed_issues: set[UUID] = set()
+                failures = list(partial)
+                if failure is not None and failure.issue is not None:
+                    failures.append(failure.issue)
+                for issue in failures:
+                    if issue.request is None or active_episode is None:
+                        continue
+                    completed_issues.add(
+                        await self._blocks.record(
+                            connection,
+                            origin="source",
+                            origin_id=active_episode,
+                            ref={
+                                "account": current.account_id,
+                                "label_id": current.progress["label_id"],
+                            },
+                            product="gmail",
+                            operation=issue.request.operation,
+                            key=issue.request.target_key,
+                            grant_id=issue.request.grant_id,
+                            reason="exhausted"
+                            if issue.kind == "temporary"
+                            and values["next_poll_at"] is None
+                            else issue.kind,
+                            retry_at=cast(datetime | None, values["next_poll_at"])
+                            if failure is not None
+                            else None,
+                        )
+                    )
+                if complete and active_episode is not None:
+                    await self._blocks.source_complete(
+                        connection, active_episode, completed_issues
+                    )
             await connection.execute(
                 update(event_cursor)
                 .where(event_cursor.c.account_id == current.account_id)
@@ -538,6 +636,8 @@ class EventStore:
         if published:
             self.notify_input()
         self.notify_changed()
+        if self._blocks is not None:
+            self._blocks.notify_delivery()
         return True
 
     async def recover_mutation(self, action_id: UUID) -> ToolResult | None:

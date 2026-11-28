@@ -23,7 +23,6 @@ from jarvis.db import (
     read_position,
 )
 from jarvis.messages import (
-    CATCHUP_SOURCE,
     causal_component_ids,
     current_native_retry,
     latest_control,
@@ -35,7 +34,11 @@ from jarvis.native_protocol import (
     JarvisNativeMessage,
 )
 from jarvis.ownership import Database, lock_conversation
-from jarvis.write_tools import GMAIL_CREATE_DRAFT_SPEC, WORKSPACE_MAIL_IMPLEMENTATION
+from jarvis.write_tools import (
+    GMAIL_CREATE_DRAFT_SPEC,
+    RETIRED_DRAFT_WRITE_IDS,
+    WORKSPACE_MAIL_IMPLEMENTATION,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,29 +141,11 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
         )
         if revision != APPLICATION_SCHEMA_REVISION:
             raise NativeActivationDefect("target requires its own application schema")
-        held_catchups = tuple(
-            await connection.scalars(
-                select(message.c.id).where(
-                    message.c.source_conversation_id == conversation_id,
-                    message.c.role == "host",
-                    message.c.source == CATCHUP_SOURCE,
-                    message.c.request_state == "waiting",
-                    message.c.wait_reason == "configuration",
-                    message.c.processing_parked_at.is_not(None),
-                )
-            )
-        )
-        held_attempts = (
-            tuple(
-                park.attempt_id
-                for park in await parked_inputs(
-                    connection, conversation_id, held_catchups
-                )
-                if park.attempt_id is not None
-                and park.reason == "native protocol requires repair"
-            )
-            if held_catchups
-            else ()
+        held_attempts = tuple(
+            park.attempt_id
+            for park in await parked_inputs(connection, conversation_id)
+            if park.attempt_id is not None
+            and park.reason == "native protocol requires repair"
         )
         old_attempt = await connection.scalar(
             select(native_attempt.c.id)
@@ -226,6 +211,7 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
                         .is_distinct_from(AGENT_IMPLEMENTATION_REVISION),
                     ),
                     action.c.tool_name.like("codex.%"),
+                    action.c.tool_name.in_(RETIRED_DRAFT_WRITE_IDS),
                     and_(
                         action.c.tool_name == GMAIL_CREATE_DRAFT_SPEC.id,
                         action.c.execution_contract["implementation_revision"]
@@ -253,12 +239,17 @@ async def require_native_data(database: Database, *, conversation_id: str) -> No
                     native_attempt.c.recovery_pending,
                     native_attempt.c.fenced_at.is_(None),
                 ),
-                native_invocation.c.tool_id == GMAIL_CREATE_DRAFT_SPEC.id,
                 native_invocation.c.validation == "accepted",
                 native_invocation.c.reply_receipt.is_(None),
-                native_invocation.c.frozen_contract["implementation_revision"]
-                .as_string()
-                .is_distinct_from(WORKSPACE_MAIL_IMPLEMENTATION),
+                or_(
+                    native_invocation.c.tool_id.in_(RETIRED_DRAFT_WRITE_IDS),
+                    and_(
+                        native_invocation.c.tool_id == GMAIL_CREATE_DRAFT_SPEC.id,
+                        native_invocation.c.frozen_contract["implementation_revision"]
+                        .as_string()
+                        .is_distinct_from(WORKSPACE_MAIL_IMPLEMENTATION),
+                    ),
+                ),
             )
             .limit(1)
         )

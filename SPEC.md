@@ -6,6 +6,26 @@ date: **2026-11-18**
 
 audience: product, engineering, design, operations, and future coding agents
 
+## one main turn and workspace recovery
+
+[adr 0132](docs/decisions/0132-one-main.md) is the successor design for all
+owner-facing wakes. main has one tool and execution contract whether the input
+comes from the owner, an event, a timer or recovery. jarvis may use every
+supported operation automatically within its enrolled connections. jarvis
+can ask to send a verified draft. the signed-in owner approves each exact
+send in the mail viewer under [adr 0133](docs/decisions/0133-viewer-approved-send.md).
+agent draft creation is supported. [agent deletion and replacement](docs/issues/gmail-agent-draft-discard.md)
+are deferred to a separate pr.
+the agent may read events involving another person. creating, changing or
+deleting those events is prohibited. all wakes share the gmail allowance.
+special google checks become ordinary scheduled todos. workspace blocks have a private record,
+one phone notice when the owner can act, and recovery through the operation
+that encountered the block. the adr owns the detailed guarantees and limits.
+it supersedes conflicting target rules in sections 4, 5, 7 and 9 and the
+special workspace-check, restricted recovery and local approval designs at
+implementation. the installed predecessor remains the operational contract
+until the matched cut.
+
 ## proposed native antigravity route
 
 [design 0111](docs/decisions/0111-native-antigravity-neon.md) specifies a full api-funded main through the official antigravity sdk between personal codex and stock codex-neon after confirmed personal exhaustion. agy starts native children with a fresh task brief and keeps its native shell offline. the two paid harnesses share the existing project and data boundary. the installed routing contract governs until a separately authorized hard cut.
@@ -16,11 +36,11 @@ audience: product, engineering, design, operations, and future coding agents
 
 ## proposed google workspace connector cut
 
-[design 0107](docs/decisions/0107-google-workspace.md) specifies the fixture-first connector pr, including incoming mail, fresh search and reads, draft management and calendar event creation, reading, updating and deletion. gmail marks incoming mail with a dedicated label. jarvis checks its count every five minutes on standard and reserves the last 1,000 daily gmail units for owner requests. [live qualification](docs/issues/gmail-mcp-arrivals.md) covers backlog, missed mail and quota handling. the owner wants ordinary recording of google reads and answers and a separate [permission review](docs/issues/google-workspace-retention.md) before real use. existing installed contracts govern until an authorized cut.
+[design 0107](docs/decisions/0107-google-workspace.md) specifies the fixture-first connector pr, including incoming mail, fresh search and reads, draft management and calendar event creation, reading, updating and deletion. gmail marks incoming mail with a dedicated label. jarvis checks its count every five minutes on standard and reserves the last 1,000 daily gmail units for owner requests. [live qualification](docs/issues/gmail-mcp-arrivals.md) covers backlog, missed mail and quota handling. google reads and answers use ordinary history. existing installed contracts govern until an authorized cut.
 
 ## drive files target
 
-[adr 0120](docs/decisions/0120-drive-files.md) makes the owner's google drive the durable store for personal files. new submissions can wait locally for filing, and links open the current drive file. the human reader uses an independent read-only grant. the interactive publisher and database recovery keep their existing custody. [adr 0127](docs/decisions/0127-drive-prototype-qualification.md) authorizes testing with synthetic files on the owner's account and moves the data-use review after this prototype cut. [adr 0128](docs/decisions/0128-docs-rest.md) uses the standard docs api for revision-bound reads, edits and suggestions. [adr 0129](docs/decisions/0129-drive-blob-rest.md) uses the standard drive api for file-backed creation and original byte downloads. [adr 0130](docs/decisions/0130-drive-conditional-revision.md) binds binary revisions to the exact drive v2 file tag. the installed attachment contract applies until the stopped cut passes and receives authorization.
+[adr 0120](docs/decisions/0120-drive-files.md) makes the owner's google drive the durable store for personal files. new submissions can wait locally for filing, and links open the current drive file. the human reader uses an independent read-only grant. the interactive publisher and database recovery keep their existing custody. [adr 0127](docs/decisions/0127-drive-prototype-qualification.md) authorizes testing with synthetic files on the owner's account. [adr 0128](docs/decisions/0128-docs-rest.md) uses the standard docs api for revision-bound reads, edits and suggestions. [adr 0129](docs/decisions/0129-drive-blob-rest.md) uses the standard drive api for file-backed creation and original byte downloads. [adr 0130](docs/decisions/0130-drive-conditional-revision.md) binds binary revisions to the exact drive v2 file tag. the installed attachment contract applies until the stopped cut passes and receives authorization.
 
 ## private web home
 
@@ -1227,13 +1247,11 @@ execute later; resumed work requires fresh consent. no file-backed pause exists.
 
 ## 5. Authority and approvals
 
-the [0107 workspace candidate](docs/decisions/0107-google-workspace.md) uses
-current owner input for draft creation and for preparing a revised copy. every
-calendar write and verified draft discard requires ordinary conversational
-approval. google may separately ask the owner through the existing chat.
-scheduled checks authorize scoped reads only. these rules supersede the gmail
-and calendar permissions below in the candidate. the installed predecessor
-retains its own authority until the stopped cut.
+under [adr 0132](docs/decisions/0132-one-main.md), every wake has the same read
+and write authority. jarvis can create gmail drafts and change verified solo
+calendar events. google may request its own decision. the owner approves
+each send in the viewer under [adr 0133](docs/decisions/0133-viewer-approved-send.md).
+these rules supersede the predecessor's authority below at the stopped cut.
 
 ### 5.1 Automatic operations
 
@@ -1485,8 +1503,9 @@ admission and historical send recovery apply only to their original agent
 paths. the agent has no send tool. earlier draft and send evidence stays
 readable.
 
-0107's agent replacement design verifies a new draft before a separate discard
-proposal for the exact old revision. 0119 keeps both agent operations disabled.
+the [one-main cut](docs/decisions/0133-viewer-approved-send.md) keeps draft
+creation and owner editing in the viewer. the owner must approve each exact
+send there. agent replacement and deletion are deferred.
 
 the [outgoing mail contract](docs/decisions/0101-outgoing-mail-attachments.md)
 governs the installed predecessor and the original identities of its archived
@@ -1732,10 +1751,9 @@ pipeline, never a nested agent.
 | Tools | Granted role | Authority |
 |---|---|---|
 | `gmail.search`, `gmail.read_thread`, `gmail.get_message`, `gmail.list_drafts`, `gmail.get_draft` | main | read; automatic within the active request and grant |
-| `gmail.create_draft`, `gmail.prepare_replacement` | main | write; automatic with current owner authority |
-| `gmail.discard_draft` | main | write; approval required for the exact verified revision |
+| `gmail.create_draft` | main | write; automatic within the current grant |
 | `calendar.list_calendars`, `calendar.list_events`, `calendar.get_event` | main | read; automatic within the active request and grant |
-| `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | main | write; approval required with explicit notification choice |
+| `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | main | write; automatic for verified solo events |
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |

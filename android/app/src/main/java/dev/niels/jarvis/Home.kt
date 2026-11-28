@@ -179,6 +179,9 @@ internal fun JarvisHome(
         }
     }
     LaunchedEffect(resumed, focused) { history.attend(resumed && focused) }
+    LaunchedEffect(resumed, authRevision) {
+        if (resumed) notices.retireUnsupportedChecks(api)
+    }
     LaunchedEffect(presence, history.visit) { if (history.visit > 0) presence.requestChat() }
     val pending = history.pendingClear
     LaunchedEffect(pending?.through) {
@@ -764,11 +767,14 @@ private fun JSONObject.apparatus(deliveries: List<DiscussionRef>, editions: List
     val ordinals = mutableMapOf<String, Int>()
     for (draft in drafts.sortedBy { !it.optBoolean("editable") }) {
         val editable = draft.optBoolean("editable")
+        val requested = editable && draft.optBoolean("send_requested")
         val subject = subject(draft)
         val ordinal = if (editable && repeated.getValue(subject) > 1) {
             ((ordinals[subject] ?: 0) + 1).also { ordinals[subject] = it }
         } else null
-        add(ApparatusEntry(if (editable) "draft" else "revision", ordinal?.let { "$subject · $it" } ?: subject,
+        add(ApparatusEntry(
+            if (requested) "email" else if (editable) "draft" else "revision",
+            if (requested) "review email" else ordinal?.let { "$subject · $it" } ?: subject,
             Route.Mail(id, draft.getString("create_action_id"), historical = !editable)))
     }
     val revision = string("draft_revision_id")
@@ -831,6 +837,7 @@ private fun MessageEntry(
     MessageMarkdown(message, navigate, onExternal)
     val rows = remember(message, deliveries, editions) { message.apparatus(deliveries, editions) }
     Apparatus(rows, navigate)
+    message.optJSONObject("workspace_block")?.let { WorkspaceBlockEntry(it) }
     for (proposal in message.objects("proposals")) {
         val status = proposal.getString("status")
         Box(Modifier.fillMaxWidth().padding(top = 10.dp, start = 18.dp)) {
@@ -850,10 +857,6 @@ private fun MessageEntry(
                 }, navigate)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
-                    ChatWord("reply", { discuss(DiscussionRef.Proposal(id, proposal.getString("action_id"))) },
-                        label = "reply to ${proposal.getString("title")}", style = chatBody(owner = true).copy(
-                            textDecoration = TextDecoration.Underline,
-                        ))
                     Text(proposal.string("status_label") ?: status.replace('_', ' '),
                         Modifier.weight(1f).padding(start = 12.dp), style = ChatCaps.copy(textAlign = androidx.compose.ui.text.style.TextAlign.End),
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

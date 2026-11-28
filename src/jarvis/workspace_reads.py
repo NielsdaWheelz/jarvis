@@ -56,6 +56,7 @@ from jarvis.read_tools import (
     Digest,
     GoogleId,
 )
+from jarvis.workspace_blocks import WorkspaceBlocks
 from jarvis.workspace_links import workspace_link
 from jarvis.workspace_mcp import (
     HUMAN_WAIT_SECONDS,
@@ -364,7 +365,6 @@ class Failure(Closed):
 @dataclass(frozen=True, slots=True)
 class WorkspaceReadAccess:
     invocation_id: str
-    background: bool
     before_send: Callable[
         [str, dict[str, object], str, str, dict[str, object]], Awaitable[None]
     ]
@@ -515,6 +515,7 @@ class WorkspaceReads:
         access: Callable[[], WorkspaceReadAccess],
         subject: str | None = None,
         drive_materialize: DriveMaterialize | None = None,
+        workspace_blocks: WorkspaceBlocks | None = None,
     ) -> None:
         self.client, self.account, self.grant_id, self.access = (
             client,
@@ -523,6 +524,7 @@ class WorkspaceReads:
             access,
         )
         self.subject = subject
+        self.workspace_blocks = workspace_blocks
         self._drive_materialize = drive_materialize
 
     async def _call(
@@ -549,13 +551,18 @@ class WorkspaceReads:
             args,
             grant_id=self.grant_id,
             invocation_id=access.invocation_id,
-            background=access.background,
             before_send=check,
             max_response_bytes=ATTACHMENT_MESSAGE_JSON_BYTES
             if raw
             else 2 * 1024 * 1024,
             download=download,
         )
+
+    async def observe(self, error: WorkspaceError, tool: str) -> None:
+        if self.workspace_blocks is not None:
+            await self.workspace_blocks.observe(
+                error, invocation_id=UUID(self.access().invocation_id), tool_id=tool
+            )
 
     async def read(self, tool: str, request: Closed) -> Page:
         now = datetime.now(UTC)
@@ -661,6 +668,7 @@ class WorkspaceReads:
         except WorkspaceError as e:
             if e.kind not in {"partial", "raw_unavailable", "unsupported_part"}:
                 raise
+            await self.observe(e, tool)
             reason = "provider_or_result_size_limit" if e.kind == "partial" else e.kind
         except (ValueError, LookupError, RecursionError, OverflowError) as exc:
             raise WorkspaceError("invalid_response") from exc
@@ -825,6 +833,7 @@ class WorkspaceReads:
         except WorkspaceError as e:
             if e.kind != "partial":
                 raise
+            await self.observe(e, tool)
             return DrivePage(
                 coverage=Coverage(
                     state="partial", reason="provider_or_result_size_limit"
@@ -944,7 +953,6 @@ class WorkspaceReads:
                 args,
                 grant_id=grant_id,
                 invocation_id=invocation_id,
-                background=False,
                 before_send=before_send,
             )
 
@@ -959,7 +967,6 @@ class WorkspaceReads:
                 args,
                 grant_id=grant_id,
                 invocation_id=invocation_id,
-                background=False,
                 before_send=before_send,
                 download=(file, bound),
             )
@@ -1300,7 +1307,6 @@ class WorkspaceReads:
             else {"draftId": draft_id, "messageFormat": "RAW"},
             grant_id=grant,
             invocation_id=invocation_id,
-            background=False,
             before_send=before_send,
             max_response_bytes=ATTACHMENT_MESSAGE_JSON_BYTES,
         )
@@ -1507,6 +1513,7 @@ def workspace_read_families(
                     ):
                         raise WorkspaceError("partial")
                 except WorkspaceError as e:
+                    await reads.observe(e, name)
                     raise DeclaredToolFailure(
                         Failure(kind=e.kind, retry_at=e.retry_at),
                         actual_attempts=meter.attempts,
@@ -1518,7 +1525,7 @@ def workspace_read_families(
             execute=Available(execute),
             replay_policy=ReplayPolicy.BilledOnce,
             implementation_revision=f"jarvis-{name.replace('.', '-')}-workspace-v1",
-            policy_epoch=PolicyEpoch("jarvis-workspace-read-v1"),
+            policy_epoch=PolicyEpoch("jarvis-workspace-read-v2"),
             policy_inputs={
                 "authority": "host-bound-workspace-read",
                 "projection": "workspace-v1",

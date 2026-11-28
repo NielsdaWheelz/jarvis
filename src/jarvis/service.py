@@ -30,7 +30,9 @@ from jarvis.settings import Settings
 from jarvis.state import PausedState
 
 if TYPE_CHECKING:
+    from jarvis.workspace_blocks import WorkspaceBlocks
     from jarvis.workspace_host import WorkspaceHost
+    from jarvis.workspace_mcp import WorkspaceApprovals
 
 LOGGER = logging.getLogger(__name__)
 
@@ -77,7 +79,9 @@ class JarvisService:
         event_poller: EventPoller,
         attachments: AttachmentStore,
         presence: Presence,
-        workspace: WorkspaceHost | None = None,
+        workspace_blocks: WorkspaceBlocks,
+        workspace_approvals: WorkspaceApprovals,
+        workspace: WorkspaceHost,
         dream_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._settings = settings
@@ -88,8 +92,11 @@ class JarvisService:
         self._event_poller = event_poller
         self._event_poll_task: asyncio.Task[None] | None = None
         self._work_timer_task: asyncio.Task[None] | None = None
+        self._workspace_verification: asyncio.Task[None] | None = None
         self._database = database
         self._store = MessageStore(database, workspace=workspace)
+        self._workspace_blocks = workspace_blocks
+        self._workspace_approvals = workspace_approvals
         self._paused = paused
         self._delivery = delivery
         self._phone = phone
@@ -108,6 +115,9 @@ class JarvisService:
         self._delivery_task: asyncio.Task[None] | None = None
         self._runner.notify_delivery = self.request_delivery
         self._runner.notify_work = self.request_work
+        workspace_blocks.notify_work = self.request_work
+        workspace_blocks.notify_delivery = self.request_delivery
+        workspace_blocks.notify_source = self._event_poller.notify_changed
         self._active_lock = asyncio.Lock()
         self._active_cancellation: CancellationToken | None = None
         self._active_background: BackgroundWorkerPort | None = None
@@ -121,6 +131,7 @@ class JarvisService:
     async def startup(self) -> None:
         await self._attachments.clean_spool()
         await self._runner.recover_memory()
+        await self._workspace_blocks.expire_interrupted_forms()
         self._startup_ready = True
         self._event_poller.notify_changed()
         self._work.set()
@@ -131,8 +142,6 @@ class JarvisService:
         text: str,
         ref: object,
         uploads: tuple[WebUpload, ...],
-        *,
-        workspace_occurrence: UUID | None = None,
     ) -> tuple[UUID, bool]:
         async with self._active_lock:
             if not self.events_publication_allowed():
@@ -145,12 +154,15 @@ class JarvisService:
                 scope=self._settings.owner_scope,
                 spool=self._settings.runtime_state_directory / "uploads",
                 pages=DEFAULT_EXPORT,
-                workspace_occurrence=workspace_occurrence,
             )
             if not result.inserted:
                 return result.message.id, False
-            if result.message.control_kind == "pause" and self._active_cancellation:
-                self._active_cancellation.cancel()
+            if result.message.control_kind == "pause":
+                self._workspace_approvals.interrupt()
+                if self._workspace_verification is not None:
+                    self._workspace_verification.cancel()
+                if self._active_cancellation is not None:
+                    self._active_cancellation.cancel()
         self.request_work()
         self.request_delivery()
         self._delegations.notify_changed()
@@ -226,7 +238,10 @@ class JarvisService:
                 self._delivery_task,
                 self._dream_timer_task,
             ]
+            if self._workspace_verification is not None:
+                tasks.append(self._workspace_verification)
             results = await asyncio.gather(*tasks, return_exceptions=True)
+            self._workspace_verification = None
             self._delegation_task = None
             self._delegation_cancellation = None
             self._delivery_task = None
@@ -271,6 +286,9 @@ class JarvisService:
 
     def request_shutdown(self) -> None:
         self._shutdown.set()
+        self._workspace_approvals.interrupt()
+        if self._workspace_verification is not None:
+            self._workspace_verification.cancel()
         self._set_native_wake(None)
         self._event_poller.notify_changed()
         self._work.set()
@@ -340,6 +358,26 @@ class JarvisService:
                     (perf_counter() - foreground_started) * 1000,
                 )
                 continue
+            if (
+                self._workspace_verification is not None
+                and self._workspace_verification.done()
+            ):
+                finished, self._workspace_verification = (
+                    self._workspace_verification,
+                    None,
+                )
+                if not finished.cancelled():
+                    finished.result()
+            workspace_retry_at, verify = await self._workspace_blocks.run_due(
+                verification_available=self._workspace_verification is None
+            )
+            if verify is not None:
+                self._workspace_verification = asyncio.create_task(
+                    verify(), name="jarvis-workspace-verification"
+                )
+                self._workspace_verification.add_done_callback(
+                    lambda _task: self._work.set()
+                )
             cancellation = CancellationToken()
             async with self._active_lock:
                 if self._shutdown.is_set():
@@ -371,7 +409,7 @@ class JarvisService:
                 min(
                     (
                         deadline
-                        for deadline in (retry_at, outcome.retry_at)
+                        for deadline in (retry_at, outcome.retry_at, workspace_retry_at)
                         if deadline is not None
                     ),
                     default=None,

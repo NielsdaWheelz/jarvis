@@ -21,22 +21,21 @@ from jarvis.workspace_mcp import (
 )
 from jarvis.workspace_write_models import (
     CalendarWriteReceipt,
-    DiscardReceipt,
     DraftWriteReceipt,
     DriveWriteReceipt,
     FrozenDriveCreate,
     FrozenDriveRevise,
     FrozenWorkspaceWrite,
     SubmissionSource,
+    can_observe_workspace_target,
 )
 
 if TYPE_CHECKING:
     from jarvis.attachments import AttachmentStore
+    from jarvis.workspace_blocks import WorkspaceBlocks
     from jarvis.workspace_writes import WorkspaceWrites
 
-type WorkspaceReceipt = (
-    DraftWriteReceipt | DiscardReceipt | CalendarWriteReceipt | DriveWriteReceipt
-)
+type WorkspaceReceipt = DraftWriteReceipt | CalendarWriteReceipt | DriveWriteReceipt
 
 
 def submission_source_id(frozen: FrozenWorkspaceWrite) -> UUID | None:
@@ -96,6 +95,7 @@ class WorkspaceWriteEntry:
     prepare_human_elapsed: float
     prepare_consent_rounds: int
     submissions: AttachmentStore
+    blocks: WorkspaceBlocks
 
     async def before_send(self) -> None:
         await self.authorize(None)
@@ -122,10 +122,20 @@ async def execute_workspace_write(
 
     async def acknowledge(receipt: WorkspaceReceipt) -> None:
         await recorder.record_workspace_ack(receipt)
+        await entry.blocks.effect_succeeded(receipt.action_id)
         if source is not None and isinstance(receipt, DriveWriteReceipt):
             await entry.submissions.acknowledge(
                 source, receipt.action_id, receipt.subject, receipt.file_id
             )
+
+    async def on_readback_failure(error: WorkspaceError) -> None:
+        await entry.blocks.observe(
+            error,
+            invocation_id=entry.invocation_id,
+            action_id=entry.frozen.action_id,
+            verification=True,
+            tool_id=entry.frozen.tool,
+        )
 
     try:
         seconds = (
@@ -150,10 +160,20 @@ async def execute_workspace_write(
                 capture_draft=recorder.capture_draft_revision
                 if entry.frozen.tool == "gmail.create_draft"
                 else None,
+                verification_blocked=on_readback_failure,
             )
     except MailFileFailure as exc:
         raise DeclaredToolFailure(exc.detail, actual_attempts=1) from exc
     except WorkspaceError as exc:
+        await entry.blocks.observe(
+            exc,
+            invocation_id=entry.invocation_id,
+            action_id=entry.frozen.action_id,
+            tool_id=entry.frozen.tool,
+            verification_available=(
+                exc.kind != "uncertain" or can_observe_workspace_target(entry.frozen)
+            ),
+        )
         raise DeclaredToolFailure(workspace_failure(exc), actual_attempts=1) from exc
     if source is not None and isinstance(result, DriveWriteReceipt):
         if result.verification == "verified":

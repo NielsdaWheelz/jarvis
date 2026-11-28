@@ -26,7 +26,7 @@ the body uses the existing 100,000-byte bound. files retain ordered metadata
 and hashes. this spends a bounded private receipt copy to retain exactly what
 was verified and leaves raw mime, file bytes and unobserved parent quotes with
 gmail. the existing receipt row and transaction own preservation. there is
-no schema migration. [data-use review](../issues/google-workspace-retention.md)
+no schema migration.
 
 a november 26 counts-only read at installed schema `0025` found one linked
 historical send with one recorded owner decision, 30 old create and two old

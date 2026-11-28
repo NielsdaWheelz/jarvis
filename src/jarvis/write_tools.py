@@ -44,15 +44,12 @@ from jarvis.workspace_write_models import (
     CreateDraft,
     CreateEvent,
     DeleteEvent,
-    DiscardDraft,
-    DiscardReceipt,
     DocsUpdate,
     DraftWriteReceipt,
     DriveCopy,
     DriveCreate,
     DriveRevise,
     DriveWriteReceipt,
-    PrepareReplacement,
     UpdateEvent,
 )
 from jarvis.write_connectors import WorkspaceWriteFailure, execute_workspace_write
@@ -72,12 +69,6 @@ class GmailWritePolicy:
 
 
 GMAIL_WRITE_POLICY = GmailWritePolicy()
-GMAIL_WRITE_LIMITS = ToolLimits(
-    262_144,
-    65_536,
-    GMAIL_WRITE_POLICY.max_attempts,
-    GMAIL_WRITE_POLICY.operation_seconds,
-)
 
 
 class _StrictModel(BaseModel):
@@ -188,10 +179,6 @@ type MailPartNumber = Annotated[int, Field(strict=True, ge=1)]
 type RfcMessageId = Annotated[str, Field(min_length=3, max_length=998)]
 
 
-class GmailSendDraftInput(_StrictModel):
-    draft_ref: UUID
-
-
 class GmailDraftIdentity(_StrictModel):
     draft_id: GmailId
     thread_id: GmailId
@@ -251,22 +238,6 @@ class GmailCurrentDraft(_StrictModel):
     observed_at: AwareDatetime
 
     _utc_observed_at = field_validator("observed_at")(_utc)
-
-
-class GmailSendDraftSuccess(_StrictModel):
-    account: Annotated[str | None, Field(min_length=1, max_length=1_024)]
-    sent_message_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    thread_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    jarvis_effect_id: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    content_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    sent_at: AwareDatetime
-
-    @field_validator("sent_message_id", "thread_id")
-    @classmethod
-    def bounded_id(cls, value: str) -> str:
-        return _bounded_utf8(value, 1_024, "Gmail ID")
-
-    _utc_sent_at = field_validator("sent_at")(_utc)
 
 
 class TimedEventTime(_StrictModel):
@@ -360,11 +331,6 @@ class CalendarUpdateEventInput(_StrictModel):
     notify_attendees: bool
 
 
-class CalendarDeleteEventInput(_StrictModel):
-    expected: CalendarEventSnapshot
-    notify_attendees: bool
-
-
 class CalendarCreateEventSuccess(_StrictModel):
     account: Annotated[str | None, Field(min_length=1, max_length=1_024)]
     event: CalendarEventSnapshot
@@ -379,44 +345,6 @@ class CalendarUpdateEventSuccess(_StrictModel):
     updated_at: AwareDatetime
 
     _utc_updated_at = field_validator("updated_at")(_utc)
-
-
-class CalendarDeleteEventSuccess(_StrictModel):
-    calendar_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    event_id: Annotated[str, Field(min_length=1, max_length=1_024)]
-    prior_etag: Annotated[str, Field(min_length=1, max_length=1_024)]
-    deleted_at: AwareDatetime
-
-    @field_validator("calendar_id", "event_id", "prior_etag")
-    @classmethod
-    def bounded_identity(cls, value: str) -> str:
-        return _bounded_utf8(value, 1_024, "Calendar identity")
-
-    _utc_deleted_at = field_validator("deleted_at")(_utc)
-
-
-class InvalidRecipient(_StrictModel):
-    type: Literal["InvalidRecipient"] = "InvalidRecipient"
-
-
-class DraftNotFound(_StrictModel):
-    type: Literal["DraftNotFound"] = "DraftNotFound"
-
-
-class DraftChanged(_StrictModel):
-    type: Literal["DraftChanged"] = "DraftChanged"
-
-
-class SendAbsent(_StrictModel):
-    type: Literal["SendAbsent"] = "SendAbsent"
-
-
-class InvalidMail(_StrictModel):
-    type: Literal["InvalidMail"] = "InvalidMail"
-
-
-class FilePolicy(_StrictModel):
-    type: Literal["FilePolicy"] = "FilePolicy"
 
 
 class InvalidEvent(_StrictModel):
@@ -451,17 +379,6 @@ class ProviderUnavailable(_StrictModel):
     type: Literal["ProviderUnavailable"] = "ProviderUnavailable"
 
 
-type GmailSendDraftError = (
-    FilePolicy
-    | MailLimit
-    | InvalidMail
-    | DraftNotFound
-    | DraftChanged
-    | SendAbsent
-    | InvalidRecipient
-    | RateLimited
-    | ProviderUnavailable
-)
 type CalendarCreateEventError = (
     InvalidEvent
     | CalendarNotFound
@@ -478,15 +395,6 @@ type CalendarUpdateEventError = (
     | RateLimited
     | ProviderUnavailable
 )
-type CalendarDeleteEventError = (
-    EventNotFound
-    | EventChanged
-    | UnsupportedEventType
-    | RateLimited
-    | ProviderUnavailable
-)
-
-
 _GMAIL_FILE_GUIDANCE = (
     "For a Drive item, pass its subject and id. Native Docs need an explicit export. "
     "For a machine file, use a worker and scp into a 0700 request "
@@ -498,25 +406,6 @@ _GMAIL_FILE_GUIDANCE = (
 )
 
 
-GMAIL_SEND_DRAFT_SPEC = ToolSpec[
-    GmailSendDraftInput, GmailSendDraftSuccess, GmailSendDraftError
-](
-    id=ToolId("gmail.send_draft"),
-    summary="Send one exact unchanged Gmail draft after owner approval.",
-    documentation=PromptDocument(
-        "Use the draft_ref for the revision the owner intends to send. Sending "
-        "requires owner consent through approval.respond. When gmail has changed "
-        "the draft, the owner can finish in gmail or request a fresh draft. "
-        "Clarify unresolved recipient or file choices. Present subject, all recipients "
-        "and ordered file names and sizes with the proposal. If send is uncertain, "
-        "ask the owner to inspect sent mail before trying again."
-    ),
-    input_type=GmailSendDraftInput,
-    success_type=GmailSendDraftSuccess,
-    error_type=cast(type[GmailSendDraftError], GmailSendDraftError),
-    effect=ToolEffect.Write,
-    limits=GMAIL_WRITE_LIMITS,
-)
 HISTORICAL_CALENDAR_CREATE_EVENT_SPEC = ToolSpec[
     CalendarCreateEventInput, CalendarCreateEventSuccess, CalendarCreateEventError
 ](
@@ -550,23 +439,6 @@ HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC = ToolSpec[
     effect=ToolEffect.Write,
     limits=ToolLimits(524_288, 131_072, 3, 20.0),
 )
-HISTORICAL_CALENDAR_DELETE_EVENT_SPEC = ToolSpec[
-    CalendarDeleteEventInput, CalendarDeleteEventSuccess, CalendarDeleteEventError
-](
-    id=ToolId("calendar.delete_event"),
-    summary="Conditionally delete one Google Calendar event.",
-    documentation=PromptDocument(
-        "Delete only when the live event still has the complete expected snapshot "
-        "and etag. Host policy controls whether execution is automatic."
-    ),
-    input_type=CalendarDeleteEventInput,
-    success_type=CalendarDeleteEventSuccess,
-    error_type=cast(type[CalendarDeleteEventError], CalendarDeleteEventError),
-    effect=ToolEffect.Write,
-    limits=ToolLimits(262_144, 65_536, 2, 20.0),
-)
-
-
 type WorkspaceFailure = WorkspaceWriteFailure | FileUnavailable | MailLimit
 
 
@@ -597,60 +469,36 @@ _CALENDAR_LIMITS = ToolLimits(262_144, 65_536, 1, 20.0 + HUMAN_WAIT_SECONDS)
 GMAIL_CREATE_DRAFT_SPEC = _workspace_spec(
     "gmail.create_draft",
     "Save one unsent Gmail draft.",
-    "Use the exact live owner request, recipients, reply parent and ordered files. "
+    "Use the intended recipients, reply parent and ordered files. "
     "Report Gmail's acknowledged draft id and its separate verification. "
     + _GMAIL_FILE_GUIDANCE,
     CreateDraft,
     DraftWriteReceipt,
     _GMAIL_LIMITS,
 )
-GMAIL_PREPARE_REPLACEMENT_SPEC = _workspace_spec(
-    "gmail.prepare_replacement",
-    "Save the revised copy of a specific draft.",
-    "A request to replace an identified draft covers preparing the copy. "
-    "Preserve omitted fields and files. Report both revisions and verification. "
-    "Only a verified receipt may support a separate linked discard.",
-    PrepareReplacement,
-    DraftWriteReceipt,
-    _GMAIL_LIMITS,
-)
-GMAIL_DISCARD_DRAFT_SPEC = _workspace_spec(
-    "gmail.discard_draft",
-    "Propose moving one verified draft revision to trash.",
-    "For a replacement, supply the verified replacement action id. A standalone "
-    "discard needs an independent owner request to remove that draft. Name the "
-    "target and obtain a conversational approval for this exact action. "
-    "After an unknown outcome, check the drafts before starting another.",
-    DiscardDraft,
-    DiscardReceipt,
-    _GMAIL_LIMITS,
-)
 CALENDAR_CREATE_EVENT_SPEC = _workspace_spec(
     "calendar.create_event",
-    "Propose creating one Calendar event.",
-    "Name the calendar, time, guests and explicit notification choice. All calendar "
-    "writes require conversational approval. Report acknowledgment and verification.",
+    "Create one Calendar event for the enrolled owner alone.",
+    "Supply the calendar and the event fields. The connector verifies the effective "
+    "organizer and suppresses guest notifications.",
     CreateEvent,
     CalendarWriteReceipt,
     _CALENDAR_LIMITS,
 )
 CALENDAR_UPDATE_EVENT_SPEC = _workspace_spec(
     "calendar.update_event",
-    "Propose changes to a specific Calendar event.",
-    "Name the event, occurrence or series, changed fields, guests to add or remove, "
-    "and notification choice. Removal requires an explicit address. Obtain owner "
-    "approval for that scope. Stop on observed drift. Until qualified, the adapter "
-    "refuses requests to clear the summary, description or location or to convert "
-    "an all-day event to a timed event.",
+    "Change one verified solo Calendar event.",
+    "Name the event and scope and give the changed fields. The connector verifies "
+    "participation immediately before sending. Clearing the summary, description "
+    "or location and converting all-day events to timed events are unavailable.",
     UpdateEvent,
     CalendarWriteReceipt,
     _CALENDAR_LIMITS,
 )
 CALENDAR_DELETE_EVENT_SPEC = _workspace_spec(
     "calendar.delete_event",
-    "Propose deleting a specific Calendar event.",
-    "Name the calendar, event, occurrence or series, affected guests and notification "
-    "choice. Obtain conversational approval. A lost acknowledgement is uncertain.",
+    "Delete one verified solo Calendar event.",
+    "Name the calendar, event and scope. A lost acknowledgement is uncertain.",
     DeleteEvent,
     CalendarWriteReceipt,
     _CALENDAR_LIMITS,
@@ -664,8 +512,7 @@ DRIVE_CREATE_SPEC = _workspace_spec(
     "Create one Drive item at its intended destination.",
     "Give the destination folder, title and one exact source. Authored prose can "
     "use a Google Doc. Owner uploads, selected Gmail parts and native publications "
-    "keep their bytes. Report the Drive id and verification separately. "
-    "Ask before using an agent-selected shared or uncertain folder.",
+    "keep their bytes. Report the Drive id and verification separately.",
     DriveCreate,
     DriveWriteReceipt,
     _DRIVE_LIMITS,
@@ -674,8 +521,7 @@ DRIVE_COPY_SPEC = _workspace_spec(
     "drive.copy",
     "Copy one existing Drive item under a new id.",
     "Give the source id, destination folder and new title. Copying leaves the "
-    "source in place. Ask before using an agent-selected shared or uncertain folder. "
-    "If Google may have created the copy, report the uncertainty.",
+    "source in place. If Google may have created the copy, report the uncertainty.",
     DriveCopy,
     DriveWriteReceipt,
     _DRIVE_LIMITS,
@@ -684,7 +530,6 @@ DRIVE_REVISE_SPEC = _workspace_spec(
     "drive.revise",
     "Replace the bytes of one Drive file under its current id.",
     "Use the exact fresh etag returned by Drive metadata and a verified source. "
-    "Ask when an agent-chosen item has a shared or uncertain audience. "
     "A conflict requires a fresh observation and the owner's intended edit.",
     DriveRevise,
     DriveWriteReceipt,
@@ -694,34 +539,28 @@ DOCS_UPDATE_SPEC = _workspace_spec(
     "docs.update",
     "Apply one ordered edit or suggestion to an existing Google Doc.",
     "Use the observed Docs revision and the actual tab, segment and UTF-16 "
-    "positions from Docs. Ask when an agent-chosen item has a shared or uncertain "
-    "audience. Stop on revision conflict. Report provider warnings and the "
-    "observed verification.",
+    "positions from Docs. Stop on revision conflict. Report provider warnings and "
+    "the observed verification.",
     DocsUpdate,
     DriveWriteReceipt,
     _DOCS_LIMITS,
-)
-_GMAIL_SPECS = (
-    GMAIL_CREATE_DRAFT_SPEC,
-    GMAIL_PREPARE_REPLACEMENT_SPEC,
-    GMAIL_DISCARD_DRAFT_SPEC,
 )
 _CALENDAR_SPECS = (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
     CALENDAR_DELETE_EVENT_SPEC,
 )
-AUTOMATIC_WRITE_TOOL_IDS = frozenset(
-    (GMAIL_CREATE_DRAFT_SPEC.id, GMAIL_PREPARE_REPLACEMENT_SPEC.id)
-)
 _DRIVE_SPECS = (DRIVE_CREATE_SPEC, DRIVE_COPY_SPEC, DRIVE_REVISE_SPEC)
 _DOCS_SPECS = (DOCS_UPDATE_SPEC,)
 DRIVE_WRITE_IDS = frozenset(spec.id for spec in _DRIVE_SPECS)
 DOCS_WRITE_IDS = frozenset(spec.id for spec in _DOCS_SPECS)
 WRITE_TOOL_IDS = frozenset(
-    spec.id for spec in (*_GMAIL_SPECS, *_CALENDAR_SPECS, *_DRIVE_SPECS, *_DOCS_SPECS)
+    spec.id
+    for spec in (GMAIL_CREATE_DRAFT_SPEC, *_CALENDAR_SPECS, *_DRIVE_SPECS, *_DOCS_SPECS)
 )
+RETIRED_DRAFT_WRITE_IDS = ("gmail.prepare_replacement", "gmail.discard_draft")
 WORKSPACE_IMPLEMENTATION = "jarvis-workspace-write-v1"
+WORKSPACE_WRITE_IMPLEMENTATION = "jarvis-workspace-write-v2"
 WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION = "jarvis-workspace-mail-preview-v2"
 WORKSPACE_MAIL_IMPLEMENTATION = "jarvis-workspace-mail-owner-v3"
 WORKSPACE_MAIL_SNAPSHOT_REVISIONS = frozenset(
@@ -730,11 +569,9 @@ WORKSPACE_MAIL_SNAPSHOT_REVISIONS = frozenset(
 
 
 def workspace_implementation(tool: ToolId) -> str:
-    return (
-        WORKSPACE_MAIL_IMPLEMENTATION
-        if tool == GMAIL_CREATE_DRAFT_SPEC.id
-        else WORKSPACE_IMPLEMENTATION
-    )
+    if tool == GMAIL_CREATE_DRAFT_SPEC.id:
+        return WORKSPACE_MAIL_IMPLEMENTATION
+    return WORKSPACE_WRITE_IMPLEMENTATION
 
 
 def _workspace_binding(
@@ -751,26 +588,16 @@ def _workspace_binding(
         execute=Available(execute),
         replay_policy=ReplayPolicy.BilledOnce,
         implementation_revision=workspace_implementation(spec.id),
-        policy_epoch=PolicyEpoch("jarvis-workspace-owner-v1"),
-        policy_inputs={
-            "action_max_attempts": 1,
-            "owner_origin": "live-native-input",
-            "authority": (
-                "audience-dependent"
-                if spec.id in DRIVE_WRITE_IDS or spec.id in DOCS_WRITE_IDS
-                else "automatic"
-                if spec.id in AUTOMATIC_WRITE_TOOL_IDS
-                else "approval-required"
-            ),
-        },
+        policy_epoch=PolicyEpoch("jarvis-workspace-main-v2"),
+        policy_inputs={"action_max_attempts": 1},
     )
 
 
 def gmail_write_family(writes: WorkspaceWrites) -> ToolFamily:
     return ToolFamily(
         "gmail",
-        _GMAIL_SPECS,
-        tuple(_workspace_binding(s, writes) for s in _GMAIL_SPECS),
+        (GMAIL_CREATE_DRAFT_SPEC,),
+        (_workspace_binding(GMAIL_CREATE_DRAFT_SPEC, writes),),
     )
 
 

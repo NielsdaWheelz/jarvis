@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Protocol, cast
+from uuid import UUID
 
 from llm_agent_kernel import (
     CancellationToken,
@@ -38,11 +39,11 @@ from jarvis._secrets import contains_secret
 from jarvis.agent_tools import AGENT_READ_IDS
 from jarvis.attachment_tools import SUBMISSION_READ_IDS
 from jarvis.event_tools import EVENT_READ_IDS
-from jarvis.native_protocol import FOREGROUND_RECOVERY_PROFILE
 from jarvis.read_tools import AUTOMATIC_READ_TOOL_IDS
 from jarvis.receipt_tools import RECEIPT_READ_ID
 from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
 from jarvis.work_tools import WORK_READ_IDS
+from jarvis.workspace_blocks import WorkspaceBlocks
 from jarvis.workspace_host import WORKSPACE_READ_IDS, WorkspaceHost, bind_workspace_read
 from jarvis.workspace_mcp import WorkspaceError
 
@@ -106,12 +107,14 @@ class ReadToolDispatcher:
         memory: MemoryService,
         cutoff: int,
         workspace: WorkspaceHost | None = None,
+        workspace_blocks: WorkspaceBlocks | None = None,
     ) -> None:
         self._host_secrets = tuple(value for value in host_secrets if value)
         self._recorder = recorder
         self._memory = memory
         self._cutoff = cutoff
         self._workspace = workspace
+        self._workspace_blocks = workspace_blocks
 
     async def save_note(
         self,
@@ -206,15 +209,6 @@ class ReadToolDispatcher:
         if not hasattr(validated_input, "model_dump"):
             raise ToolDispatchDefect("kernel supplied an invalid decoded tool input")
         value = cast("Any", validated_input).model_dump(mode="json")
-        recovery = plan.profile.id == FOREGROUND_RECOVERY_PROFILE
-        if recovery and (
-            not isinstance(lineage, NativeDispatchLineage)
-            or (
-                tool_id == RECEIPT_READ_ID
-                and value.get("request_ref") not in lineage.input_ids
-            )
-        ):
-            return host_rejected("recovery_read_outside_input")
         if str(tool_id).startswith("web.") and contains_secret(
             value, self._host_secrets
         ):
@@ -228,17 +222,7 @@ class ReadToolDispatcher:
                     or self._workspace is None
                 ):
                     return host_rejected("workspace_read_not_authorized")
-                access = await self._workspace.read_access(
-                    lineage, str(tool_id), value, recovery=recovery
-                )
-            elif (
-                isinstance(lineage, NativeDispatchLineage)
-                and self._workspace is not None
-                and not await self._workspace.permits_local_read(
-                    lineage, str(tool_id), value
-                )
-            ):
-                return host_rejected("workspace_read_outside_check")
+                access = await self._workspace.read_access(lineage, str(tool_id), value)
             with bind_workspace_read(access) if access is not None else nullcontext():
                 if isinstance(lineage, NativeDispatchLineage):
                     recorded = await self._recorder.recover_native_read(
@@ -270,6 +254,12 @@ class ReadToolDispatcher:
                     await access.require_current(None)
                     return completed_tool_result(result, HostRef(str(position)))
         except WorkspaceError as exc:
+            if self._workspace_blocks is not None and isinstance(
+                lineage, NativeDispatchLineage
+            ):
+                await self._workspace_blocks.observe(
+                    exc, invocation_id=UUID(lineage.invocation_id), tool_id=str(tool_id)
+                )
             return host_rejected(exc.kind)
         except (
             ExecutorConfigurationDefect,

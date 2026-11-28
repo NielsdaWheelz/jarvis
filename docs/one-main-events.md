@@ -1,5 +1,9 @@
 # one main for every event — slice 1 / o6
 
+[adr 0132](decisions/0132-one-main.md) specifies the successor across all wakes,
+including the later named-check and recovery paths. it owns the new authority,
+work conversion and client contracts.
+
 [adr 0086](decisions/0086-native-recovery-and-memory-availability.md) governs
 the target opening and steer rules. the installed predecessor inlined receipts.
 the existing lineage, action authority and paid-read barriers still govern.

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from hashlib import sha256
 from pathlib import Path
-from typing import BinaryIO, Literal, cast
+from typing import BinaryIO, cast
 from urllib.parse import quote
 
 from llm_tools import canonical_json_bytes
@@ -14,7 +13,6 @@ from pydantic import BaseModel, ConfigDict
 from jarvis.workspace_links import workspace_link
 from jarvis.workspace_mcp import Obj, Product, WorkspaceError
 from jarvis.workspace_write_models import (
-    DriveAudience,
     DriveId,
     DriveMime,
     DrivePermission,
@@ -153,91 +151,6 @@ def permissions(raw: Obj, source: str) -> tuple[DrivePermission, ...]:
             )
         )
     return tuple(sorted(values, key=lambda p: canonical_json_bytes(p.model_dump())))
-
-
-async def audience(call: DriveCall, target: str, account: str) -> DriveAudience:
-    current: str | None = target
-    seen: set[str] = set()
-    evidence: list[object] = []
-    identities: list[DrivePermission] = []
-    state: Literal["private", "shared", "unknown"] = "private"
-    for _ in range(8):
-        if current is None:
-            break
-        if current in seen:
-            state = "unknown"
-            break
-        seen.add(current)
-        try:
-            file = await metadata(call, current)
-            raw = await call("drive", "get_file_permissions", {"fileId": current})
-            observed = permissions(raw, current)
-        except WorkspaceError as e:
-            if e.kind not in {"denied", "not_found", "withheld", "policy_block"}:
-                raise
-            evidence.append([current, e.kind])
-            state = "unknown"
-            break
-        identities.extend(observed)
-        evidence.append(
-            [
-                current,
-                file.parent,
-                file.owner,
-                file.visibility,
-                file.shared_drive,
-                file.inherited_disabled,
-                [p.model_dump() for p in observed],
-            ]
-        )
-        owner_only = len(observed) == 1 and (
-            observed[0].type == "user"
-            and observed[0].role == "owner"
-            and observed[0].address is not None
-            and observed[0].address.casefold() == account.casefold()
-            and observed[0].pending_owner is not True
-        )
-        if raw.get("nextPageToken"):
-            state = "unknown"
-        elif (
-            file.shared_drive
-            or file.visibility
-            in {"PUBLIC", "UNLISTED", "PUBLIC_TO_DOMAIN", "UNLISTED_TO_DOMAIN"}
-            or (file.owner and file.owner.casefold() != account.casefold())
-            or (any(p.role and p.role != "owner" and p.type for p in observed))
-        ):
-            if state == "private":
-                state = "shared"
-        elif not owner_only or not file.owner or file.visibility != "PRIVATE":
-            state = "unknown"
-        if file.inherited_disabled is True:
-            current = None
-        elif file.parent is None:
-            # An absent optional parent is not by itself evidence of reaching My Drive.
-            try:
-                root = DriveFile.observed(
-                    await call("drive", "get_file_metadata", file_wire("root"))
-                )
-                evidence.append(["root", root.id])
-            except WorkspaceError as e:
-                if e.kind not in {"denied", "not_found", "withheld", "policy_block"}:
-                    raise
-                evidence.append(["root", e.kind])
-                state = "unknown"
-            else:
-                if root.id != current:
-                    state = "unknown"
-            current = None
-        else:
-            current = file.parent
-    if current is not None:
-        state = "unknown"
-    return DriveAudience(
-        target=target,
-        state=state,
-        identities=tuple(identities),
-        fingerprint=sha256(canonical_json_bytes(evidence)).hexdigest(),
-    )
 
 
 async def document(call: DriveCall, id: str) -> Obj:

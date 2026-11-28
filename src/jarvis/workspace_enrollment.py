@@ -40,6 +40,9 @@ IDENTITY_SCOPES = frozenset(
 )
 ENROLLMENT_SCOPES = SCOPES | IDENTITY_SCOPES
 _AGENT_SCOPES = ENROLLMENT_SCOPES | {DRIVE_SCOPE}
+# Existing credentials can still carry the retired draft-disposal scope.
+_LEGACY_GMAIL_TRASH_SCOPE = "https://www.googleapis.com/auth/gmail.messages.delete"
+_AGENT_GRANTED_SCOPES = _AGENT_SCOPES | {_LEGACY_GMAIL_TRASH_SCOPE}
 type HumanWorkspaceProduct = Literal["gmail", "drive"]
 OWNER_DRAFT_SCOPES = IDENTITY_SCOPES | {"https://www.googleapis.com/auth/gmail.compose"}
 _HUMAN_SCOPES = {
@@ -54,9 +57,8 @@ _HUMAN_COPY = {
 }
 _APPROVAL_COPY = (
     "this client must be marked for an ai-powered agent in google cloud. "
-    "its permission can trash ordinary mail and change message labels. jarvis "
-    "uses deletion only for verified draft revisions and label changes only "
-    "to clear its enrolled pending label. the owner sends in gmail."
+    "its permission can change message labels. jarvis uses it only to clear "
+    "its enrolled pending label. the owner approves sending in the mail viewer."
 )
 
 
@@ -93,7 +95,7 @@ def granted_scopes(
     valid = (
         result == _HUMAN_SCOPES[human_product]
         if human_product is not None
-        else (IDENTITY_SCOPES <= result <= _AGENT_SCOPES)
+        else (IDENTITY_SCOPES <= result <= _AGENT_GRANTED_SCOPES)
     )
     if not valid or len(result) != len(scope_list):
         raise ValueError("unexpected or incomplete Google OAuth scopes")
@@ -332,6 +334,11 @@ async def enroll_workspace(
         copy += (
             " google grants account-wide drive access, including docs. "
             "jarvis uses the supported drive and docs agent operations."
+        )
+    if _LEGACY_GMAIL_TRASH_SCOPE in scopes:
+        copy += (
+            " this carries forward the existing permission to trash mail. "
+            "jarvis leaves it unused."
         )
     if not confirm(f"connect {expected_email} to {project}? {copy}"):
         raise WorkspaceError("cancelled")

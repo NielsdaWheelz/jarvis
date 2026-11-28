@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -92,28 +91,7 @@ class FcmSender:
             priority="HIGH" if kind == "question" else "NORMAL",
             ttl="2419200s",
         )
-        assert result is not None
         return result
-
-    async def send_workspace_match(
-        self,
-        fid: str,
-        occurrence_id: UUID,
-        todo_id: UUID,
-        *,
-        still_current: Callable[[], Awaitable[bool]],
-    ) -> str | PushFailure | None:
-        return await self._send(
-            fid,
-            {
-                "kind": "workspace_check",
-                "notice_id": str(occurrence_id),
-                "todo_id": str(todo_id),
-            },
-            priority="HIGH",
-            ttl="0s",
-            still_current=still_current,
-        )
 
     async def _send(
         self,
@@ -122,8 +100,7 @@ class FcmSender:
         *,
         priority: str,
         ttl: str,
-        still_current: Callable[[], Awaitable[bool]] | None = None,
-    ) -> str | PushFailure | None:
+    ) -> str | PushFailure:
         if self._project is None:
             return PushFailure("configuration")
         try:
@@ -133,8 +110,6 @@ class FcmSender:
             self._credentials = None
             return PushFailure("configuration")
 
-        if still_current is not None and not await still_current():
-            return None
         try:
             response = await self._http.post(
                 f"https://fcm.googleapis.com/v1/projects/{self._project}/messages:send",

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -21,6 +22,12 @@ from memory_snapshot import (
     pg_environment,
     row_inventory,
     schema_inventory,
+)
+from one_main_snapshot import (
+    CONVERTED_WORK_ROWS,
+    WORK_COLUMNS,
+    cut_inventory,
+    stopped_workspace_grant,
 )
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -44,6 +51,7 @@ STATE = Path("/var/lib/jarvis")
 DECLARATIONS = Path("/etc/jarvis")
 POSTGRES_BIN = Path("/usr/lib/postgresql/16/bin")
 SHOWN_CUT = (DRIVE_CUSTODY_SCHEMA, "0028")
+ONE_MAIN_CUT = ("0028", "0029")
 
 
 def require(condition, reason):
@@ -383,6 +391,63 @@ async def require_workspace_target(conn, facts, original):
     )
 
 
+async def one_main_source_facts(conn, scope, state):
+    return {
+        "inventory": await cut_inventory(conn, scope, stopped_workspace_grant(state)),
+        "converted_work": await row_inventory(conn, CONVERTED_WORK_ROWS, "1"),
+        # The process-bound Google forms die with their owning writer. Any
+        # associated entered effect is still represented in the inventory.
+        "live_forms": "both writers stopped",
+    }
+
+
+def require_clear_one_main(document):
+    entries = document["inventory"]["incompatible"]
+    require(
+        not entries,
+        "one-main cut held for predecessor disposition: "
+        + json.dumps(entries, ensure_ascii=True, separators=(",", ":")),
+    )
+
+
+async def require_one_main_target(conn, facts, manifest):
+    original = manifest["original_facts"]
+    changed = {"public.alembic_version", "public.work", "public.workspace_block"}
+    require(
+        {k: v for k, v in facts.items() if k not in {"tables", "schema"}}
+        == {k: v for k, v in original.items() if k not in {"tables", "schema"}}
+        and {k: v for k, v in facts["tables"].items() if k not in changed}
+        == {k: v for k, v in original["tables"].items() if k not in changed}
+        and facts["tables"]["public.workspace_block"][0] == 0
+        and await row_inventory(conn, f"(SELECT {WORK_COLUMNS} FROM public.work)", "1")
+        == manifest["one_main"]["converted_work"],
+        "one-main cut changed evidence, quota, cursor, or converted schedule",
+    )
+    require(
+        await conn.scalar(
+            text("""
+            SELECT has_table_privilege('jarvis_runtime','workspace_block','SELECT')
+               AND has_table_privilege('jarvis_runtime','workspace_block','INSERT')
+               AND NOT has_table_privilege('jarvis_runtime','workspace_block',
+                                           'DELETE,TRUNCATE')
+               AND has_column_privilege('jarvis_runtime','workspace_block',
+                                        'revision','UPDATE')
+               AND NOT has_column_privilege('jarvis_runtime','workspace_block',
+                                            'id','UPDATE')
+               AND NOT EXISTS (
+                   SELECT FROM pg_roles WHERE rolname='jarvis_backup'
+                       AND (NOT has_table_privilege(oid,'workspace_block','SELECT')
+                          OR has_table_privilege(oid,'workspace_block',
+                                                 'DELETE,TRUNCATE')
+                          OR has_any_column_privilege(oid,'workspace_block',
+                                                    'INSERT,UPDATE'))
+               )
+        """)
+        ),
+        "workspace block grants differ from the target",
+    )
+
+
 def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     require(not destination.exists(), "snapshot exists; verify it or inspect it")
@@ -442,7 +507,9 @@ def write_snapshot(destination, evidence, system_stop, args, sql_snapshot):
 def check_qualification(document, manifest):
     expected = rehearsal_binding(manifest)
     require(
-        all(document.get(k) == v for k, v in expected.items()),
+        all(document.get(k) == v for k, v in expected.items())
+        and document.get("target_codex_host_sha256")
+        == expected.get("target_codex_host_sha256"),
         "rehearsal differs from the selected releases or stopped dump",
     )
     report = document.get("compatibility", {})
@@ -461,7 +528,7 @@ def check_qualification(document, manifest):
 
 
 def rehearsal_binding(manifest):
-    return {
+    document = {
         "format": "jarvis-migration-rehearsal.v1",
         "change": manifest["change"],
         "source": manifest["source"],
@@ -470,9 +537,12 @@ def rehearsal_binding(manifest):
         "copies": manifest["copies"],
         "source_facts_sha256": json_digest(manifest["original_facts"]),
     }
+    if "target_codex_host_sha256" in manifest:
+        document["target_codex_host_sha256"] = manifest["target_codex_host_sha256"]
+    return document
 
 
-def check_private_inputs(snapshot, manifest):
+def check_private_inputs(snapshot, manifest, *, mapping_stage="source"):
     require(
         all(
             copy_digest(snapshot / name) == manifest["copies"][name]
@@ -481,12 +551,25 @@ def check_private_inputs(snapshot, manifest):
         "damaged private recovery copy",
     )
     google = Path("connectors/google-oauth-state.json")
+    mapping = DECLARATIONS / "codex-host.json"
+    target_mapping = manifest.get("target_codex_host_sha256")
+    if mapping_stage == "published" and target_mapping is not None:
+        mapping_matches = file_digest(mapping) == target_mapping
+    else:
+        mapping_matches = copy_digest(mapping) == copy_digest(
+            snapshot / "declarations" / mapping.name
+        ) or (
+            mapping_stage == "applying"
+            and target_mapping is not None
+            and file_digest(mapping) == target_mapping
+        )
     require(
         all(
             copy_digest(DECLARATIONS / name)
             == copy_digest(snapshot / "declarations" / name)
-            for name in ("jarvis.env", "memory.json", "codex-host.json")
+            for name in ("jarvis.env", "memory.json")
         )
+        and mapping_matches
         and (
             (
                 not (STATE / google).exists()
@@ -512,7 +595,7 @@ def check_private_inputs(snapshot, manifest):
         )
 
 
-def restored_compatibility(proof):
+def restored_compatibility(proof, target_mapping):
     release = Path(__file__).resolve().parents[1]
     runtime_url = os.environ["JARVIS_DATABASE_URL"]
     urls = [
@@ -531,6 +614,13 @@ def restored_compatibility(proof):
     )
     with tempfile.TemporaryDirectory(dir=proof) as scratch:
         root = Path(scratch)
+        env = dict(os.environ)
+        env.pop("MAINTENANCE_CODEX_HOST_CONFIG", None)
+        if target_mapping is not None:
+            mapping = root / "codex-host.json"
+            mapping.write_bytes(target_mapping)
+            mapping.chmod(0o644)
+            env["MAINTENANCE_CODEX_HOST_CONFIG"] = str(mapping)
         (root / "runtime.env").write_text(
             "JARVIS_DATABASE_URL=" + runtime_url + "\nJARVIS_WORKSPACE_PROJECT_ID=\n"
         )
@@ -548,11 +638,12 @@ def restored_compatibility(proof):
                 root,
             ],
             check=True,
+            env=env,
         )
         return json.loads((root / "result.json").read_bytes())
 
 
-async def inspect_restored(operation, snapshot, proof, map_sha256=None):
+async def inspect_restored(operation, snapshot, proof, map_sha256, codex_host_config):
     editor = owner_gmail_directory(OWNER_GMAIL_DIRECTORY)
     require(
         read_editor_stamp(editor) is None,
@@ -564,6 +655,25 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
         "damaged rehearsal dump",
     )
     check_private_inputs(snapshot, manifest)
+    target_mapping = None
+    expected_mapping = manifest.get("target_codex_host_sha256")
+    if operation == "record-rehearsal":
+        require(
+            expected_mapping is None or codex_host_config is not None,
+            "rehearsal requires the staged target Codex host mapping",
+        )
+        if codex_host_config is not None:
+            supplied = codex_host_config.read_bytes()
+            require(
+                hashlib.sha256(supplied).hexdigest()
+                == (
+                    expected_mapping
+                    or file_digest(snapshot / "declarations" / "codex-host.json")
+                ),
+                "rehearsal Codex host mapping differs from the stopped change",
+            )
+            if expected_mapping is not None:
+                target_mapping = supplied
     target = manifest["target"]
     require(
         target["schema"] == APPLICATION_SCHEMA_REVISION
@@ -575,16 +685,25 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
     )
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     migrating_drive = operation == "migrate-restored-drive"
+    migrating_one_main = operation == "migrate-restored-one-main"
+    migrating = migrating_drive or migrating_one_main
     original = rehearsal_binding(manifest)
     source_proof = proof / "restored-source.json"
-    if migrating_drive:
+    if migrating:
         url = make_url(migration_url)
         require(
-            target["schema"] == DRIVE_CUSTODY_SCHEMA
-            and [url.host, url.port or 5432, url.database] != manifest["database"]
+            [url.host, url.port or 5432, url.database] != manifest["database"]
             and json.loads(source_proof.read_bytes()) == original,
-            "drive rehearsal requires a verified, separate restored database",
+            "migration rehearsal requires a verified, separate restored database",
         )
+    if migrating_one_main:
+        require(
+            (manifest["source"]["schema"], target["schema"]) == ONE_MAIN_CUT,
+            "unexpected one-main restore/migration transition",
+        )
+        require_clear_one_main(manifest["one_main"])
+    if migrating_drive:
+        require(target["schema"] == DRIVE_CUSTODY_SCHEMA, "wrong drive target")
         drive_map = proof / "drive-cut.json"
         require(
             file_digest(drive_map) == map_sha256,
@@ -601,13 +720,13 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
     engine = create_engine(migration_url)
     try:
         async with maintenance_ownership(engine) as db, db.begin() as conn:
-            mode = "READ WRITE" if migrating_drive else "READ ONLY"
+            mode = "READ WRITE" if migrating else "READ ONLY"
             await conn.execute(
                 text(f"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, {mode}")
             )
             version = await conn.scalar(text("SELECT version_num FROM alembic_version"))
             facts = await inventory(conn, manifest["owner_scope"])
-            if migrating_drive:
+            if migrating:
                 require(
                     version == manifest["source"]["schema"]
                     and facts == manifest["original_facts"],
@@ -619,14 +738,21 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
                         str(Path(__file__).resolve().parents[1] / "alembic.ini")
                     )
                     cfg.attributes["connection"] = connection
-                    cfg.attributes["drive_cut"] = verified_map.model_dump(mode="json")
+                    if migrating_drive:
+                        cfg.attributes["drive_cut"] = verified_map.model_dump(
+                            mode="json"
+                        )
+                    else:
+                        cfg.attributes["workspace_grant"] = stopped_workspace_grant(
+                            snapshot / "private-state"
+                        )
                     command.upgrade(cfg, target["schema"])
 
                 await conn.run_sync(upgrade)
                 require(
                     await conn.scalar(text("SELECT version_num FROM alembic_version"))
                     == target["schema"],
-                    "drive rehearsal did not reach the target schema",
+                    "migration rehearsal did not reach the target schema",
                 )
                 return
             if (manifest["source"]["schema"], target["schema"]) == ("0023", "0024"):
@@ -643,6 +769,18 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
                     await require_workspace_target(
                         conn, facts, manifest["original_facts"]
                     )
+            if (manifest["source"]["schema"], target["schema"]) == ONE_MAIN_CUT:
+                require_clear_one_main(manifest["one_main"])
+                if version == "0028":
+                    require(
+                        await one_main_source_facts(
+                            conn, manifest["owner_scope"], snapshot / "private-state"
+                        )
+                        == manifest["one_main"],
+                        "restored one-main obligations differ from the stopped source",
+                    )
+                elif version == "0029":
+                    await require_one_main_target(conn, facts, manifest)
             if operation == "record-rehearsal" and (
                 manifest["source"]["schema"],
                 version,
@@ -677,7 +815,7 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
         document = {
             **original,
             "target_facts_sha256": json_digest(facts),
-            "compatibility": restored_compatibility(proof),
+            "compatibility": restored_compatibility(proof, target_mapping),
         }
         if version == DRIVE_CUSTODY_SCHEMA:
             drive_map = proof / "drive-cut.json"
@@ -696,7 +834,7 @@ async def inspect_restored(operation, snapshot, proof, map_sha256=None):
         await engine.dispose()
 
 
-async def cut(operation, destination, binding, stop, qualification):
+async def cut(operation, destination, binding, stop, qualification, mapping_sha256):
     runtime = make_url(normalize_database_url(os.environ["JARVIS_DATABASE_URL"]))
     migration_url = normalize_database_url(os.environ["JARVIS_MIGRATION_DATABASE_URL"])
     migrator = make_url(migration_url)
@@ -757,7 +895,16 @@ async def cut(operation, destination, binding, stop, qualification):
                 "owner_scope": scope,
                 "database": endpoint,
             }
+            if (
+                operation == "snapshot"
+                and mapping_sha256 is not None
+                and mapping_sha256 != file_digest(DECLARATIONS / "codex-host.json")
+            ):
+                evidence["target_codex_host_sha256"] = mapping_sha256
             workspace_cut = (source["schema"], target["schema"]) == ("0023", "0024")
+            one_main_cut = (source["schema"], target["schema"]) == ONE_MAIN_CUT
+            if one_main_cut and version == "0028":
+                evidence["one_main"] = await one_main_source_facts(conn, scope, STATE)
             if workspace_cut and version == "0023":
                 evidence["workspace_obligations"] = await workspace_obligations(
                     conn, STATE
@@ -781,23 +928,54 @@ async def cut(operation, destination, binding, stop, qualification):
                 )
                 if workspace_cut:
                     require_clear_workspace(evidence["workspace_obligations"])
+                if one_main_cut:
+                    require_clear_one_main(evidence["one_main"])
                 return
             manifest = json.loads((destination / "SNAPSHOT.json").read_bytes())
             require(
                 all(manifest.get(k) == v for k, v in evidence.items()),
                 "snapshot belongs to a different change",
             )
+            if operation == "snapshot":
+                require(
+                    manifest.get("target_codex_host_sha256")
+                    == evidence.get("target_codex_host_sha256"),
+                    "stopped change already binds another target Codex host mapping",
+                )
             require(
                 file_digest(destination / "database.dump") == manifest["dump_sha256"],
                 "damaged stopped recovery copy",
             )
-            check_private_inputs(destination, manifest)
+            mapping_stage = "source"
+            if version == target["schema"] and operation in {
+                "migrate",
+                "verify-target",
+            }:
+                mapping_stage = "applying"
+                if mapping_sha256 is not None:
+                    expected_mapping = manifest.get("target_codex_host_sha256")
+                    if expected_mapping is None:
+                        expected_mapping = file_digest(
+                            destination / "declarations" / "codex-host.json"
+                        )
+                    require(
+                        mapping_sha256 == expected_mapping,
+                        "published Codex host mapping differs from the stopped change",
+                    )
+                    mapping_stage = "published"
+            check_private_inputs(
+                destination,
+                manifest,
+                mapping_stage=mapping_stage,
+            )
             if version == source["schema"]:
                 require(
                     facts == manifest["original_facts"], "stopped source facts changed"
                 )
             if workspace_cut:
                 require_clear_workspace(manifest["workspace_obligations"])
+            if one_main_cut:
+                require_clear_one_main(manifest["one_main"])
             if operation in {"snapshot", "verify"}:
                 return
             document = json.loads(qualification.read_bytes())
@@ -832,6 +1010,10 @@ async def cut(operation, destination, binding, stop, qualification):
                         cfg.attributes["drive_cut"] = verified_drive_map.model_dump(
                             mode="json"
                         )
+                    if one_main_cut:
+                        cfg.attributes["workspace_grant"] = stopped_workspace_grant(
+                            STATE
+                        )
                     command.upgrade(cfg, target["schema"])
 
                 await conn.run_sync(upgrade)
@@ -860,6 +1042,7 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] in {
         "verify-restored-source",
         "migrate-restored-drive",
+        "migrate-restored-one-main",
         "record-rehearsal",
     }:
         parser = argparse.ArgumentParser(
@@ -869,11 +1052,16 @@ def main():
         parser.add_argument("snapshot", type=Path)
         parser.add_argument("proof", type=Path)
         parser.add_argument("--map-sha256")
+        parser.add_argument("--codex-host-config", type=Path)
         args = parser.parse_args()
         require(
             (args.operation == "migrate-restored-drive")
             == (args.map_sha256 is not None),
             "the restored drive migration requires its approved map digest",
+        )
+        require(
+            args.codex_host_config is None or args.operation == "record-rehearsal",
+            "the target Codex host mapping applies only to recording the rehearsal",
         )
         asyncio.run(
             inspect_restored(
@@ -881,6 +1069,7 @@ def main():
                 args.snapshot.resolve(),
                 args.proof.resolve(),
                 args.map_sha256,
+                args.codex_host_config,
             )
         )
         return
@@ -895,7 +1084,16 @@ def main():
     parser.add_argument("source_schema")
     parser.add_argument("target_schema")
     parser.add_argument("qualification", type=Path, nargs="?")
+    parser.add_argument("--codex-host-config-sha256")
     args = parser.parse_args()
+    require(
+        args.codex_host_config_sha256 is None
+        or (
+            args.operation in {"snapshot", "verify-target"}
+            and re.fullmatch("[0-9a-f]{64}", args.codex_host_config_sha256)
+        ),
+        "a target Codex host mapping digest applies only to snapshot or verify-target",
+    )
     subprocess.run(
         [Path(__file__).with_name("cutover-hold"), "check", args.change], check=True
     )
@@ -922,7 +1120,14 @@ def main():
         "qualified migration input is required",
     )
     asyncio.run(
-        cut(args.operation, held / "snapshot", binding, stop, args.qualification)
+        cut(
+            args.operation,
+            held / "snapshot",
+            binding,
+            stop,
+            args.qualification,
+            args.codex_host_config_sha256,
+        )
     )
     print(
         f"{args.operation} verified for {args.change}. "

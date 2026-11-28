@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
-import io
 import json
 import logging
 import mimetypes
@@ -19,7 +18,6 @@ import time
 import unicodedata
 from collections.abc import Awaitable, Callable, Collection, Iterator
 from contextlib import ExitStack, contextmanager, suppress
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, BinaryIO, Literal, Protocol, cast
 from uuid import UUID, uuid4
@@ -297,14 +295,6 @@ def publish_native(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class ObservedMailPart:
-    """One complete, ordered part decoded from a verified Workspace draft."""
-
-    file: MailFile
-    data: bytes
-
-
 class DriveMailReader(Protocol):
     async def drive_file(
         self,
@@ -336,7 +326,7 @@ class MailFiles:
     async def stage(
         self,
         action_id: UUID,
-        sources: tuple[NewMailFile | ObservedMailPart, ...],
+        sources: tuple[NewMailFile, ...],
         *,
         invocation_id: str,
         before_send: Callable[[], Awaitable[None]],
@@ -359,12 +349,7 @@ class MailFiles:
                             for slot, source in enumerate(sources, 1):
                                 with ExitStack() as opened:
                                     body: BinaryIO | None = None
-                                    if isinstance(source, ObservedMailPart):
-                                        descriptor = source.file
-                                        body = opened.enter_context(
-                                            io.BytesIO(source.data)
-                                        )
-                                    elif isinstance(source, DriveMailFileRef):
+                                    if isinstance(source, DriveMailFileRef):
                                         if self._google is None:
                                             raise MailFileFailure(
                                                 FileUnavailable(

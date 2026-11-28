@@ -499,13 +499,17 @@ a {
 .draft-thumbnail canvas { max-width: 100%; max-height: 2.5rem; object-fit: contain; }
 #draft-choice button { margin-inline: .4rem; }
 #workspace-approval {
-  border-block-start: 1px solid var(--line);
   padding: .45rem var(--end) .5rem var(--gutter);
+}
+.approval-form {
+  border-block-start: 1px solid var(--line);
+  padding-block-start: .45rem;
   font-size: .875rem;
 }
-#workspace-approval p { margin-block: 0 .3rem; }
-#workspace-approval small { color: var(--muted); font: italic 1.06rem/1.25 var(--display); }
-#workspace-approval button { margin-inline-end: .75rem; }
+.approval-form > p { margin-block: 0 .3rem; }
+.approval-form > small { color: var(--muted); font: italic 1.06rem/1.25 var(--display); }
+.approval-actions { display: flex; flex-wrap: wrap; gap: .3rem .75rem; }
+.approval-form > .mail-review { font-size: 1rem; }
 @media (hover: none) and (pointer: coarse) {
   #sidebar button:not(.presence-mark), #sidebar .attach {
     min-inline-size: 44px;
@@ -813,7 +817,7 @@ article:has(.owed-label:not([hidden])) .proposal[data-status="awaiting_approval"
   align-items: center;
 }
 .mail-actions { margin-block: 1rem; }
-.mail-choices > :is(h2,h3,div,label,p) { width: 100%; }
+.mail-choices > :is(h2,h3,div,label,p,.approval-form) { width: 100%; }
 #draft-revision :is(button,input,summary) { min-height: 48px; }
 #draft-revision input[type=checkbox] { min-height: 1em; }
 #draft-revision li { overflow-wrap: anywhere; }

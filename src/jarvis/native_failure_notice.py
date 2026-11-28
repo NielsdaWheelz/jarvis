@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter
 from datetime import datetime
@@ -19,13 +18,11 @@ from jarvis.actions import ActionPersistenceDefect, recorded_action_result
 from jarvis.db import action, message
 from jarvis.home_notices import enqueue_notice
 from jarvis.ownership import memory_is_admitted
-from jarvis.workspace_host import is_workspace_wake
 from jarvis.workspace_write_models import CalendarWriteReceipt, DraftWriteReceipt
 from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
     GMAIL_CREATE_DRAFT_SPEC,
-    GMAIL_PREPARE_REPLACEMENT_SPEC,
     HISTORICAL_CALENDAR_CREATE_EVENT_SPEC,
     HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC,
 )
@@ -42,27 +39,26 @@ _CALENDAR_WRITES = {
         (HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC, "updated"),
     )
 }
-_DRAFT_WRITES = frozenset(
-    (spec.id, action_request_spec(spec).tool_contract_revision)
-    for spec in (GMAIL_CREATE_DRAFT_SPEC, GMAIL_PREPARE_REPLACEMENT_SPEC)
-)
+_DRAFT_WRITES = {
+    (
+        GMAIL_CREATE_DRAFT_SPEC.id,
+        action_request_spec(GMAIL_CREATE_DRAFT_SPEC).tool_contract_revision,
+    ),
+    (
+        "gmail.prepare_replacement",
+        "668f853bec64d87f3505b23caa4865c02ab838ae90ba9269d25b883c0414bcc0",
+    ),
+}
 _HOST_SOURCES = {
     "action": "operation update",
-    "recovery_catchup": "mail catch-up",
     "submission": "upload custody",
     "drive": "drive file update",
     "docs": "google docs update",
     "email_event": "mail notice",
     "event_status": "event source update",
-    "work_wake": "scheduled check",
+    "work_wake": "scheduled todo",
 }
 _OPENINGS = {
-    "workspace_recovery_grant_changed": (
-        "workspace access changed while i was recovering this work."
-    ),
-    "mail_catchup_inventory_changed": (
-        "the authorized mail inventory changed before the catch-up could finish."
-    ),
     "native_effects_uncertain": (
         "i lost contact with the model and can't confirm what it did."
     ),
@@ -187,12 +183,9 @@ async def record_parking_notice(
 
     operations: list[str] = []
     uncertain: list[str] = []
-    proposals: list[str] = []
     creates: dict[tuple[str, str, str], int] = {}
     for row in actions:
         status: str = row["status"]
-        if status == "awaiting_approval":
-            proposals.append(str(row["id"]))
         if calendar := await _calendar_operation(connection, row):
             label, verb, key = calendar
             if key is not None:
@@ -257,37 +250,23 @@ async def record_parking_notice(
         lines.append(f"still open: {_bounded_list(requests)}.")
     if sources:
         lines.append(f"host updates still open: {_bounded_list(sources)}.")
-    if proposals:
-        lines.append("pending proposals need repair before a decision.")
     identifier = uuid4()
-    home: dict[str, object] = {"proposal_ids": proposals} if proposals else {}
-    check_only = len(inputs) == 1 and is_workspace_wake(
-        inputs[0]["source"], inputs[0]["text"]
-    )
-    if check_only:
-        home["todo_result"] = {
-            "todo_id": json.loads(inputs[0]["text"])["record"]["id"],
-            "request_id": str(inputs[0]["id"]),
-            "label": "scheduled check did not finish",
-        }
     await connection.execute(
         insert(message).values(
             id=identifier,
             role="assistant",
             text=" ".join(lines),
             source="native_failure",
-            home=home or None,
             source_conversation_id=scope,
             memory_admitted=memory_is_admitted(connection),
             processed_at=timestamp,
             trace={"native_attempt_id": attempt_id} if attempt_id is not None else {},
         )
     )
-    if not check_only and (
+    if (
         requests
         or operations
         or uncertain
-        or proposals
         or any(row["source"] != "email_event" for row in inputs)
     ):
         await enqueue_notice(connection, identifier)

@@ -16,9 +16,8 @@ inputs and `--large` for the full provider run.
 
 verify the eleven operations through the selected agent composition, both reader lanes, max byte transport, stale etag and docs revision rejection, consent and revocation. verify the signed physical handset, stopped import and separate restored database on the selected release. close after the evidence is independently reviewed and disposable files and grants are accounted for.
 
-on november 26 the [sample-only importer check](google-workspace-retention.md#sample-only-importer-check)
-passed on the owner's existing account. the existing operator transport
-created one 44-byte synthetic file in its own private folder and verified
+on november 26 the sample-only importer check passed on the owner's existing
+account. the existing operator transport created one 44-byte synthetic file in its own private folder and verified
 the exact bytes through drive rest. google confirmed both generated objects
 were trashed and accepted revocation. the disposable client, local export
 and temporary harness were removed. the test project remains in testing.

@@ -1,11 +1,11 @@
-"""Classify, persist, execute, and reconcile durable application writes."""
+"""Persist, execute, and reconcile admitted application writes."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 from uuid import UUID, uuid4
 
 from llm_agent_kernel import (
@@ -14,6 +14,7 @@ from llm_agent_kernel import (
     DispatchSuspended,
     HostRef,
     NativeDispatchLineage,
+    OwnerToken,
     ToolDispatchDefect,
     ToolDispatchLineage,
     WaitingFor,
@@ -31,12 +32,11 @@ from llm_tools import (
     ToolBinding,
     ToolEffect,
     ToolExecutor,
-    ToolId,
     ToolResult,
     raw_input_digest,
 )
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncConnection
 from universal_memory.tools import MEMORY_SAVE_NOTE_SPEC
 
@@ -44,6 +44,7 @@ from jarvis._secrets import contains_secret
 from jarvis.action_requests import ActionRequest
 from jarvis.actions import (
     ACTION_MAX_ATTEMPTS,
+    ActionPersistenceDefect,
     ActionPositionRecorder,
     ActionStore,
     ExecutionContract,
@@ -51,7 +52,8 @@ from jarvis.actions import (
     action_replay_result,
     followup_placement,
     retired_worker_action,
-    workspace_owner_live,
+    validate_workspace_receipt,
+    workspace_invocation_live,
 )
 from jarvis.admission import ExactToolBudgetFactory
 from jarvis.agent_control import AgentController
@@ -63,14 +65,11 @@ from jarvis.agent_tools import (
     AgentStartInput,
     AgentTargetInput,
 )
-from jarvis.approval_tools import APPROVAL_RESPOND_SPEC, ApprovalRespondInput
-from jarvis.attachment_tools import SUBMISSION_ABANDON_SPEC, SUBMISSION_WRITE_IDS
+from jarvis.attachment_tools import SUBMISSION_WRITE_IDS
 from jarvis.attachments import AttachmentStore
-from jarvis.db import message
 from jarvis.event_tools import EVENT_MUTATION_IDS
 from jarvis.events import EventStore
 from jarvis.mail_files import MailFileFailure, MailFiles
-from jarvis.native_journal import PostgresNativeJournal
 from jarvis.presence import Presence
 from jarvis.read_dispatch import ReadDispatchPort
 from jarvis.tool_results import NoTelemetry, completed_tool_result, host_rejected
@@ -84,30 +83,26 @@ from jarvis.workspace_mcp import (
     workspace_attempts,
 )
 from jarvis.workspace_write_models import (
-    DiscardDraft,
     DriveWriteReceipt,
     FrozenCompose,
-    FrozenDocsUpdate,
-    FrozenDriveCopy,
-    FrozenDriveCreate,
-    FrozenDriveRevise,
+    UncertainVerification,
+    can_observe_workspace_target,
     workspace_write_arguments,
 )
 from jarvis.workspace_writes import WorkspaceWrites
 from jarvis.write_connectors import (
+    WorkspaceReceipt,
     WorkspaceWriteEntry,
     submission_source_id,
     workspace_failure,
     write_rpc_limit,
 )
-from jarvis.write_policy import classify_write
 from jarvis.write_tools import WRITE_TOOL_IDS
 
+if TYPE_CHECKING:
+    from jarvis.workspace_blocks import WorkspaceBlocks
+
 _INVALID_INPUT: ToolResult = {"type": "Failure", "error": {"type": "InvalidInput"}}
-_UNAVAILABLE: ToolResult = {
-    "type": "Failure",
-    "error": {"type": "ToolUnavailable"},
-}
 LOGGER = logging.getLogger(__name__)
 
 
@@ -124,12 +119,11 @@ class WriteToolDispatcher:
         self,
         *,
         checkpoint: WriteAuthority,
-        journal: PostgresNativeJournal,
+        owner_token: OwnerToken,
         actions: ActionStore,
         workspace_writes: WorkspaceWrites,
+        workspace_blocks: WorkspaceBlocks,
         workspace_grant: Callable[[], WorkspaceEnrollment | None],
-        work: WorkStore,
-        events: EventStore,
         attachments: AttachmentStore,
         mail_files: MailFiles,
         agents: AgentController,
@@ -140,12 +134,11 @@ class WriteToolDispatcher:
         dispatch_lane: asyncio.Lock,
     ) -> None:
         self._checkpoint = checkpoint
-        self._journal = journal
+        self._owner_token = owner_token
         self._actions = actions
         self._workspace_writes = workspace_writes
+        self._workspace_blocks = workspace_blocks
         self._workspace_grant = workspace_grant
-        self._work = work
-        self._events = events
         self._attachments = attachments
         self._mail_files = mail_files
         self._agents = agents
@@ -188,8 +181,6 @@ class WriteToolDispatcher:
 
         async def invoke() -> DispatchResult:
             async with self._dispatch_lane:
-                if await self._actions.is_standing_check(UUID(lineage.input_ids[-1])):
-                    return host_rejected("workspace_check_read_only")
                 if binding.spec.id == MEMORY_SAVE_NOTE_SPEC.id:
                     return await self._read.save_note(
                         binding=binding,
@@ -199,24 +190,6 @@ class WriteToolDispatcher:
                         cancellation=cancellation,
                         lineage=lineage,
                     )
-                if binding.spec.id == APPROVAL_RESPOND_SPEC.id:
-                    if not isinstance(validated_input, ApprovalRespondInput):
-                        raise ToolDispatchDefect("approval decision input is invalid")
-                    result = await self._journal.respond_approval(
-                        lineage.invocation_id,
-                        validated_input,
-                        workspace_grant=self._workspace_grant,
-                    )
-                    if result.result["type"] == "Success":
-                        task = asyncio.create_task(
-                            self._finish_decision(
-                                validated_input, plan, cancellation, lineage
-                            ),
-                            name=f"jarvis-decision:{validated_input.action_id}",
-                        )
-                        self._effects.add(task)
-                        task.add_done_callback(lambda _task: self.on_effect_settled())
-                    return result
                 if not isinstance(validated_input, ActionRequest):
                     raise ToolDispatchDefect("application write needs ActionRequest")
                 result = await self._dispatch_action(
@@ -257,8 +230,6 @@ class WriteToolDispatcher:
         await self._read.recover_budget(lineage=lineage, budgets=budgets)
         tool_id = binding.spec.id
         payload = request.arguments
-        if await self._actions.is_standing_check(request_id):
-            return host_rejected("workspace_check_read_only")
         arguments = request.model_dump(mode="json")
         if tool_id in AGENT_WRITE_IDS and request.existing_action_ref is None:
             linked = await self._actions.action_for_invocation(
@@ -287,27 +258,52 @@ class WriteToolDispatcher:
                     self._agents.delegations.notify_changed()
                     return result
                 return _existing_action_result(linked)
-        grant = (
-            self._workspace_grant()
-            if tool_id in WRITE_TOOL_IDS or tool_id in {"work.create", "work.update"}
-            else None
-        )
-        authorize = None
-        if tool_id in WRITE_TOOL_IDS or tool_id == SUBMISSION_ABANDON_SPEC.id:
-            if tool_id in WRITE_TOOL_IDS and grant is None:
-                return host_rejected("workspace_grant_unavailable")
-            authorize = self._owner_write_authority(
-                lineage,
-                request_id,
-                tool_id,
-                None if grant is None else grant.grant_id,
-                None if grant is None else grant.account,
-                cancellation,
-                subject=None if grant is None else grant.subject,
-            )
+        invocation_id = UUID(lineage.invocation_id)
+        grant = self._workspace_grant() if tool_id in WRITE_TOOL_IDS else None
+        authorize: Callable[[AsyncConnection | None], Awaitable[None]] | None = None
+        if tool_id in WRITE_TOOL_IDS:
+            if grant is None:
+                exc = WorkspaceError("grant_unavailable")
+                await self._workspace_blocks.observe(
+                    exc, invocation_id=invocation_id, tool_id=str(tool_id)
+                )
+                return host_rejected(exc.kind)
+
+            async def authorize_workspace(connection: AsyncConnection | None) -> None:
+                if cancellation.cancelled or self._closing:
+                    raise WorkspaceError("cancelled")
+                if connection is None:
+                    async with self._actions.engine.connect() as local:
+                        await authorize_workspace(local)
+                    return
+                if (
+                    lineage.permit.scope_id != self._source_conversation_id
+                    or lineage.permit.owner_token != self._owner_token
+                    or not await workspace_invocation_live(
+                        connection, lineage, request_id, tool_id
+                    )
+                ):
+                    raise WorkspaceError("invocation_unavailable")
+                current = self._workspace_grant()
+                if current is None or (
+                    current.grant_id,
+                    current.account,
+                    current.subject,
+                ) != (grant.grant_id, grant.account, grant.subject):
+                    raise WorkspaceError("grant_unavailable")
+                if (
+                    tool_id.startswith(("drive.", "docs."))
+                    and DRIVE_SCOPE not in current.scopes
+                ):
+                    raise WorkspaceError("scope_missing")
+
+            authorize = authorize_workspace
             try:
-                await authorize(None)
+                await authorize_workspace(None)
             except WorkspaceError as exc:
+                await self._workspace_blocks.observe(
+                    exc, invocation_id=invocation_id, tool_id=str(tool_id)
+                )
                 return host_rejected(exc.kind)
         previous, blocked = await self._actions.accepted_actions(request_id)
         if request.existing_action_ref is not None:
@@ -331,26 +327,6 @@ class WriteToolDispatcher:
             ):
                 return host_rejected("action_reference_contract_changed")
             return _existing_action_result(selected)
-        replacement = None
-        if (
-            isinstance(payload, DiscardDraft)
-            and payload.target.verified_replacement_action_id is not None
-        ):
-            assert grant is not None and authorize is not None
-            try:
-                replacement, prior = await self._actions.replacement_for_discard(
-                    payload.target.verified_replacement_action_id,
-                    request_id,
-                    UUID(lineage.invocation_id),
-                    grant.grant_id,
-                    grant.account,
-                    self._source_conversation_id,
-                    authorize,
-                )
-            except WorkspaceError as exc:
-                return host_rejected(exc.kind)
-            if prior is not None:
-                return _existing_action_result(prior)
         if blocked and binding.spec.id not in (*WORK_MUTATION_IDS, *EVENT_MUTATION_IDS):
             return host_rejected("effect_outcome_unknown")
         if binding.replay_policy not in {
@@ -360,9 +336,6 @@ class WriteToolDispatcher:
             raise ToolDispatchDefect("write replay policy has no action contract")
         if contains_secret(arguments, self._host_secrets):
             return completed_tool_result(dict(_INVALID_INPUT))
-        authority = classify_write(tool_id, payload)
-        if authority == "rejected":
-            return completed_tool_result(dict(_UNAVAILABLE))
         target = None
         placement = None
         if tool_id in AGENT_WRITE_IDS and isinstance(payload, AgentTargetInput):
@@ -400,7 +373,7 @@ class WriteToolDispatcher:
         prepare_seconds = 0.0
         prepare_human_elapsed = 0.0
         prepare_consent_rounds = 0
-        staging = tool_id in {"gmail.create_draft", "gmail.prepare_replacement"}
+        staging = tool_id == "gmail.create_draft"
         if tool_id in WRITE_TOOL_IDS and grant is not None and authorize is not None:
 
             async def before_prepare() -> None:
@@ -421,39 +394,8 @@ class WriteToolDispatcher:
                             account=grant.account,
                             invocation_id=lineage.invocation_id,
                             before_send=before_prepare,
-                            replacement=replacement,
                             subject=grant.subject,
                         )
-                if isinstance(
-                    frozen.effect,
-                    FrozenDriveCreate
-                    | FrozenDriveCopy
-                    | FrozenDriveRevise
-                    | FrozenDocsUpdate,
-                ):
-                    audience = frozen.effect.audience
-                    named = False
-                    if audience.state == "shared":
-                        async with self._actions.engine.connect() as connection:
-                            direct = await connection.scalar(
-                                select(message.c.home["ref"]).where(
-                                    message.c.id == request_id,
-                                    message.c.role == "owner",
-                                    message.c.source == "web",
-                                )
-                            )
-                        if isinstance(direct, dict):
-                            ref = cast(dict[str, object], direct)
-                            named = (
-                                ref.get("kind"),
-                                ref.get("subject"),
-                                ref.get("id"),
-                            ) == ("drive_file", grant.subject, audience.target)
-                    authority = (
-                        "automatic"
-                        if audience.private or named
-                        else "approval_required"
-                    )
                 prepare_attempts, prepare_seconds = meter.attempts, meter.elapsed
                 prepare_human_elapsed = meter.human_elapsed
                 prepare_consent_rounds = meter.consent_rounds
@@ -467,6 +409,10 @@ class WriteToolDispatcher:
                         "workspace preparation changed its action identity"
                     )
             except (WorkspaceError, MailFileFailure, TimeoutError) as exc:
+                if isinstance(exc, WorkspaceError):
+                    await self._workspace_blocks.observe(
+                        exc, invocation_id=invocation_id, tool_id=str(tool_id)
+                    )
                 if staging:
                     await _discard_mail_stage(self._mail_files, action_id)
                 detail = (
@@ -510,17 +456,9 @@ class WriteToolDispatcher:
             workspace_prepare_seconds=prepare_seconds,
             workspace_prepare_human_elapsed=prepare_human_elapsed,
             workspace_prepare_consent_rounds=prepare_consent_rounds,
-            workspace_grant_id=grant.grant_id
-            if grant is not None and tool_id in {"work.create", "work.update"}
-            else None,
-        )
-        insert = (
-            self._actions.insert_awaiting_approval
-            if authority == "approval_required"
-            else self._actions.insert_automatic
         )
         try:
-            stored = await insert(
+            stored = await self._actions.insert(
                 tool_name=tool_id,
                 arguments=arguments,
                 execution_contract=contract,
@@ -533,10 +471,11 @@ class WriteToolDispatcher:
             if staging and await self._actions.get(action_id) is None:
                 await _discard_mail_stage(self._mail_files, action_id)
             if isinstance(exc, WorkspaceError):
+                await self._workspace_blocks.observe(
+                    exc, invocation_id=invocation_id, tool_id=str(tool_id)
+                )
                 return host_rejected(exc.kind)
             raise
-        if authority == "approval_required":
-            return _existing_action_result(stored)
         entry = (
             WorkspaceWriteEntry(
                 frozen,
@@ -547,6 +486,7 @@ class WriteToolDispatcher:
                 prepare_human_elapsed,
                 prepare_consent_rounds,
                 self._attachments,
+                self._workspace_blocks,
             )
             if frozen is not None and authorize is not None
             else None
@@ -565,132 +505,6 @@ class WriteToolDispatcher:
             await _discard_mail_stage(self._mail_files, action_id)
         self._agents.delegations.notify_changed()
         return result
-
-    def _owner_write_authority(
-        self,
-        lineage: NativeDispatchLineage,
-        owner_id: UUID,
-        tool: ToolId,
-        grant_id: UUID | None,
-        account: str | None,
-        cancellation: CancellationToken,
-        *,
-        decision_for: UUID | None = None,
-        subject: str | None = None,
-    ) -> Callable[[AsyncConnection | None], Awaitable[None]]:
-        async def authorize(connection: AsyncConnection | None) -> None:
-            if connection is None:
-                async with self._actions.engine.connect() as local:
-                    await authorize(local)
-                return
-            if (
-                lineage.permit.scope_id != self._source_conversation_id
-                or lineage.permit.owner_token != self._journal.owner.token
-                or not await workspace_owner_live(
-                    connection,
-                    lineage,
-                    owner_id,
-                    APPROVAL_RESPOND_SPEC.id if decision_for else tool,
-                    decision_for=decision_for,
-                )
-            ):
-                raise WorkspaceError("owner_required")
-            if tool in WRITE_TOOL_IDS:
-                current = self._workspace_grant()
-                if current is None or (current.grant_id, current.account) != (
-                    grant_id,
-                    account,
-                ):
-                    raise WorkspaceError("grant_unavailable")
-                if tool.startswith(("drive.", "docs.")):
-                    if current.subject != subject or DRIVE_SCOPE not in current.scopes:
-                        raise WorkspaceError("scope_missing")
-                if tool in {"gmail.prepare_replacement", "gmail.discard_draft"} and (
-                    "https://www.googleapis.com/auth/gmail.messages.delete"
-                    not in current.scopes
-                ):
-                    raise WorkspaceError("scope_missing")
-            if cancellation.cancelled or self._closing:
-                raise WorkspaceError("cancelled")
-
-        return authorize
-
-    async def _finish_decision(
-        self,
-        decision: ApprovalRespondInput,
-        plan: FrozenToolPlan,
-        cancellation: CancellationToken,
-        lineage: NativeDispatchLineage,
-    ) -> DispatchResult:
-        action_id = UUID(decision.action_id)
-        async with self._dispatch_lane:
-            stored = await self._actions.get(action_id)
-            if stored is None:
-                raise ToolDispatchDefect("decided action disappeared")
-            if stored.tool_name in WRITE_TOOL_IDS and stored.status == "queued":
-                contract = stored.current_execution_contract
-                frozen = contract.workspace
-                if frozen is None or decision.decision != "approve":
-                    raise ToolDispatchDefect(
-                        "decided workspace action lacks its exact effect"
-                    )
-                entry = WorkspaceWriteEntry(
-                    frozen,
-                    await self._actions.original_invocation(stored),
-                    self._owner_write_authority(
-                        lineage,
-                        UUID(decision.owner_message_id),
-                        stored.tool_name,
-                        frozen.grant_id,
-                        frozen.account,
-                        cancellation,
-                        decision_for=action_id,
-                        subject=getattr(frozen.effect, "subject", None),
-                    ),
-                    contract.workspace_prepare_attempts,
-                    contract.workspace_prepare_seconds,
-                    contract.workspace_prepare_human_elapsed,
-                    contract.workspace_prepare_consent_rounds,
-                    self._attachments,
-                )
-                await execute_recorded_action(
-                    self._actions,
-                    action_id=action_id,
-                    binding=require_current_action_binding(stored, plan),
-                    plan=plan,
-                    budgets=ExactToolBudgetFactory().create(plan),
-                    source_conversation_id=self._source_conversation_id,
-                    presence=self._presence,
-                    workspace_entry=entry,
-                )
-            elif stored.status in {"queued", "executing"}:
-                await ActionRecovery(
-                    actions=self._actions,
-                    work=self._work,
-                    events=self._events,
-                    attachments=self._attachments,
-                    mail_files=self._mail_files,
-                    workspace_writes=self._workspace_writes,
-                    workspace_grant=self._workspace_grant,
-                    plan=plan,
-                    source_conversation_id=self._source_conversation_id,
-                    delegation_changed=self._agents.delegations.notify_changed,
-                    presence=self._presence,
-                ).recover_action(
-                    action_id,
-                    allow_queued_execution=not cancellation.cancelled
-                    and not self._closing,
-                )
-            await self._publish_outcome(action_id)
-            stored = await self._actions.get(action_id)
-            if stored is None:
-                raise ToolDispatchDefect("decided action disappeared")
-            result = action_replay_result(stored)
-            return (
-                completed_tool_result(result, HostRef(str(action_id)))
-                if result is not None
-                else DispatchSuspended(HostRef(str(action_id)), WaitingFor.system)
-            )
 
     async def _publish_outcome(self, action_id: UUID) -> None:
         stored = await self._actions.get(action_id)
@@ -721,8 +535,6 @@ class WriteToolDispatcher:
 
 def _existing_action_result(stored: StoredAction) -> DispatchResult:
     reference = HostRef(str(stored.id))
-    if stored.status == "awaiting_approval":
-        return DispatchSuspended(reference, WaitingFor.user)
     recorded = action_replay_result(stored)
     if recorded is not None:
         return completed_tool_result(recorded, reference)
@@ -742,7 +554,7 @@ async def execute_recorded_action(
     presence: Presence,
     workspace_entry: WorkspaceWriteEntry | None = None,
 ) -> DispatchResult:
-    """Enter the same durable position for immediate, approved and recovered work."""
+    """Enter the durable position for immediate or recovered work."""
     stored = await actions.get(action_id, source_conversation_id=source_conversation_id)
     if stored is None:
         raise ToolDispatchDefect("recorded action is unavailable in the owner's scope")
@@ -803,6 +615,7 @@ class ActionRecovery:
         attachments: AttachmentStore,
         mail_files: MailFiles,
         workspace_writes: WorkspaceWrites,
+        workspace_blocks: WorkspaceBlocks,
         workspace_grant: Callable[[], WorkspaceEnrollment | None],
         plan: FrozenToolPlan,
         source_conversation_id: str,
@@ -815,6 +628,7 @@ class ActionRecovery:
         self._attachments = attachments
         self._mail_files = mail_files
         self._workspace_writes = workspace_writes
+        self._workspace_blocks = workspace_blocks
         self._workspace_grant = workspace_grant
         self._plan = plan
         self._source_conversation_id = source_conversation_id
@@ -887,6 +701,18 @@ class ActionRecovery:
             self._binding(stored)
             if stored.status == "executing":
                 stored = await self._actions.mark_workspace_uncertain(stored.id)
+                if stored.status == "succeeded":
+                    await self._workspace_blocks.effect_succeeded(stored.id)
+                elif (
+                    frozen := stored.current_execution_contract.workspace
+                ) is not None:
+                    await self._workspace_blocks.observe(
+                        WorkspaceError("uncertain"),
+                        invocation_id=await self._actions.original_invocation(stored),
+                        action_id=stored.id,
+                        tool_id=str(stored.tool_name),
+                        verification_available=can_observe_workspace_target(frozen),
+                    )
                 await self._repair_drive_custody(stored)
             elif stored.status == "queued":
                 if not allow_queued_execution:
@@ -895,11 +721,9 @@ class ActionRecovery:
                     action_id=stored.id,
                     result={
                         "type": "workspace_cancelled_v1",
-                        "reason_code": "fresh_owner_required",
+                        "reason_code": "fresh_invocation_required",
                     },
                 )
-            elif stored.status == "awaiting_approval":
-                return
             frozen = stored.current_execution_contract.workspace
             if frozen is not None and isinstance(frozen.effect, FrozenCompose):
                 await _discard_mail_stage(self._mail_files, stored.id)
@@ -998,6 +822,73 @@ class ActionRecovery:
                     await self._require(pending.filing_action_id)
                 )
 
+    async def verify_workspace_action(
+        self, action_id: UUID, *, consent_allowed: bool = False
+    ) -> WorkspaceReceipt | UncertainVerification:
+        """Read an acknowledged effect or observe an unknown effect's exact target."""
+        try:
+            stored = await self._actions.get(
+                action_id, source_conversation_id=self._source_conversation_id
+            )
+        except ActionPersistenceDefect:
+            return "verification_unavailable"
+        if (
+            stored is None
+            or stored.status not in {"succeeded", "uncertain"}
+            or not isinstance(stored.execution_contract, ExecutionContract)
+            or (frozen := stored.execution_contract.workspace) is None
+        ):
+            return "verification_unavailable"
+        subject = getattr(frozen.effect, "subject", None)
+
+        async def before_send() -> None:
+            grant = self._workspace_grant()
+            if grant is None or (grant.grant_id, grant.account) != (
+                frozen.grant_id,
+                frozen.account,
+            ):
+                raise WorkspaceError("grant_unavailable")
+            if subject is not None and (
+                grant.subject != subject or DRIVE_SCOPE not in grant.scopes
+            ):
+                raise WorkspaceError("scope_missing")
+
+        try:
+            invocation_id = str(await self._actions.original_invocation(stored))
+        except (ActionPersistenceDefect, NoResultFound, MultipleResultsFound):
+            return "verification_unavailable"
+        if stored.status == "uncertain":
+            return await self._workspace_writes.observe_uncertain(
+                frozen,
+                invocation_id=invocation_id,
+                before_send=before_send,
+                consent_allowed=consent_allowed,
+            )
+
+        try:
+            result = action_replay_result(stored)
+            if result is None or result["type"] != "Success":
+                return "verification_unavailable"
+            receipt = validate_workspace_receipt(stored, result["value"])
+        except (ActionPersistenceDefect, ValueError):
+            return "verification_unavailable"
+        source = submission_source_id(frozen)
+        if source is not None and isinstance(receipt, DriveWriteReceipt):
+            await self._attachments.acknowledge(
+                source, stored.id, receipt.subject, receipt.file_id
+            )
+        if receipt.verification != "verified":
+            receipt = await self._workspace_writes.verify(
+                frozen,
+                receipt,
+                invocation_id=invocation_id,
+                before_send=before_send,
+                consent_allowed=consent_allowed,
+            )
+        if source is not None and receipt.verification == "verified":
+            await self._attachments.verify(source, stored.id, recovered=True)
+        return receipt
+
     async def _repair_drive_custody(self, stored: StoredAction) -> None:
         frozen = stored.current_execution_contract.workspace
         if frozen is None or (source := submission_source_id(frozen)) is None:
@@ -1010,33 +901,16 @@ class ActionRecovery:
             return
         if stored.status != "succeeded":
             return
-        result = action_replay_result(stored)
-        if result is None or result["type"] != "Success":
-            raise ToolDispatchDefect("acknowledged drive filing lacks its receipt")
-        receipt = DriveWriteReceipt.model_validate(result["value"])
-        await self._attachments.acknowledge(
-            source, stored.id, receipt.subject, receipt.file_id
-        )
-        if receipt.verification != "verified":
-
-            async def before_send() -> None:
-                grant = self._workspace_grant()
-                if (
-                    grant is None
-                    or DRIVE_SCOPE not in grant.scopes
-                    or (grant.grant_id, grant.account, grant.subject)
-                    != (receipt.grant_id, receipt.account, receipt.subject)
-                ):
-                    raise WorkspaceError("grant_unavailable")
-
-            receipt = await self._workspace_writes.recover_drive(
-                frozen,
-                receipt,
-                invocation_id=str(await self._actions.original_invocation(stored)),
-                before_send=before_send,
+        try:
+            await self.verify_workspace_action(stored.id, consent_allowed=False)
+        except WorkspaceError as exc:
+            await self._workspace_blocks.observe(
+                exc,
+                invocation_id=await self._actions.original_invocation(stored),
+                action_id=stored.id,
+                verification=True,
+                tool_id=str(stored.tool_name),
             )
-        if receipt.verification == "verified":
-            await self._attachments.verify(source, stored.id, recovered=True)
 
     async def _require(self, action_id: UUID) -> StoredAction:
         stored = await self._actions.get(

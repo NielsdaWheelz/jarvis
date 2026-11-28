@@ -1,5 +1,8 @@
 # adr 0114 · automatic foreground recovery
 
+[adr 0132](0132-one-main.md) replaces the restricted continuation profile in
+the next cut. original-effect settlement and uncertainty still govern recovery.
+
 **accepted for implementation · 2026-11-25 pacific.** implementation started
 from the selected `0584972` at schema `0024` and integrates upstream
 `5647824` at `0025`. recovery adds no migration. production activation and

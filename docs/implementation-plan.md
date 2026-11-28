@@ -16,15 +16,16 @@ unit d composes them, migrates the predecessor and qualifies the matched
 clients. the november 27 controlled rehearsals covered one-main admission,
 blocked work and intake recovery, the `0029` migration, a readable encrypted
 backup and the signed android upgrade in an emulator. the owner waived
-physical handset checks. the [live draft discard failure](issues/google-workspace-mcp.md)
-holds activation. production still runs `0028`. the selected-release journeys
+physical handset checks. production still runs `0028`. the selected-release journeys
 for native routes and gmail intake remain pending. implementation evidence
 and cleanup receipts are under
 `~/.local/state/jarvis/qualification/adr0132-one-main-implementation/` on macbook.
 
 [adr 0133](decisions/0133-viewer-approved-send.md) adds owner approval for each
-exact send in the existing viewer. this changes the allowed gmail scope for a
-qualified draft operation. the draft-delete evidence still gates rollout.
+exact send in the existing viewer. the owner deferred [agent draft deletion
+and replacement](issues/gmail-agent-draft-discard.md) to a future pr. the cut
+ships with the existing agent grant and removes both deferred operations from
+the live tool catalog and execution path.
 
 on november 27 independent opus 5.5 passed all four design units on spec blob
 `fb65225d0fa4021550896d361dca62d621dc6062` after closing nine initial findings,
@@ -200,7 +201,7 @@ passed the final candidate. the stopped restore procedure and immutable
 historical routes passed separately. the [live issue](issues/owner-gmail-editor-live.md)
 tracks real gmail, the physical phone and installed acceptance.
 
-[workspace connector design](decisions/0107-google-workspace.md) splits the february 2027 google cut into a synthetic-data connector pr and a following [history-permission decision](issues/google-workspace-retention.md). keep ordinary history, fresh mail search/read, draft management, incoming mail and event creation, reading, editing and deletion. qualify [five-minute pending-label reception](issues/gmail-mcp-arrivals.md), the 1,000-unit foreground reserve and draft safety before full cutover. real-account rollout also waits for the history decision.
+[workspace connector design](decisions/0107-google-workspace.md) covers the february 2027 google connector cut and synthetic proof. keep ordinary history, fresh mail search/read, draft management, incoming mail and event creation, reading, editing and deletion. qualify [five-minute pending-label reception](issues/gmail-mcp-arrivals.md), the 1,000-unit foreground reserve and draft safety before full cutover.
 
 independent claude opus 5.5 passed the original design, its calendar and draft amendments, and the five-minute reception and quota amendment at sha256 `aa3862bc78b5b7174a309d8392f8430c1a8d3a110761a52522134c24e81d23f6`. the scoped reviews and verified rechecks are in `~/.local/state/jarvis/qualification/workspace-mcp-design/`. for temporary proof, cancel the consent round on native interruption or timeout, serialize workspace calls, and check that a match tap never acknowledges a nonexistent outbox row. measure raw attachment access and draft byte limits on the qualified server. prove the visible generic alert in actual android doze and an ordinary overnight sample. notification settings may suppress it, and repeated invisible high-priority pushes may affect delivery. accept best-effort delivery without adding a handset status service. inconclusive checks appear on the todo. the subscribed-model run is mandatory. missing google-hosted evidence holds installed acceptance.
 

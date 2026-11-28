@@ -14,6 +14,8 @@ comes from the owner, an event, a timer or recovery. jarvis may use every
 supported operation automatically within its enrolled connections. jarvis
 can ask to send a verified draft. the signed-in owner approves each exact
 send in the mail viewer under [adr 0133](docs/decisions/0133-viewer-approved-send.md).
+agent draft creation is supported. [agent deletion and replacement](docs/issues/gmail-agent-draft-discard.md)
+are deferred to a separate pr.
 the agent may read events involving another person. creating, changing or
 deleting those events is prohibited. all wakes share the gmail allowance.
 special google checks become ordinary scheduled todos. workspace blocks have a private record,
@@ -34,11 +36,11 @@ until the matched cut.
 
 ## proposed google workspace connector cut
 
-[design 0107](docs/decisions/0107-google-workspace.md) specifies the fixture-first connector pr, including incoming mail, fresh search and reads, draft management and calendar event creation, reading, updating and deletion. gmail marks incoming mail with a dedicated label. jarvis checks its count every five minutes on standard and reserves the last 1,000 daily gmail units for owner requests. [live qualification](docs/issues/gmail-mcp-arrivals.md) covers backlog, missed mail and quota handling. the owner wants ordinary recording of google reads and answers and a separate [permission review](docs/issues/google-workspace-retention.md) before real use. existing installed contracts govern until an authorized cut.
+[design 0107](docs/decisions/0107-google-workspace.md) specifies the fixture-first connector pr, including incoming mail, fresh search and reads, draft management and calendar event creation, reading, updating and deletion. gmail marks incoming mail with a dedicated label. jarvis checks its count every five minutes on standard and reserves the last 1,000 daily gmail units for owner requests. [live qualification](docs/issues/gmail-mcp-arrivals.md) covers backlog, missed mail and quota handling. google reads and answers use ordinary history. existing installed contracts govern until an authorized cut.
 
 ## drive files target
 
-[adr 0120](docs/decisions/0120-drive-files.md) makes the owner's google drive the durable store for personal files. new submissions can wait locally for filing, and links open the current drive file. the human reader uses an independent read-only grant. the interactive publisher and database recovery keep their existing custody. [adr 0127](docs/decisions/0127-drive-prototype-qualification.md) authorizes testing with synthetic files on the owner's account and moves the data-use review after this prototype cut. [adr 0128](docs/decisions/0128-docs-rest.md) uses the standard docs api for revision-bound reads, edits and suggestions. [adr 0129](docs/decisions/0129-drive-blob-rest.md) uses the standard drive api for file-backed creation and original byte downloads. [adr 0130](docs/decisions/0130-drive-conditional-revision.md) binds binary revisions to the exact drive v2 file tag. the installed attachment contract applies until the stopped cut passes and receives authorization.
+[adr 0120](docs/decisions/0120-drive-files.md) makes the owner's google drive the durable store for personal files. new submissions can wait locally for filing, and links open the current drive file. the human reader uses an independent read-only grant. the interactive publisher and database recovery keep their existing custody. [adr 0127](docs/decisions/0127-drive-prototype-qualification.md) authorizes testing with synthetic files on the owner's account. [adr 0128](docs/decisions/0128-docs-rest.md) uses the standard docs api for revision-bound reads, edits and suggestions. [adr 0129](docs/decisions/0129-drive-blob-rest.md) uses the standard drive api for file-backed creation and original byte downloads. [adr 0130](docs/decisions/0130-drive-conditional-revision.md) binds binary revisions to the exact drive v2 file tag. the installed attachment contract applies until the stopped cut passes and receives authorization.
 
 ## private web home
 

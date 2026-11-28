@@ -530,8 +530,6 @@ the [workspace candidate](decisions/0107-google-workspace.md) removes
 ordinary conversational approval. a candidate with no workspace project has
 workspace disabled. use a separate test project and mailbox for google-hosted
 qualification. copied production credentials confer no workspace access.
-production requires the separate
-[recorded permission decision](issues/google-workspace-retention.md).
 
 for a workspace restore, prove exclusive custody of the pending label. if the
 old host may still be running, revoke the app at google before re-enrolling.
@@ -1258,8 +1256,8 @@ remain readable/searchable and receive no new writes.
 
 [adr 0110](decisions/0110-neon-quota-recovery.md) owns the source cut. enroll
 one dedicated gemini developer api project and prepay billing account, standard
-tier, with $25 manual refills and auto-reload off. confirm billing mode and
-workspace data permission before production inference. stage the google
+tier, with $25 manual refills and auto-reload off. confirm billing mode before
+production inference. stage the google
 authorization credential as root, mode 0600, under
 `/etc/jarvis/credentials/<credential_name>` from the root-owned mapping. the host installer
 generates a distinct private stock bearer and adapter-only continuation key.

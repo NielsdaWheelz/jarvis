@@ -12,13 +12,7 @@ access for this check. verify the folder's trash state before revoking the test
 project's grant. keep provider observations, client checks, cleanup and
 installed acceptance separate.
 
-the owner directed the [data-use review](../issues/google-workspace-retention.md)
-to continue after the prototype works. it does not gate this prototype cut.
-the owner prefers manual removal of newly obtained data if access is revoked.
-these decisions establish owner direction. the provider's positions on
-retention and copying existing records remain open.
-
-this amends the account-isolation and data-use sequencing requirements in
+this amends the account-isolation requirements in
 [0120](0120-drive-files.md). preserve the stopped inventory, byte-exact import,
 backup rehearsal, actual browser and signed handset witnesses and the
 [0125](0125-new-shown-and-owed.md) release order. the owner already waived

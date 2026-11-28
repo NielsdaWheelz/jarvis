@@ -6,8 +6,8 @@ production still uses the previous contracts. the observed baseline is source
 predecessor before implementation and cutover.
 
 [adr 0133](0133-viewer-approved-send.md) amends the mail rule with an
-exact owner approval in the viewer and permits a send-capable scope for a
-qualified draft operation. the model has no executable send path.
+exact owner approval in the viewer. it defers agent draft deletion and
+replacement to a separate release. the model has no executable send path.
 
 ## product contract
 
@@ -20,8 +20,8 @@ ordinary input rules. provenance, dates, receipts and the owner's actual
 instructions remain distinguishable. a wake does not oblige jarvis to speak.
 
 the owner delegates all **already-supported agent operations**, including
-editing a shared document, creating a draft, and discarding a supported draft,
-without another jarvis approval. the agent connectors have two product bans:
+editing a shared document and creating a draft, without another jarvis
+approval. the agent connectors have two product bans:
 
 1. jarvis cannot send mail. only the separate authenticated human editor may
    send through its deliberate send action.
@@ -105,9 +105,9 @@ the owner accepts collaborator-visible writes without a second confirmation.
 keep send-capable scopes (including compose) off the agent grant and sending absent from its
 catalog and executor. verify enrolled scope names without logging tokens. no agent tool,
 worker adapter or blocker-resume endpoint dispatches through the human editor.
-draft creation, replacement and disposal operate on the actual supported
-bindings. do not add a send tool, general trash, sharing editor, new calendar
-verb, or silently activate an unqualified provider capability.
+draft creation uses the existing binding. leave draft replacement and disposal
+off the agent's tool surface until the [provider proof](../issues/gmail-agent-draft-discard.md)
+passes. do not add a send tool, general trash, sharing editor or new calendar verb.
 
 use one calendar participation predicate in the connector. for create, verify
 the chosen calendar's effective organizer and proposed participants. for
@@ -361,9 +361,7 @@ be readable only. one new relation buys restart-safe user action across
 otherwise independent receipts. a short-lived consent form can expire while the owner is
 away. the durable remedy survives. changed wake semantics retire specialized
 match grading and notifications. the accepted race, independent workers,
-connector visibility limits and external service terms remain explicit. this cut adds no mailbox backfill or
-new permission to retain google data. the existing [data-use review](../issues/google-workspace-retention.md)
-keeps its own scope.
+connector visibility limits remain explicit. this cut adds no mailbox backfill.
 
 ## implementation rulings
 

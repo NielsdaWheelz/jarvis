@@ -32,13 +32,13 @@ remain queryable. the superseded editor operation accepts saves only.
 draft deletion should run without a jarvis confirmation when a supported
 google agent operation can discard the exact draft. use the enrolled agent
 transport, an exact draft/message revision, and the editor's same-draft
-write boundary. google still controls its own consent. the existing live
-test left the exact draft active. direct gmail rest deletion requires a
-send-capable scope, and the agent transport has no documented direct
-draft-delete method. keep deployment held until a supported wire operation
-qualifies against the enrolled provider. independent send approval development
-can proceed. [provider evidence](../issues/google-workspace-mcp.md) ·
-[google agent terms](https://workspace.google.com/terms/ai-tools/)
+write boundary. google still controls its own consent.
+
+the november 27 owner decision defers agent draft deletion and replacement to
+a separate pr. the matched release publishes neither operation and keeps the
+current agent grant. jarvis can create drafts, and the owner can edit and
+approve sends in the viewer. the [draft issue](../issues/gmail-agent-draft-discard.md)
+owns the provider evidence and the return criteria for both deferred operations.
 
 ## proof
 
@@ -46,5 +46,5 @@ check a verified chat link, exact viewer fields, a common approval interaction,
 cancel, expiry, changed draft, wrong origin and account, replay across clients,
 and an unknown acknowledgment. prove that a legacy, model or worker call cannot
 dispatch a send. run the existing isolated rehearsal and independent review.
-qualified scope names alone do not prove deletion. record the real deletion,
-readback and fixture cleanup independently before selecting a release.
+for this release, prove both deferred operations are absent and a stale
+request cannot dispatch them. the normal stopped cut and installed checks apply.

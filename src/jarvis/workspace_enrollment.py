@@ -41,9 +41,8 @@ IDENTITY_SCOPES = frozenset(
 ENROLLMENT_SCOPES = SCOPES | IDENTITY_SCOPES
 _AGENT_SCOPES = ENROLLMENT_SCOPES | {DRIVE_SCOPE}
 # Existing credentials can still carry the retired draft-disposal scope.
-_AGENT_GRANTED_SCOPES = _AGENT_SCOPES | {
-    "https://www.googleapis.com/auth/gmail.messages.delete"
-}
+_LEGACY_GMAIL_TRASH_SCOPE = "https://www.googleapis.com/auth/gmail.messages.delete"
+_AGENT_GRANTED_SCOPES = _AGENT_SCOPES | {_LEGACY_GMAIL_TRASH_SCOPE}
 type HumanWorkspaceProduct = Literal["gmail", "drive"]
 OWNER_DRAFT_SCOPES = IDENTITY_SCOPES | {"https://www.googleapis.com/auth/gmail.compose"}
 _HUMAN_SCOPES = {
@@ -335,6 +334,11 @@ async def enroll_workspace(
         copy += (
             " google grants account-wide drive access, including docs. "
             "jarvis uses the supported drive and docs agent operations."
+        )
+    if _LEGACY_GMAIL_TRASH_SCOPE in scopes:
+        copy += (
+            " this carries forward the existing permission to trash mail. "
+            "jarvis leaves it unused."
         )
     if not confirm(f"connect {expected_email} to {project}? {copy}"):
         raise WorkspaceError("cancelled")

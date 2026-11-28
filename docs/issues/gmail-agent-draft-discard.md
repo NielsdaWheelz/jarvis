@@ -2,7 +2,8 @@
 
 open, november 27, 2026. the owner deferred both operations to a future pr.
 jarvis can create drafts. the owner can edit and approve individual sends in
-the mail viewer. replacement needs deletion to retire the superseded draft.
+the mail viewer. a new draft leaves the original in gmail. use the viewer to
+edit the original in place. replacement needs deletion to retire the old draft.
 [release scope](../decisions/0133-viewer-approved-send.md#draft-deletion)
 
 in the enrolled gmail mcp test, `trash_message` returned an ambiguous error.

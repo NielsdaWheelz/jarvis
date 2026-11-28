@@ -1247,13 +1247,11 @@ execute later; resumed work requires fresh consent. no file-backed pause exists.
 
 ## 5. Authority and approvals
 
-the [0107 workspace candidate](docs/decisions/0107-google-workspace.md) uses
-current owner input for draft creation and for preparing a revised copy. every
-calendar write and verified draft discard requires ordinary conversational
-approval. google may separately ask the owner through the existing chat.
-scheduled checks authorize scoped reads only. these rules supersede the gmail
-and calendar permissions below in the candidate. the installed predecessor
-retains its own authority until the stopped cut.
+under [adr 0132](docs/decisions/0132-one-main.md), every wake has the same read
+and write authority. jarvis can create gmail drafts and change verified solo
+calendar events. google may request its own decision. the owner approves
+each send in the viewer under [adr 0133](docs/decisions/0133-viewer-approved-send.md).
+these rules supersede the predecessor's authority below at the stopped cut.
 
 ### 5.1 Automatic operations
 
@@ -1505,8 +1503,9 @@ admission and historical send recovery apply only to their original agent
 paths. the agent has no send tool. earlier draft and send evidence stays
 readable.
 
-0107's agent replacement design verifies a new draft before a separate discard
-proposal for the exact old revision. 0119 keeps both agent operations disabled.
+the [one-main cut](docs/decisions/0133-viewer-approved-send.md) keeps draft
+creation and owner editing in the viewer. the owner must approve each exact
+send there. agent replacement and deletion are deferred.
 
 the [outgoing mail contract](docs/decisions/0101-outgoing-mail-attachments.md)
 governs the installed predecessor and the original identities of its archived
@@ -1752,10 +1751,9 @@ pipeline, never a nested agent.
 | Tools | Granted role | Authority |
 |---|---|---|
 | `gmail.search`, `gmail.read_thread`, `gmail.get_message`, `gmail.list_drafts`, `gmail.get_draft` | main | read; automatic within the active request and grant |
-| `gmail.create_draft`, `gmail.prepare_replacement` | main | write; automatic with current owner authority |
-| `gmail.discard_draft` | main | write; approval required for the exact verified revision |
+| `gmail.create_draft` | main | write; automatic within the current grant |
 | `calendar.list_calendars`, `calendar.list_events`, `calendar.get_event` | main | read; automatic within the active request and grant |
-| `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | main | write; approval required with explicit notification choice |
+| `calendar.create_event`, `calendar.update_event`, `calendar.delete_event` | main | write; automatic for verified solo events |
 | `maps.search_places`, `maps.get_place`, `maps.directions` | Main | Read; automatic |
 | `web.search`, `web.read` | Main | Public-Web read; automatic |
 | `schedule.wake` | Main | Write; automatic |

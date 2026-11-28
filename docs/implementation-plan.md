@@ -10,16 +10,11 @@ worker control are implemented foundations; the remaining product direction and
 operational cutovers are distinguished below. a roadmap entry authorizes no
 runtime change, release, deployment or resumption.
 
-[one main and workspace recovery](decisions/0132-one-main.md) has a source
-candidate. units a–c own cognition, connector effects and workspace blockers.
-unit d composes them, migrates the predecessor and qualifies the matched
-clients. the november 27 controlled rehearsals covered one-main admission,
-blocked work and intake recovery, the `0029` migration, a readable encrypted
-backup and the signed android upgrade in an emulator. the owner waived
-physical handset checks. production still runs `0028`. the selected-release journeys
-for native routes and gmail intake remain pending. implementation evidence
-and cleanup receipts are under
-`~/.local/state/jarvis/qualification/adr0132-one-main-implementation/` on macbook.
+[one main and workspace recovery](decisions/0132-one-main.md) is installed at
+`810a78d` on `0029`. the stopped restore, first live backup restore, personal
+turn, enrolled gmail polls and signed android artifact passed. the owner
+waived physical handset checks. the [installed record](decisions/0132-one-main.md#installed-cut-on-november-27)
+names the remaining route and client proof limits.
 
 [adr 0133](decisions/0133-viewer-approved-send.md) adds owner approval for each
 exact send in the existing viewer. the owner deferred [agent draft deletion

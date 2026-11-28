@@ -57,6 +57,11 @@ on a schema change, the release command prints the protected snapshot directory.
 
 inspect a lost operator connection with the selected or staged release’s `deploy/cutover-hold status ID` through the deployment ssh alias. retry the named command for that id. a change to inputs needs its own authorized id and `--repair-of HELD_ID`. stage an absent forward-repair release for an applying or startup-failed hold with `deploy/install-release --repair-of HELD_ID TARGET`. a durable commit authorizes actual starts and checks. a recorded startup failure requires an explicitly authorized new repair id. verify the selected release, serving processes, web and memory endpoints, actual owner control and backup policy. the owner’s existing pause remains effective even when both services are up. an isolated backup restore proves the contents of its generation. restoring over production requires a separate decision about the generation, intervening owner controls, effects and data loss.
 
+when a schema cut also changes the native mapping, pass the same target file
+to `record-rehearsal` and both `activate-release` calls with `--codex-host-config`.
+retain the restored predecessor mapping. the check uses the staged file and
+binds its digest to the rehearsal and final installed verification.
+
 ## artifact library cut
 
 use the [named release command](#named-production-maintenance) with a qualified

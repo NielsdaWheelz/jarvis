@@ -118,6 +118,9 @@ deployment_runtime_check() {
   if [[ -n "${MAINTENANCE_GOOGLE_STATE:-}" ]]; then
     properties+=("--property=BindReadOnlyPaths=$MAINTENANCE_GOOGLE_STATE:/var/lib/jarvis/connectors/google-oauth-state.json")
   fi
+  if [[ -n "${MAINTENANCE_CODEX_HOST_CONFIG:-}" ]]; then
+    properties+=("--property=BindReadOnlyPaths=$MAINTENANCE_CODEX_HOST_CONFIG:/etc/jarvis/codex-host.json")
+  fi
   while ((extra_count > 0)); do
     properties+=("--property=EnvironmentFile=$1")
     shift
@@ -135,7 +138,8 @@ check_maintenance() {
 
 check_source_activation() {
   local release="$1"
-  MAINTENANCE_MEMORY_CONFIG='' MAINTENANCE_GOOGLE_STATE='' deployment_runtime_check "$release" 0 \
+  MAINTENANCE_MEMORY_CONFIG='' MAINTENANCE_GOOGLE_STATE='' MAINTENANCE_CODEX_HOST_CONFIG='' \
+    deployment_runtime_check "$release" 0 \
     "$release/.venv/bin/jarvis" check-activation </dev/null
 }
 

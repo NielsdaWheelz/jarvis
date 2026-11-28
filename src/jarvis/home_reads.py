@@ -40,7 +40,6 @@ from jarvis.write_tools import (
     DRIVE_COPY_SPEC,
     DRIVE_CREATE_SPEC,
     DRIVE_REVISE_SPEC,
-    GMAIL_DISCARD_DRAFT_SPEC,
     WORKSPACE_IMPLEMENTATION,
     WORKSPACE_MAIL_IMPLEMENTATION,
     WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION,
@@ -633,11 +632,13 @@ def _proposal_contracts() -> str:
         ),
     }
     versions = {name: {rev: "historical"} for name, rev in historical.items()}
+    versions["gmail.discard_draft"] = {
+        "ae4bfd899ba2d1ee070f0820032540146ccee5ec0e23573ab034049b230df712": "workspace",
+    }
     specs = (
         CALENDAR_CREATE_EVENT_SPEC,
         CALENDAR_UPDATE_EVENT_SPEC,
         CALENDAR_DELETE_EVENT_SPEC,
-        GMAIL_DISCARD_DRAFT_SPEC,
         DRIVE_CREATE_SPEC,
         DRIVE_COPY_SPEC,
         DRIVE_REVISE_SPEC,

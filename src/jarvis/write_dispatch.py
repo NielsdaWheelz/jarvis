@@ -83,7 +83,6 @@ from jarvis.workspace_mcp import (
     workspace_attempts,
 )
 from jarvis.workspace_write_models import (
-    DiscardDraft,
     DriveWriteReceipt,
     FrozenCompose,
     UncertainVerification,
@@ -297,11 +296,6 @@ class WriteToolDispatcher:
                     and DRIVE_SCOPE not in current.scopes
                 ):
                     raise WorkspaceError("scope_missing")
-                if tool_id in {"gmail.prepare_replacement", "gmail.discard_draft"} and (
-                    "https://www.googleapis.com/auth/gmail.messages.delete"
-                    not in current.scopes
-                ):
-                    raise WorkspaceError("scope_missing")
 
             authorize = authorize_workspace
             try:
@@ -333,26 +327,6 @@ class WriteToolDispatcher:
             ):
                 return host_rejected("action_reference_contract_changed")
             return _existing_action_result(selected)
-        replacement = None
-        if (
-            isinstance(payload, DiscardDraft)
-            and payload.target.verified_replacement_action_id is not None
-        ):
-            assert grant is not None and authorize is not None
-            try:
-                replacement, prior = await self._actions.replacement_for_discard(
-                    payload.target.verified_replacement_action_id,
-                    request_id,
-                    UUID(lineage.invocation_id),
-                    grant.grant_id,
-                    grant.account,
-                    self._source_conversation_id,
-                    authorize,
-                )
-            except WorkspaceError as exc:
-                return host_rejected(exc.kind)
-            if prior is not None:
-                return _existing_action_result(prior)
         if blocked and binding.spec.id not in (*WORK_MUTATION_IDS, *EVENT_MUTATION_IDS):
             return host_rejected("effect_outcome_unknown")
         if binding.replay_policy not in {
@@ -399,7 +373,7 @@ class WriteToolDispatcher:
         prepare_seconds = 0.0
         prepare_human_elapsed = 0.0
         prepare_consent_rounds = 0
-        staging = tool_id in {"gmail.create_draft", "gmail.prepare_replacement"}
+        staging = tool_id == "gmail.create_draft"
         if tool_id in WRITE_TOOL_IDS and grant is not None and authorize is not None:
 
             async def before_prepare() -> None:
@@ -420,7 +394,6 @@ class WriteToolDispatcher:
                             account=grant.account,
                             invocation_id=lineage.invocation_id,
                             before_send=before_prepare,
-                            replacement=replacement,
                             subject=grant.subject,
                         )
                 prepare_attempts, prepare_seconds = meter.attempts, meter.elapsed

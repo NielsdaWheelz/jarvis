@@ -40,6 +40,10 @@ IDENTITY_SCOPES = frozenset(
 )
 ENROLLMENT_SCOPES = SCOPES | IDENTITY_SCOPES
 _AGENT_SCOPES = ENROLLMENT_SCOPES | {DRIVE_SCOPE}
+# Existing credentials can still carry the retired draft-disposal scope.
+_AGENT_GRANTED_SCOPES = _AGENT_SCOPES | {
+    "https://www.googleapis.com/auth/gmail.messages.delete"
+}
 type HumanWorkspaceProduct = Literal["gmail", "drive"]
 OWNER_DRAFT_SCOPES = IDENTITY_SCOPES | {"https://www.googleapis.com/auth/gmail.compose"}
 _HUMAN_SCOPES = {
@@ -54,9 +58,8 @@ _HUMAN_COPY = {
 }
 _APPROVAL_COPY = (
     "this client must be marked for an ai-powered agent in google cloud. "
-    "its permission can trash ordinary mail and change message labels. jarvis "
-    "uses deletion only for verified draft revisions and label changes only "
-    "to clear its enrolled pending label. the owner sends in gmail."
+    "its permission can change message labels. jarvis uses it only to clear "
+    "its enrolled pending label. the owner approves sending in the mail viewer."
 )
 
 
@@ -93,7 +96,7 @@ def granted_scopes(
     valid = (
         result == _HUMAN_SCOPES[human_product]
         if human_product is not None
-        else (IDENTITY_SCOPES <= result <= _AGENT_SCOPES)
+        else (IDENTITY_SCOPES <= result <= _AGENT_GRANTED_SCOPES)
     )
     if not valid or len(result) != len(scope_list):
         raise ValueError("unexpected or incomplete Google OAuth scopes")

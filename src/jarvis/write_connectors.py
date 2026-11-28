@@ -21,7 +21,6 @@ from jarvis.workspace_mcp import (
 )
 from jarvis.workspace_write_models import (
     CalendarWriteReceipt,
-    DiscardReceipt,
     DraftWriteReceipt,
     DriveWriteReceipt,
     FrozenDriveCreate,
@@ -36,9 +35,7 @@ if TYPE_CHECKING:
     from jarvis.workspace_blocks import WorkspaceBlocks
     from jarvis.workspace_writes import WorkspaceWrites
 
-type WorkspaceReceipt = (
-    DraftWriteReceipt | DiscardReceipt | CalendarWriteReceipt | DriveWriteReceipt
-)
+type WorkspaceReceipt = DraftWriteReceipt | CalendarWriteReceipt | DriveWriteReceipt
 
 
 def submission_source_id(frozen: FrozenWorkspaceWrite) -> UUID | None:

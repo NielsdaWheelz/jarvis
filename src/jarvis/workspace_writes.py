@@ -44,7 +44,7 @@ from jarvis.gmail_drafts import (
     workspace_reply_parent,
 )
 from jarvis.home_refs import DRIVE_STRONG_ETAG_PATTERN
-from jarvis.mail_files import MailFileFailure, MailFiles, NewMailFile, ObservedMailPart
+from jarvis.mail_files import MailFileFailure, MailFiles
 from jarvis.read_tools import ATTACHMENT_MAX_BYTES
 from jarvis.workspace_links import workspace_link
 from jarvis.workspace_mcp import (
@@ -64,14 +64,9 @@ from jarvis.workspace_write_models import (
     CreateDraft,
     CreateEvent,
     DeleteEvent,
-    DiscardReceipt,
-    DiscardSelection,
-    DiscardTarget,
     DocsUpdate,
     DraftEditorStamp,
-    DraftEdits,
     DraftObservation,
-    DraftRef,
     DraftSnapshot,
     DraftWriteReceipt,
     DriveBinarySource,
@@ -86,7 +81,6 @@ from jarvis.workspace_write_models import (
     EventEdits,
     EventObservation,
     EventTime,
-    ExistingMailPart,
     FrozenCalendar,
     FrozenCompose,
     FrozenDiscard,
@@ -97,19 +91,16 @@ from jarvis.workspace_write_models import (
     FrozenDriveRevise,
     FrozenWorkspaceWrite,
     GmailContent,
-    GmailReplyTo,
     Mailbox,
     Scope,
     TimedEventTime,
     UncertainVerification,
     can_observe_workspace_target,
 )
-from jarvis.write_tools import GMAIL_WRITE_POLICY
+from jarvis.write_tools import GMAIL_WRITE_POLICY, WRITE_TOOL_IDS
 
 type Obj = dict[str, object]
-type Receipt = (
-    DraftWriteReceipt | DiscardReceipt | CalendarWriteReceipt | DriveWriteReceipt
-)
+type Receipt = DraftWriteReceipt | CalendarWriteReceipt | DriveWriteReceipt
 type AckRecorder = Callable[[Receipt], Awaitable[None]]
 type DriveOutcome = Literal["created", "copied", "revised", "updated"]
 type EventRequest = CreateEvent | EventEdits | DeleteEvent
@@ -340,58 +331,6 @@ async def _draft(io: _Exchange, draft_id: str) -> _Draft:
     return result
 
 
-async def _verify_trash(io: _Exchange, old: DraftObservation) -> None:
-    try:
-        observed = await io.call(
-            "gmail",
-            "get_draft",
-            {"draftId": old.draft_id, "messageFormat": "METADATA_ONLY"},
-        )
-    except WorkspaceError as exc:
-        if exc.kind != "not_found":
-            raise
-        # A trashed former draft may now be readable only as a message.
-        observed = await io.call(
-            "gmail",
-            "get_message",
-            {"messageId": old.message_id, "messageFormat": "METADATA_ONLY"},
-        )
-        matches = provider_id(observed, "id") == old.message_id
-    else:
-        matches = (
-            provider_id(observed, "id") == old.draft_id
-            and provider_id(observed, "messageId") == old.message_id
-        )
-    if not matches or observed.get("threadId", old.thread_id) != old.thread_id:
-        raise WorkspaceError("draft_identity_differs")
-    labels = provider_labels(observed)
-    if "TRASH" not in labels or "SENT" in labels:
-        raise WorkspaceError("trash_unverified")
-
-
-def _same_draft(
-    expected: DraftRef, current: DraftObservation, *, digest: str | None = None
-) -> None:
-    if (
-        expected.draft_id != current.draft_id
-        or expected.message_id != current.message_id
-        or (digest is not None and current.digest != digest)
-        or (
-            isinstance(expected, DraftObservation)
-            and expected.thread_id != current.thread_id
-        )
-    ):
-        raise WorkspaceWriteConflict(
-            "draft_changed",
-            {
-                "draft_id": expected.draft_id,
-                "expected_message_id": expected.message_id,
-                "observed_message_id": current.message_id,
-                "content_changed": digest is not None and current.digest != digest,
-            },
-        )
-
-
 async def _parent(io: _Exchange, thread: str, message_id: str) -> WorkspaceReplyParent:
     raw = await io.call(
         "gmail",
@@ -404,44 +343,6 @@ async def _parent(io: _Exchange, thread: str, message_id: str) -> WorkspaceReply
     return await asyncio.to_thread(
         workspace_reply_parent, workspace_raw(raw.get("raw"))
     )
-
-
-async def _find_parent(
-    io: _Exchange, thread: str, rfc_id: str
-) -> tuple[GmailReplyTo, WorkspaceReplyParent]:
-    # The draft MIME contains an RFC id. Only a same-thread message with the
-    # exact header establishes the provider id required by replyToMessageId.
-    page = await io.call(
-        "gmail", "get_thread", {"threadId": thread, "messageFormat": "METADATA_ONLY"}
-    )
-    members = _array(page.get("messages"))
-    count = page.get("messageCount", len(members))
-    if (
-        provider_id(page, "id") != thread
-        or type(count) is not int
-        or count != len(members)
-        or not members
-        or len(members) > GMAIL_WRITE_POLICY.max_attempts
-    ):
-        raise WorkspaceError("reply_parent_unverified")
-    found = None
-    for member in members:
-        message_id = provider_id(_obj(member), "id")
-        parent = await _parent(io, thread, message_id)
-        if parent.rfc_id == rfc_id:
-            if found is not None:
-                raise WorkspaceError("reply_parent_ambiguous")
-            found = (
-                GmailReplyTo(
-                    thread_id=thread,
-                    parent_message_id=message_id,
-                    parent_rfc822_message_id=rfc_id,
-                ),
-                parent,
-            )
-    if found is None:
-        raise WorkspaceError("reply_parent_unverified")
-    return found
 
 
 def _plain_addresses(content: GmailContent) -> None:
@@ -459,85 +360,14 @@ async def _compose(
     io: _Exchange,
     files: MailFiles,
     action_id: UUID,
-    account: str,
-    request: CreateDraft | DraftEdits,
+    request: CreateDraft,
 ) -> FrozenCompose:
     parent = None
-    old = None
-    expected_body = None
-    expected_sender_name = None
-    sources: tuple[NewMailFile | ObservedMailPart, ...]
-    if isinstance(request, CreateDraft):
-        tool = "gmail.create_draft"
-        content = request.content
-        sources = request.files
-        if (reply := content.reply_to) is not None:
-            parent = await _parent(io, reply.thread_id, reply.parent_message_id)
-            if parent.rfc_id != reply.parent_rfc822_message_id:
-                raise WorkspaceError("reply_parent_changed")
-    else:
-        tool = "gmail.prepare_replacement"
-        original = await _draft(io, request.draft_ref.draft_id)
-        old = original.observation
-        _same_draft(request.draft_ref, old)
-        try:
-            snapshot, parts = await asyncio.to_thread(
-                workspace_draft_content, original.message, account
-            )
-            expected_sender_name = workspace_draft_snapshot(
-                original.message, snapshot
-            ).sender.name
-        except _PARSE_ERRORS:
-            raise WorkspaceError("unrepresentable_draft_mime") from None
-        body = snapshot.body_text
-        reply = None
-        quote = ""
-        if snapshot.in_reply_to is not None:
-            reply, parent = await _find_parent(io, old.thread_id, snapshot.in_reply_to)
-            if (
-                parent.references != snapshot.references
-                or parent.quote is None
-                or not body.endswith(parent.quote)
-            ):
-                raise WorkspaceError("unrepresentable_reply")
-            quote = parent.quote
-            body = body[: -len(quote)]
-        if not request.changes.model_fields_set and request.files is None:
-            raise WorkspaceError("no_changes")
-        envelope = snapshot.model_dump(
-            include={"to", "cc", "bcc", "subject"}, mode="json"
-        )
-        edits = request.changes.model_dump(mode="json")
-        screen_workspace_content(edits)
-        content = GmailContent.model_validate(
-            {
-                **envelope,
-                "body_text": body,
-                "reply_to": reply,
-                **edits,
-            }
-        )
-        expected_body = _digest((_lf(content.body_text) + quote).encode())
-        retained = tuple(
-            ObservedMailPart(file, data)
-            for file, data in zip(snapshot.files, parts, strict=True)
-        )
-        if request.files is None:
-            sources = retained
-        else:
-            selected: list[NewMailFile | ObservedMailPart] = []
-            positions: set[int] = set()
-            for item in request.files:
-                if isinstance(item, ExistingMailPart):
-                    if item.existing_part in positions or item.existing_part > len(
-                        retained
-                    ):
-                        raise WorkspaceError("invalid_existing_part")
-                    positions.add(item.existing_part)
-                    selected.append(retained[item.existing_part - 1])
-                else:
-                    selected.append(item)
-            sources = tuple(selected)
+    content = request.content
+    if (reply := content.reply_to) is not None:
+        parent = await _parent(io, reply.thread_id, reply.parent_message_id)
+        if parent.rfc_id != reply.parent_rfc822_message_id:
+            raise WorkspaceError("reply_parent_changed")
     if parent is not None and not reply_subject_matches(
         content.subject, parent.subject
     ):
@@ -545,85 +375,23 @@ async def _compose(
     _plain_addresses(content)
     content = content.model_copy(update={"body_text": _lf(content.body_text)})
     staged = await files.stage(
-        action_id, sources, invocation_id=io.invocation, before_send=io.fence
+        action_id, request.files, invocation_id=io.invocation, before_send=io.fence
     )
     return FrozenCompose(
-        tool=tool,
-        old=old,
+        tool="gmail.create_draft",
+        old=None,
         content=content,
         files=staged,
         references=parent.references if parent else (),
         quote_digest=_digest(parent.quote.encode())
         if parent and parent.quote is not None
         else None,
-        expected_body_digest=expected_body,
-        expected_sender_name=expected_sender_name,
+        expected_body_digest=None,
     )
 
 
 def _lf(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
-
-
-async def _discard(
-    io: _Exchange,
-    target: DiscardTarget,
-    receipt: DraftWriteReceipt | None,
-    account: str,
-) -> FrozenDiscard:
-    if target.standalone_draft_ref is not None:
-        if receipt is not None:
-            raise WorkspaceError("invalid_discard_authority")
-        old = (await _draft(io, target.standalone_draft_ref.draft_id)).observation
-        _same_draft(target.standalone_draft_ref, old)
-        return FrozenDiscard(
-            old=old, replacement=None, verified_replacement_action_id=None
-        )
-    if (
-        receipt is None
-        or receipt.action_id != target.verified_replacement_action_id
-        or (receipt.account, receipt.grant_id) != (account, io.grant)
-        or receipt.verification != "verified"
-        or not receipt.old_draft_id
-        or not receipt.old_message_id
-        or not receipt.new_message_id
-        or not receipt.old_thread_id
-        or not receipt.new_thread_id
-        or not receipt.new_digest
-        or not receipt.old_digest
-        or receipt.old_draft_id == receipt.new_draft_id
-        or receipt.old_message_id == receipt.new_message_id
-    ):
-        raise WorkspaceError("invalid_discard_authority")
-    new = (await _draft(io, receipt.new_draft_id)).observation
-    if new.thread_id != receipt.new_thread_id:
-        raise WorkspaceError("replacement_thread_changed")
-    _same_draft(
-        DraftRef(draft_id=receipt.new_draft_id, message_id=receipt.new_message_id),
-        new,
-        digest=receipt.new_digest,
-    )
-    old = (await _draft(io, receipt.old_draft_id)).observation
-    if old.thread_id != receipt.old_thread_id:
-        raise WorkspaceError("draft_thread_changed")
-    _same_draft(
-        DraftRef(draft_id=receipt.old_draft_id, message_id=receipt.old_message_id),
-        old,
-        digest=receipt.old_digest,
-    )
-    return FrozenDiscard(
-        old=old, replacement=new, verified_replacement_action_id=receipt.action_id
-    )
-
-
-async def _fresh_drafts(io: _Exchange, targets: tuple[DraftObservation, ...]) -> None:
-    while True:
-        resumed = io.read_resumptions
-        for expected in targets:
-            current = (await _draft(io, expected.draft_id)).observation
-            _same_draft(expected, current, digest=expected.digest)
-        if len(targets) < 2 or resumed == io.read_resumptions:
-            return
 
 
 def _verify_content(
@@ -650,11 +418,6 @@ def _verify_content(
     if not expected.matches_observed_body(snapshot.body_text):
         raise WorkspaceError("draft_body_differs")
     observed = workspace_draft_snapshot(draft.message, snapshot)
-    if (
-        expected.old is not None
-        and observed.sender.name != expected.expected_sender_name
-    ):
-        raise WorkspaceError("draft_sender_name_differs")
     return snapshot.body_text != content.body_text, observed
 
 
@@ -1332,11 +1095,12 @@ class WorkspaceWrites:
         account: str,
         invocation_id: str,
         before_send: Fence,
-        replacement: DraftWriteReceipt | None = None,
         subject: str | None = None,
     ) -> FrozenWorkspaceWrite:
+        if tool not in WRITE_TOOL_IDS:
+            raise WorkspaceError("unsupported")
         if tool.startswith(("drive.", "docs.")):
-            if subject is None or replacement is not None:
+            if subject is None:
                 raise WorkspaceError("grant_unavailable")
             with workspace_attempts(
                 WORKSPACE_DRIVE_RPC_LIMIT, seconds=_DRIVE_WRITE_SECONDS
@@ -1368,36 +1132,18 @@ class WorkspaceWrites:
                 io = _Exchange(
                     self._client, grant_id, account, invocation_id, before_send
                 )
-                if tool != "gmail.discard_draft" and replacement is not None:
-                    raise WorkspaceError("invalid_discard_authority")
-                effect: FrozenCompose | FrozenDiscard | FrozenCalendar
+                effect: FrozenCompose | FrozenCalendar
                 if tool == "gmail.create_draft":
                     effect = await _compose(
                         io,
                         self._files,
                         action_id,
-                        account,
                         CreateDraft.model_validate(arguments),
                     )
                     if self._editor_stamp is not None:
                         effect = effect.model_copy(
                             update={"editor": self._editor_stamp(grant_id)}
                         )
-                elif tool == "gmail.prepare_replacement":
-                    effect = await _compose(
-                        io,
-                        self._files,
-                        action_id,
-                        account,
-                        DraftEdits.model_validate(arguments),
-                    )
-                elif tool == "gmail.discard_draft":
-                    effect = await _discard(
-                        io,
-                        DiscardSelection.model_validate(arguments).target,
-                        replacement,
-                        account,
-                    )
                 elif tool == "calendar.create_event":
                     effect = await _freeze_event(
                         io, CreateEvent.model_validate(arguments)
@@ -1439,6 +1185,9 @@ class WorkspaceWrites:
         capture_draft: Callable[[DraftSnapshot], None] | None = None,
         verification_blocked: Callable[[WorkspaceError], Awaitable[None]] | None = None,
     ) -> Receipt:
+        effect = frozen.effect
+        if isinstance(effect, FrozenDiscard) or frozen.tool not in WRITE_TOOL_IDS:
+            raise WorkspaceError("unsupported", known_no_effect=True)
         drive = frozen.tool.startswith(("drive.", "docs."))
         with workspace_attempts(
             WORKSPACE_DRIVE_RPC_LIMIT if drive else GMAIL_WRITE_POLICY.max_attempts,
@@ -1460,11 +1209,8 @@ class WorkspaceWrites:
             except WorkspaceError as e:
                 e.known_no_effect = True
                 raise
-            effect = frozen.effect
             if isinstance(effect, FrozenCompose):
                 receipt: Receipt = await self._create(io, frozen, effect)
-            elif isinstance(effect, FrozenDiscard):
-                receipt = await self._trash(io, frozen, effect)
             elif isinstance(effect, FrozenCalendar):
                 receipt = await self._calendar(io, frozen, effect)
             else:
@@ -1503,6 +1249,9 @@ class WorkspaceWrites:
         identity = (frozen.action_id, frozen.grant_id, frozen.account)
         if (receipt.action_id, receipt.grant_id, receipt.account) != identity:
             raise WorkspaceError("invalid_receipt")
+        effect = frozen.effect
+        if isinstance(effect, FrozenDiscard) or frozen.tool not in WRITE_TOOL_IDS:
+            raise WorkspaceError("unsupported", known_no_effect=True)
         drive = frozen.tool.startswith(("drive.", "docs."))
         with workspace_attempts(
             WORKSPACE_DRIVE_RPC_LIMIT if drive else GMAIL_WRITE_POLICY.max_attempts,
@@ -1519,7 +1268,7 @@ class WorkspaceWrites:
                 consent_allowed=consent_allowed,
             )
             try:
-                return await self._verify(io, frozen.effect, receipt)
+                return await self._verify(io, effect, receipt)
             except (TypeError, *_PARSE_ERRORS):
                 raise WorkspaceError("invalid_response") from None
 
@@ -1550,9 +1299,7 @@ class WorkspaceWrites:
                 consent_allowed=consent_allowed,
             )
             try:
-                if isinstance(effect, FrozenDiscard):
-                    await _verify_trash(io, effect.old)
-                elif isinstance(effect, FrozenCalendar) and effect.event_id is not None:
+                if isinstance(effect, FrozenCalendar) and effect.event_id is not None:
                     raw = await _event(io, effect.calendar_id, effect.event_id)
                     _verify_event(raw, effect)
                 else:
@@ -1591,7 +1338,7 @@ class WorkspaceWrites:
     async def _verify(
         self,
         io: _Exchange,
-        effect: FrozenCompose | FrozenDiscard | FrozenCalendar | FrozenDriveEffect,
+        effect: FrozenCompose | FrozenCalendar | FrozenDriveEffect,
         receipt: Receipt,
         capture_draft: Callable[[DraftSnapshot], None] | None = None,
     ) -> Receipt:
@@ -1602,15 +1349,11 @@ class WorkspaceWrites:
             live = await _draft(io, receipt.new_draft_id)
             rev = live.observation
             if (
-                (
-                    receipt.new_message_id is not None
-                    and receipt.new_message_id != rev.message_id
-                )
-                or (effect.old and effect.old.message_id == rev.message_id)
-                or (
-                    receipt.new_thread_id is not None
-                    and receipt.new_thread_id != rev.thread_id
-                )
+                receipt.new_message_id is not None
+                and receipt.new_message_id != rev.message_id
+            ) or (
+                receipt.new_thread_id is not None
+                and receipt.new_thread_id != rev.thread_id
             ):
                 raise WorkspaceError("draft_changed")
             generated_quote, snapshot = await asyncio.to_thread(
@@ -1623,8 +1366,6 @@ class WorkspaceWrites:
                 "new_link": rev.link or receipt.new_link,
                 "generated_quote": generated_quote,
             }
-        elif isinstance(effect, FrozenDiscard) and isinstance(receipt, DiscardReceipt):
-            await _verify_trash(io, effect.old)
         elif isinstance(effect, FrozenCalendar) and isinstance(
             receipt, CalendarWriteReceipt
         ):
@@ -1915,32 +1656,21 @@ class WorkspaceWrites:
         reply = content.reply_to
         if reply:
             args["replyToMessageId"] = reply.parent_message_id
-        old = effect.old
 
         async def fresh() -> None:
-            nonlocal old
-            while True:
-                resumed = io.read_resumptions
-                if reply:
-                    parent = await _parent(io, reply.thread_id, reply.parent_message_id)
-                    if (
-                        parent.rfc_id != reply.parent_rfc822_message_id
-                        or parent.references != effect.references
-                        or not reply_subject_matches(content.subject, parent.subject)
-                        or (
-                            _digest(parent.quote.encode())
-                            if parent.quote is not None
-                            else None
-                        )
-                        != effect.quote_digest
-                    ):
-                        raise WorkspaceError("reply_parent_changed")
-                if old:
-                    current = (await _draft(io, old.draft_id)).observation
-                    _same_draft(old, current, digest=old.digest)
-                    old = current
-                if not reply or old is None or resumed == io.read_resumptions:
-                    return
+            if reply is None:
+                return
+            parent = await _parent(io, reply.thread_id, reply.parent_message_id)
+            if (
+                parent.rfc_id != reply.parent_rfc822_message_id
+                or parent.references != effect.references
+                or not reply_subject_matches(content.subject, parent.subject)
+                or (
+                    _digest(parent.quote.encode()) if parent.quote is not None else None
+                )
+                != effect.quote_digest
+            ):
+                raise WorkspaceError("reply_parent_changed")
 
         result = await io.call(
             "gmail", "create_draft", args, preflight=fresh, write=True
@@ -1949,8 +1679,6 @@ class WorkspaceWrites:
             did = provider_id(result, "id")
             mid = provider_id(result, "messageId") if "messageId" in result else None
             thread = provider_id(result, "threadId") if "threadId" in result else None
-            if old and (old.draft_id == did or old.message_id == mid):
-                raise ValueError("replacement identity is not new")
         except _PARSE_ERRORS:
             raise WorkspaceError("uncertain") from None
         now = datetime.now(UTC)
@@ -1962,12 +1690,12 @@ class WorkspaceWrites:
             observed_at=now,
             verification="unverified",
             reason="readback_pending",
-            old_draft_id=old.draft_id if old else None,
-            old_message_id=old.message_id if old else None,
-            old_digest=old.digest if old else None,
-            old_thread_id=old.thread_id if old else None,
-            old_link=old.link if old else None,
-            old_observed_at=old.observed_at if old else None,
+            old_draft_id=None,
+            old_message_id=None,
+            old_digest=None,
+            old_thread_id=None,
+            old_link=None,
+            old_observed_at=None,
             new_draft_id=did,
             new_message_id=mid,
             new_digest=None,
@@ -1979,39 +1707,6 @@ class WorkspaceWrites:
             else None,
             files=effect.files,
             generated_quote=None,
-        )
-
-    async def _trash(
-        self, io: _Exchange, frozen: FrozenWorkspaceWrite, effect: FrozenDiscard
-    ) -> DiscardReceipt:
-        old, new = effect.old, effect.replacement
-        targets = (new, old) if new is not None else (old,)
-        result = await io.call(
-            "gmail",
-            "trash_message",
-            {"messageId": old.message_id},
-            preflight=lambda: _fresh_drafts(io, targets),
-            write=True,
-        )
-        # Google's TrashMessageResponse is an empty object in a completed tool result.
-        if result != {}:
-            raise WorkspaceError("uncertain")
-        now = datetime.now(UTC)
-        return DiscardReceipt(
-            action_id=frozen.action_id,
-            grant_id=frozen.grant_id,
-            account=frozen.account,
-            acknowledged_at=now,
-            observed_at=now,
-            verification="unverified",
-            reason="readback_pending",
-            old_draft_id=old.draft_id,
-            old_message_id=old.message_id,
-            old_link=old.link,
-            new_draft_id=new.draft_id if new else None,
-            new_message_id=new.message_id if new else None,
-            new_link=new.link if new else None,
-            verified_replacement_action_id=effect.verified_replacement_action_id,
         )
 
     async def _calendar(

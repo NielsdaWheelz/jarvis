@@ -164,8 +164,6 @@ MAIN_WRITE_IDS = (
     ToolId("calendar.delete_event"),
     ToolId("calendar.update_event"),
     ToolId("gmail.create_draft"),
-    ToolId("gmail.prepare_replacement"),
-    ToolId("gmail.discard_draft"),
     *AGENT_WRITE_IDS,
     *WORK_MUTATION_IDS,
     *EVENT_MUTATION_IDS,
@@ -246,7 +244,9 @@ _MAIN_ROLE_INSTRUCTIONS = (
     "for an email ready for the owner to approve sending, set answered/partial "
     "send_request to the verified gmail.create_draft action id from this turn. "
     "name its input in input_outcomes and give a brief review request in chat. "
-    "keep the email text, recipients and attachments in the viewer. otherwise "
+    "keep the email text, recipients and attachments in the viewer. "
+    "jarvis creates drafts. editing an existing draft is an owner viewer action. "
+    "otherwise "
     "set send_request=null and link any finished draft as usual. "
     "file_ref names a verified live drive file. lead with a standalone "
     "plain-text finding. label unsaved prose suggested reply. "

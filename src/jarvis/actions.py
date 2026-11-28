@@ -89,12 +89,11 @@ from jarvis.work_tools import WORK_MUTATION_IDS, validate_work_result
 from jarvis.workspace_mcp import HUMAN_WAIT_SECONDS, MAX_CONSENT_ROUNDS, WorkspaceError
 from jarvis.workspace_write_models import (
     CalendarWriteReceipt,
-    DiscardReceipt,
     DraftSnapshot,
     DraftWriteReceipt,
     DriveWriteReceipt,
+    FrozenCalendar,
     FrozenCompose,
-    FrozenDiscard,
     FrozenDocsUpdate,
     FrozenDriveCopy,
     FrozenDriveCreate,
@@ -109,6 +108,7 @@ from jarvis.write_connectors import (
 )
 from jarvis.write_tools import (
     GMAIL_CREATE_DRAFT_SPEC,
+    RETIRED_DRAFT_WRITE_IDS,
     WORKSPACE_IMPLEMENTATION,
     WORKSPACE_MAIL_IMPLEMENTATION,
     WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION,
@@ -175,6 +175,9 @@ _RETIRED_WORKSPACE_REVISIONS[GMAIL_CREATE_DRAFT_SPEC.id].update(
     (WORKSPACE_IMPLEMENTATION, WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION)
 )
 
+
+for _tool in RETIRED_DRAFT_WRITE_IDS:
+    _RETIRED_WORKSPACE_REVISIONS[_tool] = {WORKSPACE_IMPLEMENTATION}
 
 for _tool in WRITE_TOOL_IDS:
     if workspace_implementation(_tool) == WORKSPACE_WRITE_IMPLEMENTATION:
@@ -395,18 +398,6 @@ class ActionStore:
                     raise ActionPersistenceDefect(
                         "workspace preparation belongs to another action"
                     )
-                if (
-                    isinstance(frozen.effect, FrozenDiscard)
-                    and frozen.effect.verified_replacement_action_id is not None
-                ):
-                    existing = await _linked_discard(
-                        connection, frozen, origin_message_id
-                    )
-                    if existing is not None:
-                        await _link_native_action(
-                            connection, invocation_id, existing.id
-                        )
-                        return existing
             row = (
                 (
                     await connection.execute(
@@ -506,28 +497,6 @@ class ActionStore:
                 else await recorded_action(connection, action_id)
             )
 
-    async def replacement_for_discard(
-        self,
-        replacement_id: UUID,
-        origin_id: UUID,
-        invocation_id: UUID,
-        grant_id: UUID,
-        account: str,
-        scope: str,
-        authorize: Callable[[AsyncConnection | None], Awaitable[None]],
-    ) -> tuple[DraftWriteReceipt, StoredAction | None]:
-        async with self.engine.begin() as connection:
-            await lock_conversation(connection, scope)
-            await authorize(connection)
-            source = await recorded_action(
-                connection, replacement_id, source_conversation_id=scope
-            )
-            receipt = _verified_replacement(source, grant_id, account)
-            existing = await _prior_discard(connection, replacement_id, origin_id)
-            if existing is not None:
-                await _link_native_action(connection, invocation_id, existing.id)
-            return receipt, existing
-
     async def original_invocation(self, stored: StoredAction) -> UUID:
         async with self.engine.connect() as connection:
             return await _workspace_invocation(connection, stored)
@@ -544,9 +513,7 @@ class ActionStore:
         async with self.engine.connect() as connection:
             ids = await connection.scalars(
                 select(action.c.id).where(
-                    action.c.tool_name.in_(
-                        ("gmail.create_draft", "gmail.prepare_replacement")
-                    ),
+                    action.c.tool_name == GMAIL_CREATE_DRAFT_SPEC.id,
                     action.c.status.in_(("awaiting_approval", "queued", "executing")),
                     action.c.execution_contract.op("?")("workspace"),
                 )
@@ -1680,23 +1647,6 @@ def validate_workspace_receipt(stored: StoredAction, value: object) -> Workspace
             effect.files,
         ):
             raise ValueError("draft receipt differs from the frozen revision")
-    elif isinstance(effect, FrozenDiscard):
-        receipt = DiscardReceipt.model_validate(value)
-        new = effect.replacement
-        if (
-            receipt.old_draft_id,
-            receipt.old_message_id,
-            receipt.new_draft_id,
-            receipt.new_message_id,
-            receipt.verified_replacement_action_id,
-        ) != (
-            effect.old.draft_id,
-            effect.old.message_id,
-            new.draft_id if new else None,
-            new.message_id if new else None,
-            effect.verified_replacement_action_id,
-        ):
-            raise ValueError("discard receipt names different revisions")
     elif isinstance(
         effect,
         FrozenDriveCreate | FrozenDriveCopy | FrozenDriveRevise | FrozenDocsUpdate,
@@ -1726,7 +1676,7 @@ def validate_workspace_receipt(stored: StoredAction, value: object) -> Workspace
             or (isinstance(effect, FrozenDocsUpdate) and receipt.mode != effect.mode)
         ):
             raise ValueError("drive receipt differs from the frozen operation")
-    else:
+    elif isinstance(effect, FrozenCalendar):
         receipt = CalendarWriteReceipt.model_validate(value)
         if (
             receipt.calendar_id != effect.calendar_id
@@ -1741,6 +1691,8 @@ def validate_workspace_receipt(stored: StoredAction, value: object) -> Workspace
             }[frozen.tool]
         ):
             raise ValueError("calendar receipt differs from its frozen operation")
+    else:
+        raise ValueError("unsupported workspace receipt")
     if (receipt.action_id, receipt.grant_id, receipt.account) != (
         frozen.action_id,
         frozen.grant_id,
@@ -1773,7 +1725,6 @@ def _same_workspace_ack(ack: object, latest: object) -> bool:
         "etag",
         "mode",
         "suggestion_ids",
-        "verified_replacement_action_id",
     )
     return all(original.get(key) == observed.get(key) for key in stable) and all(
         original.get(key) is None
@@ -1781,105 +1732,6 @@ def _same_workspace_ack(ack: object, latest: object) -> bool:
         or original[key] == observed[key]
         for key in ("new_message_id", "new_thread_id")
     )
-
-
-def _verified_replacement(
-    source: StoredAction | None, grant_id: UUID, account: str
-) -> DraftWriteReceipt:
-    if (
-        source is None
-        or source.tool_name != "gmail.prepare_replacement"
-        or source.status != "succeeded"
-        or not isinstance(source.execution_contract, ExecutionContract)
-    ):
-        raise WorkspaceError("unverified_replacement")
-    receipt = validate_workspace_receipt(source, _stored_tool_result(source)["value"])
-    if (
-        not isinstance(receipt, DraftWriteReceipt)
-        or receipt.verification != "verified"
-        or not receipt.old_draft_id
-        or (receipt.grant_id, receipt.account) != (grant_id, account)
-    ):
-        raise WorkspaceError("unverified_replacement")
-    return receipt
-
-
-async def _prior_discard(
-    connection: AsyncConnection, replacement_id: UUID, origin_id: UUID
-) -> StoredAction | None:
-    previous = (
-        (
-            await connection.execute(
-                select(action)
-                .where(
-                    action.c.tool_name == "gmail.discard_draft",
-                    action.c.arguments["arguments"]["target"][
-                        "verified_replacement_action_id"
-                    ].as_string()
-                    == str(replacement_id),
-                )
-                .order_by(action.c.created_at.desc(), action.c.id.desc())
-                .limit(1)
-                .with_for_update()
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
-    if previous is None:
-        return None
-    if previous["attempts"] > 0 or previous["status"] in {
-        "awaiting_approval",
-        "queued",
-        "executing",
-    }:
-        return _stored_action(previous)
-    fresh = await connection.scalar(
-        select(message.c.id).where(
-            message.c.id == origin_id,
-            message.c.created_at > previous["completed_at"],
-            message.c.id != previous["origin_message_id"],
-        )
-    )
-    if fresh is None:
-        raise WorkspaceError("fresh_request_required")
-    return None
-
-
-async def _linked_discard(
-    connection: AsyncConnection, frozen: FrozenWorkspaceWrite, origin_id: UUID
-) -> StoredAction | None:
-    effect = frozen.effect
-    assert (
-        isinstance(effect, FrozenDiscard)
-        and effect.verified_replacement_action_id is not None
-    )
-    source = await require_locked_action(
-        connection, effect.verified_replacement_action_id
-    )
-    receipt = _verified_replacement(source, frozen.grant_id, frozen.account)
-    new = effect.replacement
-    if new is None or (
-        effect.old.draft_id,
-        effect.old.message_id,
-        effect.old.digest,
-        effect.old.thread_id,
-        new.draft_id,
-        new.message_id,
-        new.digest,
-        new.thread_id,
-    ) != (
-        receipt.old_draft_id,
-        receipt.old_message_id,
-        receipt.old_digest,
-        receipt.old_thread_id,
-        receipt.new_draft_id,
-        receipt.new_message_id,
-        receipt.new_digest,
-        receipt.new_thread_id,
-    ):
-        raise WorkspaceError("unverified_replacement")
-    return await _prior_discard(connection, source.id, origin_id)
 
 
 async def _lock_new_action(

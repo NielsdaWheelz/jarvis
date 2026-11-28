@@ -23,7 +23,6 @@ from jarvis.write_tools import (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
     GMAIL_CREATE_DRAFT_SPEC,
-    GMAIL_PREPARE_REPLACEMENT_SPEC,
     HISTORICAL_CALENDAR_CREATE_EVENT_SPEC,
     HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC,
 )
@@ -40,10 +39,16 @@ _CALENDAR_WRITES = {
         (HISTORICAL_CALENDAR_UPDATE_EVENT_SPEC, "updated"),
     )
 }
-_DRAFT_WRITES = frozenset(
-    (spec.id, action_request_spec(spec).tool_contract_revision)
-    for spec in (GMAIL_CREATE_DRAFT_SPEC, GMAIL_PREPARE_REPLACEMENT_SPEC)
-)
+_DRAFT_WRITES = {
+    (
+        GMAIL_CREATE_DRAFT_SPEC.id,
+        action_request_spec(GMAIL_CREATE_DRAFT_SPEC).tool_contract_revision,
+    ),
+    (
+        "gmail.prepare_replacement",
+        "668f853bec64d87f3505b23caa4865c02ab838ae90ba9269d25b883c0414bcc0",
+    ),
+}
 _HOST_SOURCES = {
     "action": "operation update",
     "submission": "upload custody",

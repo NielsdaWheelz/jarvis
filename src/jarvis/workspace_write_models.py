@@ -29,9 +29,7 @@ from jarvis.home_refs import DRIVE_MIME_PATTERN
 from jarvis.home_refs import DriveId as DriveId
 from jarvis.mail_files import (
     MAIL_MAX_FILES,
-    DriveMailFileRef,
     MailFile,
-    NativeFileRef,
     NewMailFile,
     Sha256,
 )
@@ -209,58 +207,14 @@ class _Changes(_StrictModel):
         return {key: result[key] for key in self.model_fields_set}
 
 
-class DraftChanges(_Changes):
-    to: Recipients | None = None
-    cc: Recipients | None = None
-    bcc: Recipients | None = None
-    subject: str | None = None
-    body_text: str | None = None
-
-
 class DraftRef(_StrictModel):
     draft_id: ResourceId
     message_id: ResourceId
 
 
-class ExistingMailPart(_StrictModel):
-    kind: Literal["existing"]
-    existing_part: Annotated[int, Field(strict=True, ge=1, le=MAIL_MAX_FILES)]
-
-
-type ReplacementFile = Annotated[
-    DriveMailFileRef | NativeFileRef | ExistingMailPart, Field(discriminator="kind")
-]
-
-
 class CreateDraft(_StrictModel):
     content: GmailContent
     files: FileList
-
-
-class DraftEdits(_StrictModel):
-    draft_ref: DraftRef
-    changes: DraftChanges
-    files: (
-        Annotated[tuple[ReplacementFile, ...], Field(max_length=MAIL_MAX_FILES)] | None
-    ) = None
-
-
-class DiscardTarget(_Changes):
-    standalone_draft_ref: DraftRef | None = None
-    verified_replacement_action_id: UUID | None = None
-
-    @model_validator(mode="after")
-    def one_target(self) -> Self:
-        if len(self.model_fields_set) != 1 or (
-            self.standalone_draft_ref is None
-            and self.verified_replacement_action_id is None
-        ):
-            raise ValueError("specify exactly one discard target")
-        return self
-
-
-class DiscardSelection(_StrictModel):
-    target: DiscardTarget
 
 
 class EventRef(_StrictModel):
@@ -311,17 +265,6 @@ class _Change[Tag: str, Value](_StrictModel):
     value: Value
 
 
-type DraftFieldChange = Annotated[
-    _Change[
-        Literal["to"],
-        Annotated[tuple[Mailbox, ...], Field(min_length=1, max_length=50)],
-    ]
-    | _Change[Literal["cc"], Recipients]
-    | _Change[Literal["bcc"], Recipients]
-    | _Change[Literal["subject"], Annotated[str, Field(max_length=998)]]
-    | _Change[Literal["body_text"], Annotated[str, Field(max_length=100_000)]],
-    Field(discriminator="field"),
-]
 type CalendarFieldChange = Annotated[
     _Change[Literal["summary"], Annotated[str, Field(max_length=1024)]]
     | _Change[Literal["description"], Annotated[str, Field(max_length=16_384)] | None]
@@ -342,40 +285,6 @@ type CalendarFieldChange = Annotated[
 ]
 
 
-class PrepareReplacement(_StrictModel):
-    draft_ref: DraftRef
-    changes: Annotated[tuple[DraftFieldChange, ...], Field(max_length=5)]
-    files: (
-        Annotated[tuple[ReplacementFile, ...], Field(max_length=MAIL_MAX_FILES)] | None
-    )
-
-    @model_validator(mode="after")
-    def exact_edits(self) -> Self:
-        if len({change.field for change in self.changes}) != len(self.changes):
-            raise ValueError("duplicate draft change")
-        if not self.changes and self.files is None:
-            raise ValueError("specify a draft change or final files")
-        return self
-
-
-class StandaloneDiscard(_StrictModel):
-    kind: Literal["standalone"]
-    standalone_draft_ref: DraftRef
-
-    @property
-    def verified_replacement_action_id(self) -> None:
-        return None
-
-
-class LinkedDiscard(_StrictModel):
-    kind: Literal["replacement"]
-    verified_replacement_action_id: UUID
-
-
-class DiscardDraft(_StrictModel):
-    target: Annotated[StandaloneDiscard | LinkedDiscard, Field(discriminator="kind")]
-
-
 class UpdateEvent(_StrictModel):
     event_ref: EventRef
     changes: Annotated[
@@ -392,12 +301,10 @@ class UpdateEvent(_StrictModel):
 def workspace_write_arguments(payload: BaseModel) -> dict[str, object]:
     """Project a validated native request into semantic effect arguments."""
     args = payload.model_dump(mode="json")
-    if isinstance(payload, PrepareReplacement | UpdateEvent):
+    if isinstance(payload, UpdateEvent):
         args["changes"] = {
             change["field"]: change["value"] for change in args["changes"]
         }
-    elif isinstance(payload, DiscardDraft):
-        args["target"] = payload.target.model_dump(mode="json", exclude={"kind"})
     return args
 
 
@@ -874,12 +781,8 @@ type UncertainVerification = Literal[
 
 def can_observe_workspace_target(frozen: FrozenWorkspaceWrite) -> bool:
     effect = frozen.effect
-    return (
-        isinstance(effect, FrozenDiscard)
-        or (isinstance(effect, FrozenCalendar) and effect.event_id is not None)
-        or (
-            isinstance(effect, FrozenDriveRevise) and effect.expected.sha256 is not None
-        )
+    return (isinstance(effect, FrozenCalendar) and effect.event_id is not None) or (
+        isinstance(effect, FrozenDriveRevise) and effect.expected.sha256 is not None
     )
 
 
@@ -936,17 +839,6 @@ class DraftWriteReceipt(_Receipt):
         ):
             raise ValueError("verified draft needs its exact revision")
         return self
-
-
-class DiscardReceipt(_Receipt):
-    outcome: Literal["trashed"] = "trashed"
-    old_draft_id: ResourceId
-    old_message_id: ResourceId
-    old_link: str | None
-    new_draft_id: ResourceId | None
-    new_message_id: ResourceId | None
-    new_link: str | None
-    verified_replacement_action_id: UUID | None
 
 
 class CalendarWriteReceipt(_Receipt):

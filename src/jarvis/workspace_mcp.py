@@ -64,7 +64,6 @@ _GMAIL = {
     "create_draft": "gmail.drafts.create",
     "list_drafts": "gmail.drafts.readonly",
     "get_draft": "gmail.drafts.readonly",
-    "trash_message": "gmail.messages.delete",
     "list_labels": "gmail.labels.readonly",
     "unlabel_message": "gmail.messages.modify",
 }
@@ -108,7 +107,6 @@ GMAIL_TOOL_WEIGHTS = {
 }
 _WRITES = frozenset(
     {
-        "trash_message",
         "unlabel_message",
         "create_draft",
         "create_event",
@@ -144,7 +142,6 @@ _SCHEMA_PINS = {
     "list_events": "AZBu7A2TSHMtP4rQxRKkjUymTZCvGzK2rjN6wcSXMsY=",
     "list_labels": "bJ4hYifIl2LTcGqy2g8q4ELjOZQJujwaN4Zf1tRur2o=",
     "search_threads": "t6TBynZXZ+XurmG66FYJKkRidu/MivFpEzYilcyIct4=",
-    "trash_message": "uXR40vFo5a8EHRcXDFqIaxkyZGgxZV+RGRL0siPPGDI=",
     "unlabel_message": "Xv/XkaDptumHcsBY5R9TzvAfcv/79h2YgpsxWrNuecg=",
     "update_event": "zZWd9BmIzEbngYpa9JgIIcXd+mpaVKfgIULX0to5P5I=",
 }

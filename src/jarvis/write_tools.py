@@ -44,15 +44,12 @@ from jarvis.workspace_write_models import (
     CreateDraft,
     CreateEvent,
     DeleteEvent,
-    DiscardDraft,
-    DiscardReceipt,
     DocsUpdate,
     DraftWriteReceipt,
     DriveCopy,
     DriveCreate,
     DriveRevise,
     DriveWriteReceipt,
-    PrepareReplacement,
     UpdateEvent,
 )
 from jarvis.write_connectors import WorkspaceWriteFailure, execute_workspace_write
@@ -479,26 +476,6 @@ GMAIL_CREATE_DRAFT_SPEC = _workspace_spec(
     DraftWriteReceipt,
     _GMAIL_LIMITS,
 )
-GMAIL_PREPARE_REPLACEMENT_SPEC = _workspace_spec(
-    "gmail.prepare_replacement",
-    "Save the revised copy of a specific draft.",
-    "A request to replace an identified draft covers preparing the copy. "
-    "Preserve omitted fields and files. Report both revisions and verification. "
-    "Only a verified receipt may support a separate linked discard.",
-    PrepareReplacement,
-    DraftWriteReceipt,
-    _GMAIL_LIMITS,
-)
-GMAIL_DISCARD_DRAFT_SPEC = _workspace_spec(
-    "gmail.discard_draft",
-    "Discard one verified Gmail draft revision.",
-    "For a replacement, supply its verified action id. For a standalone discard, "
-    "identify the exact draft revision. After an unknown outcome, verify that "
-    "draft before starting another discard.",
-    DiscardDraft,
-    DiscardReceipt,
-    _GMAIL_LIMITS,
-)
 CALENDAR_CREATE_EVENT_SPEC = _workspace_spec(
     "calendar.create_event",
     "Create one Calendar event for the enrolled owner alone.",
@@ -568,11 +545,6 @@ DOCS_UPDATE_SPEC = _workspace_spec(
     DriveWriteReceipt,
     _DOCS_LIMITS,
 )
-_GMAIL_SPECS = (
-    GMAIL_CREATE_DRAFT_SPEC,
-    GMAIL_PREPARE_REPLACEMENT_SPEC,
-    GMAIL_DISCARD_DRAFT_SPEC,
-)
 _CALENDAR_SPECS = (
     CALENDAR_CREATE_EVENT_SPEC,
     CALENDAR_UPDATE_EVENT_SPEC,
@@ -583,8 +555,10 @@ _DOCS_SPECS = (DOCS_UPDATE_SPEC,)
 DRIVE_WRITE_IDS = frozenset(spec.id for spec in _DRIVE_SPECS)
 DOCS_WRITE_IDS = frozenset(spec.id for spec in _DOCS_SPECS)
 WRITE_TOOL_IDS = frozenset(
-    spec.id for spec in (*_GMAIL_SPECS, *_CALENDAR_SPECS, *_DRIVE_SPECS, *_DOCS_SPECS)
+    spec.id
+    for spec in (GMAIL_CREATE_DRAFT_SPEC, *_CALENDAR_SPECS, *_DRIVE_SPECS, *_DOCS_SPECS)
 )
+RETIRED_DRAFT_WRITE_IDS = ("gmail.prepare_replacement", "gmail.discard_draft")
 WORKSPACE_IMPLEMENTATION = "jarvis-workspace-write-v1"
 WORKSPACE_WRITE_IMPLEMENTATION = "jarvis-workspace-write-v2"
 WORKSPACE_MAIL_SNAPSHOT_IMPLEMENTATION = "jarvis-workspace-mail-preview-v2"
@@ -597,8 +571,6 @@ WORKSPACE_MAIL_SNAPSHOT_REVISIONS = frozenset(
 def workspace_implementation(tool: ToolId) -> str:
     if tool == GMAIL_CREATE_DRAFT_SPEC.id:
         return WORKSPACE_MAIL_IMPLEMENTATION
-    if tool.startswith("gmail."):
-        return WORKSPACE_IMPLEMENTATION
     return WORKSPACE_WRITE_IMPLEMENTATION
 
 
@@ -624,8 +596,8 @@ def _workspace_binding(
 def gmail_write_family(writes: WorkspaceWrites) -> ToolFamily:
     return ToolFamily(
         "gmail",
-        _GMAIL_SPECS,
-        tuple(_workspace_binding(s, writes) for s in _GMAIL_SPECS),
+        (GMAIL_CREATE_DRAFT_SPEC,),
+        (_workspace_binding(GMAIL_CREATE_DRAFT_SPEC, writes),),
     )
 
 

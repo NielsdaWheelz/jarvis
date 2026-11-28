@@ -1,9 +1,8 @@
 # adr 0132. one main for every wake
 
 **owner-selected design, november 27, 2026.** this is the target and implementation contract.
-production still uses the previous contracts. the observed baseline is source
-`5be8429`, installed `6e6c8a4`, postgres schema `0028`. verify the actual
-predecessor before implementation and cutover.
+production selects `810a78d` at postgres schema `0029`. the cut started from
+installed `6e6c8a4` on `0028` and source baseline `5be8429`.
 
 [adr 0133](0133-viewer-approved-send.md) amends the mail rule with an
 exact owner approval in the viewer. it defers agent draft deletion and
@@ -379,3 +378,26 @@ an online backup omits the gmail usage rows under adr 0107. when the meter
 has no row, retain its existing estimate of 4,000 already used for the current
 pacific day. the remaining allowance, and the full allowance at the next
 rollover, are shared across calls. a live stopped handoff carries the meter.
+
+## installed cut on november 27
+
+the stopped production copy restored, migrated and passed compatibility with
+the staged native mapping. the first activation held after migration because
+antigravity could not read its git config in the private settings directory.
+forward repair `810a78d` gave the config its own root-owned file and preserved
+owner resume 42. the assistant, memory and all three native hosts started.
+
+the old viewer contract returned 426. the new home and artifacts routes
+returned 200. gmail completed polls and scheduled the next check. before the
+cut, a calendar read returned the owner as organizer and the expected guest. the
+ordinary web submission reached a committed personal turn. the operator
+connected the separate gmail viewer, opened the exact approval on a synthetic
+draft and cancelled it. the database recorded zero send operations for that
+draft. the operator removed it in gmail.
+
+the first selected-release backup restored on macbook. the signed android
+0.1.13 upgrade artifact matched the client source. physical checks were waived.
+the running antigravity host passed the mount-namespace git check. the vendor
+tool sandbox and antigravity's queued follow-up remain unverified on the
+installed host. private receipts are under
+`~/.local/state/jarvis/operations/adr0132-live/` on macbook.
